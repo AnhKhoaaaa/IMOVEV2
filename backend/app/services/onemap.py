@@ -85,29 +85,25 @@ async def get_route(
     mode: "pt" (public transit), "walk", "drive", "cycle"
     Returns {duration_minutes, fare_sgd, legs}.
     Raises NoRouteError when no viable route exists or the API is unavailable.
-
-    NOTE: OneMap Routing API requires the token as a query parameter — it does not
-    support Authorization headers. The token will appear in server access logs.
-    This is an API-mandated constraint; ensure log middleware masks 'token' in prod.
     """
     token = await _get_token()
+    headers = {"Authorization": f"Bearer {token}"}
     params: dict = {
         "start": f"{from_lat},{from_lng}",
         "end": f"{to_lat},{to_lng}",
         "routeType": mode.lower(),
-        "token": token,
     }
     if mode.lower() == "pt":
         now = time.gmtime()
         params.update({
             "date": time.strftime("%m-%d-%Y", now),
-            "time": time.strftime("%H:%M:%S", now),  # %T is POSIX-only; use explicit form
+            "time": time.strftime("%H:%M:%S", now),
             "mode": "TRANSIT",
             "numItineraries": 1,
         })
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(_ROUTE_URL, params=params)
+            resp = await client.get(_ROUTE_URL, params=params, headers=headers)
             resp.raise_for_status()
             data = resp.json()
     except (httpx.HTTPStatusError, httpx.RequestError) as exc:

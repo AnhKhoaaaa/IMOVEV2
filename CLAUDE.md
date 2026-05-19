@@ -22,14 +22,14 @@ For every feature request, follow this sequence — each step requires user appr
 # Install deps (run from repo root)
 pip install -r backend/requirements.txt
 
-# Run dev server (must be run from repo root so `app.*` imports resolve)
-uvicorn backend.app.main:app --reload
+# Run dev server (must cd into backend/ so `app.*` imports resolve)
+cd backend && uvicorn app.main:app --reload
 
-# Run all backend tests
-pytest backend/tests/ -v
+# Run all backend tests (run from backend/)
+cd backend && pytest tests/ -v
 
-# Run tests for a single service
-pytest backend/tests/test_services/test_onemap.py -v
+# Run tests for a single service (run from backend/)
+cd backend && pytest tests/test_services/test_onemap.py -v
 ```
 
 > `backend/app/config.py` uses `pydantic_settings` with `env_file = ".env"` — place `.env` inside `backend/` (copy from `backend/.env.example`).
