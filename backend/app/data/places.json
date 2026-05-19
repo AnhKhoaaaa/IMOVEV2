@@ -1,0 +1,57 @@
+[
+  {
+    "id": "gardens-by-the-bay",
+    "name": "Gardens by the Bay",
+    "lat": 1.2816,
+    "lng": 103.8636,
+    "dwell_minutes": 180,
+    "best_time_start": "08:00",
+    "best_time_end": "11:00",
+    "category": "nature",
+    "is_outdoor": true
+  },
+  {
+    "id": "marina-bay-sands",
+    "name": "Marina Bay Sands",
+    "lat": 1.2834,
+    "lng": 103.8607,
+    "dwell_minutes": 120,
+    "best_time_start": "10:00",
+    "best_time_end": "22:00",
+    "category": "landmark",
+    "is_outdoor": false
+  },
+  {
+    "id": "merlion-park",
+    "name": "Merlion Park",
+    "lat": 1.2868,
+    "lng": 103.8545,
+    "dwell_minutes": 30,
+    "best_time_start": "07:00",
+    "best_time_end": "10:00",
+    "category": "landmark",
+    "is_outdoor": true
+  },
+  {
+    "id": "sentosa-universal-studios",
+    "name": "Universal Studios Singapore",
+    "lat": 1.2540,
+    "lng": 103.8238,
+    "dwell_minutes": 480,
+    "best_time_start": "10:00",
+    "best_time_end": "18:00",
+    "category": "attraction",
+    "is_outdoor": false
+  },
+  {
+    "id": "national-museum",
+    "name": "National Museum of Singapore",
+    "lat": 1.2966,
+    "lng": 103.8488,
+    "dwell_minutes": 120,
+    "best_time_start": "10:00",
+    "best_time_end": "19:00",
+    "category": "museum",
+    "is_outdoor": false
+  }
+]

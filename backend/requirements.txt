@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+supabase
+google-generativeai
+httpx
+python-dotenv
+apscheduler
+pytest
+pytest-asyncio
