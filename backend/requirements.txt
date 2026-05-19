@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic-settings
 supabase
-google-generativeai
+google-genai
 httpx
 python-dotenv
 apscheduler
