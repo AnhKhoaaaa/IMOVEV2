@@ -62,4 +62,52 @@ describe('DayPlan', () => {
     render(<DayPlan day={1} legs={legs} />)
     expect(screen.getAllByText('~ Ước tính')).toHaveLength(1)
   })
+
+  describe('time slot grouping', () => {
+    it('shows slot headers when legs have time_slot', () => {
+      const legs = [
+        makeLeg({ id: 'l1', time_slot: 'morning' }),
+        makeLeg({ id: 'l2', from_place_id: 'B', to_place_id: 'C', time_slot: 'evening' }),
+      ]
+      render(<DayPlan day={1} legs={legs} />)
+      expect(screen.getByText('🌅 Buổi sáng')).toBeInTheDocument()
+      expect(screen.getByText('🌙 Buổi tối')).toBeInTheDocument()
+    })
+
+    it('does not show slot headers when all time_slot are null', () => {
+      const legs = [
+        makeLeg({ id: 'l1', time_slot: null }),
+        makeLeg({ id: 'l2', from_place_id: 'B', to_place_id: 'C', time_slot: null }),
+      ]
+      render(<DayPlan day={1} legs={legs} />)
+      expect(screen.queryByText('🌅 Buổi sáng')).not.toBeInTheDocument()
+      expect(screen.queryByText('☀️ Buổi chiều')).not.toBeInTheDocument()
+      expect(screen.queryByText('🌙 Buổi tối')).not.toBeInTheDocument()
+    })
+
+    it('does not show slot headers when time_slot is absent (legacy data)', () => {
+      render(<DayPlan day={1} legs={[makeLeg()]} />)
+      expect(screen.queryByText('🌅 Buổi sáng')).not.toBeInTheDocument()
+    })
+
+    it('only renders headers for slots that have legs', () => {
+      const legs = [makeLeg({ id: 'l1', time_slot: 'afternoon' })]
+      render(<DayPlan day={1} legs={legs} />)
+      expect(screen.getByText('☀️ Buổi chiều')).toBeInTheDocument()
+      expect(screen.queryByText('🌅 Buổi sáng')).not.toBeInTheDocument()
+      expect(screen.queryByText('🌙 Buổi tối')).not.toBeInTheDocument()
+    })
+
+    it('renders all 3 slot headers when each slot has at least one leg', () => {
+      const legs = [
+        makeLeg({ id: 'l1', time_slot: 'morning' }),
+        makeLeg({ id: 'l2', from_place_id: 'B', to_place_id: 'C', time_slot: 'afternoon' }),
+        makeLeg({ id: 'l3', from_place_id: 'C', to_place_id: 'D', time_slot: 'evening' }),
+      ]
+      render(<DayPlan day={1} legs={legs} />)
+      expect(screen.getByText('🌅 Buổi sáng')).toBeInTheDocument()
+      expect(screen.getByText('☀️ Buổi chiều')).toBeInTheDocument()
+      expect(screen.getByText('🌙 Buổi tối')).toBeInTheDocument()
+    })
+  })
 })

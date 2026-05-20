@@ -26,6 +26,7 @@ class LegResponse(BaseModel):
     duration_minutes: int
     cost_sgd: float
     is_estimated: bool
+    time_slot: Optional[str] = None  # "morning" | "afternoon" | "evening"
 
 
 class DayPlan(BaseModel):
