@@ -6,7 +6,7 @@ from app.models.place import Place
 
 
 class TripCreate(BaseModel):
-    session_id: str
+    session_id: str = Field(min_length=8, max_length=128)
     user_id: Optional[UUID] = None
     num_days: int = Field(ge=1, le=14)
     budget_sgd: float = Field(ge=0)
@@ -47,7 +47,7 @@ class LegUpdateRequest(BaseModel):
 class AdaptRequest(BaseModel):
     alert_id: str
     # session_id should match the one used in POST /trips — used to verify ownership.
-    session_id: Optional[str] = None
+    session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 
 class AdaptResponse(BaseModel):

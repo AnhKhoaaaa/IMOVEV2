@@ -119,7 +119,14 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
         raise HTTPException(status_code=404, detail=f"Leg '{leg_id}' not found")
 
     old_mode = target_leg.transport_mode
-    target_leg.transport_mode = body.transport_mode
+    updated_leg = target_leg.model_copy(update={
+        "transport_mode": body.transport_mode,
+    })
+    for day in plan.days:
+        for i, leg in enumerate(day.legs):
+            if leg.id == leg_id:
+                day.legs[i] = updated_leg
+                break
 
     if supabase:
         supabase.table("route_legs").update(
@@ -131,15 +138,17 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
             "trip_id": trip_id,
             "leg_id": leg_id,
             "feedback_type": "implicit",
-            "comment": f"Mode changed: {old_mode} → {body.transport_mode}",
+            "comment": f"Mode changed: {old_mode} → {updated_leg.transport_mode}",
         }).execute()
 
-    return target_leg
+    return updated_leg
 
 
 @router.post("/{trip_id}/adapt")
 async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
     # Verify session ownership before applying adaptation
+    if supabase and not body.session_id:
+        raise HTTPException(status_code=403, detail="session_id is required")
     if body.session_id:
         _verify_session_ownership(trip_id, body.session_id)
 
@@ -202,10 +211,14 @@ def _verify_session_ownership(trip_id: str, session_id: str) -> None:
         return
 
     # Verify against DB when not cached locally
-    if supabase:
-        resp = supabase.table("trips").select("session_id").eq("id", trip_id).execute()
-        if resp.data and resp.data[0]["session_id"] != session_id:
-            raise HTTPException(status_code=403, detail="session_id does not match trip owner")
+    if supabase is None:
+        raise HTTPException(status_code=503, detail="Cannot verify ownership: database unavailable")
+
+    resp = supabase.table("trips").select("session_id").eq("id", trip_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if resp.data[0]["session_id"] != session_id:
+        raise HTTPException(status_code=403, detail="session_id does not match trip owner")
 
 
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:

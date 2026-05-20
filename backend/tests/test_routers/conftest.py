@@ -10,5 +10,7 @@ def no_supabase(monkeypatch):
     monkeypatch.setattr(_trips_module, "supabase", None)
     # Also reset the in-memory store so tests are isolated
     _trips_module._trip_store.clear()
+    _trips_module._trip_meta.clear()
     yield
     _trips_module._trip_store.clear()
+    _trips_module._trip_meta.clear()

@@ -28,7 +28,11 @@ def _validate_time(t: str, place_id: str, field: str) -> None:
 with open(_PLACES_PATH, encoding="utf-8") as _f:
     _raw: list[dict] = json.load(_f)
 
+_REQUIRED_KEYS = {"id", "name", "lat", "lng", "category", "is_outdoor", "dwell_minutes", "best_time_start", "best_time_end"}
 for _p in _raw:
+    missing = _REQUIRED_KEYS - set(_p.keys())
+    if missing:
+        raise RuntimeError(f"places.json entry '{_p.get('id', '?')}' missing required keys: {missing}")
     _validate_time(_p["best_time_start"], _p["id"], "best_time_start")
     _validate_time(_p["best_time_end"], _p["id"], "best_time_end")
 
@@ -39,6 +43,11 @@ del _raw
 def get_curated_place(place_id: str) -> dict | None:
     """Public accessor for _PLACES — use this instead of importing _PLACES directly."""
     return _PLACES.get(place_id)
+
+
+def get_all_places() -> dict:
+    """Public accessor for the full _PLACES dict — use instead of importing _PLACES directly."""
+    return _PLACES
 
 # Map OneMap transit modes to display labels
 _MODE_MAP = {"SUBWAY": "MRT", "TRAM": "LRT", "BUS": "BUS", "WALK": "WALK"}

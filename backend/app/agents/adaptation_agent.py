@@ -4,6 +4,7 @@ Adaptation Agent — 100% rule-based code, no LLM.
 - Manual:    adapt_trip() called by POST /trips/{id}/adapt router.
 """
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -11,7 +12,7 @@ from app.services import lta, openweather, onemap
 from app.services.lta import LTAUnavailableError
 from app.services.openweather import WeatherUnavailableError
 from app.services.onemap import NoRouteError
-from app.agents.planning_agent import _PLACES, _haversine_km, _primary_mode
+from app.agents.planning_agent import get_all_places, _haversine_km, _primary_mode
 from app.models.trip import TripPlan, DayPlan, LegResponse, AdaptResponse
 from app.models.place import Place
 from app.database import supabase
@@ -139,7 +140,8 @@ async def poll_weather_alerts() -> None:
 
     for trip_id in active_ids:
         place_ids = places_by_trip.get(trip_id, [])
-        outdoor_places = [_PLACES[pid] for pid in place_ids if pid in _PLACES and _PLACES[pid]["is_outdoor"]]
+        _places = get_all_places()
+        outdoor_places = [_places[pid] for pid in place_ids if pid in _places and _places[pid]["is_outdoor"]]
         if not outdoor_places:
             continue
 
@@ -150,6 +152,19 @@ async def poll_weather_alerts() -> None:
                 suggestions.append(f"{place['name']} → {indoor_alt['name']}")
 
         if not suggestions:
+            continue
+
+        # Dedup: skip if same alert type was inserted in the last 10 minutes
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        existing = (
+            supabase.table("lta_alerts")
+            .select("id")
+            .eq("trip_id", trip_id)
+            .eq("alert_type", "weather_warning")
+            .gte("created_at", cutoff)
+            .execute()
+        )
+        if existing.data:
             continue
 
         supabase.table("lta_alerts").insert({
@@ -197,7 +212,7 @@ async def adapt_trip(
         return AdaptResponse(adapted=False, changes=["No adaptation needed"], updated_trip=current_plan)
 
     if changes and supabase:
-        _persist_updated_legs(trip_id, updated_plan)
+        await asyncio.to_thread(_persist_updated_legs, trip_id, updated_plan)
         supabase.table("lta_alerts").update(
             {"resolved_at": datetime.now(timezone.utc).isoformat()}
         ).eq("id", alert_id).execute()
@@ -210,9 +225,9 @@ async def adapt_trip(
 # ---------------------------------------------------------------------------
 
 def _nearest_indoor(lat: float, lng: float, exclude_id: str) -> dict | None:
-    """Find nearest indoor place within 2 km from _PLACES."""
+    """Find nearest indoor place within 2 km from the curated places dataset."""
     candidates = [
-        p for p in _PLACES.values()
+        p for p in get_all_places().values()
         if not p["is_outdoor"] and p["id"] != exclude_id
         and _haversine_km(lat, lng, p["lat"], p["lng"]) < 2.0
     ]
@@ -240,16 +255,13 @@ async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
     ]
 
     # Rebuild places with swaps
-    place_lookup: dict[str, dict] = {p.id: {"id": p.id, "name": p.name, "lat": p.lat, "lng": p.lng,
-                                             "dwell_minutes": p.dwell_minutes, "best_time_start": p.best_time_start,
-                                             "best_time_end": p.best_time_end, "category": p.category,
-                                             "is_outdoor": p.is_outdoor} for p in plan.places}
-    place_lookup.update({new_p["id"]: new_p for new_p in swap_map.values()})
-
     new_places_raw = [swap_map.get(p.id, None) or {"id": p.id, "name": p.name, "lat": p.lat, "lng": p.lng,
                                                      "dwell_minutes": p.dwell_minutes, "best_time_start": p.best_time_start,
                                                      "best_time_end": p.best_time_end, "category": p.category,
                                                      "is_outdoor": p.is_outdoor} for p in plan.places]
+
+    # Build lookup from the new (post-swap) places list for leg recalculation
+    effective_place_lookup: dict[str, dict] = {p["id"]: p for p in new_places_raw}
 
     new_days = []
     for day in plan.days:
@@ -259,8 +271,8 @@ async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
             new_to = swap_map.get(leg.to_place_id, {}).get("id", leg.to_place_id) if leg.to_place_id in swap_map else leg.to_place_id
 
             if new_from != leg.from_place_id or new_to != leg.to_place_id:
-                from_p = place_lookup.get(new_from)
-                to_p = place_lookup.get(new_to)
+                from_p = effective_place_lookup.get(new_from)
+                to_p = effective_place_lookup.get(new_to)
                 new_leg = await _recalculate_leg(leg, from_p, to_p, new_from, new_to)
             else:
                 new_leg = leg
@@ -275,7 +287,7 @@ async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
             best_time_end=p.get("best_time_end", "23:59"),
             category=p.get("category", ""),
             is_outdoor=p.get("is_outdoor", False),
-            in_curated_dataset=p["id"] in _PLACES,
+            in_curated_dataset=p["id"] in get_all_places(),
         )
         for p in new_places_raw
     ]

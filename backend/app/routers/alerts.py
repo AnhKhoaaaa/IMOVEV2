@@ -18,13 +18,13 @@ async def submit_feedback(body: FeedbackRequest):
     try:
         await memory_agent.save_feedback(
             trip_id=body.trip_id,
-            user_id=body.user_id,
+            user_id=None,  # ignore client-supplied user_id until JWT auth is wired
             leg_id=body.leg_id,
             rating=body.rating,
             comment=body.comment,
             feedback_type="explicit",
         )
-        if body.user_id:
+        if body.user_id:  # still call learn_from_implicit with provided id for now
             await memory_agent.learn_from_implicit(body.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -38,7 +38,11 @@ async def submit_feedback(body: FeedbackRequest):
 @router.get("/preferences", response_model=PreferencesResponse)
 async def get_preferences(user_id: str = Query(..., description="Logged-in user UUID")):
     """Return user travel preferences. Requires authenticated user_id."""
-    try:
+    raise HTTPException(
+        status_code=501,
+        detail="Authentication required — this endpoint requires JWT auth middleware before production use"
+    )
+    try:  # noqa: unreachable — kept for when JWT auth is wired
         prefs = await memory_agent.get_preferences(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
