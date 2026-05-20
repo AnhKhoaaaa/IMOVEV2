@@ -7,21 +7,22 @@ Trip.com Trip.Planner được khám phá trực tiếp qua browser automation (
 
 ---
 
-## Phân tích gap
+## Phân tích gap → Trạng thái sau khi triển khai
 
-| Tính năng | Trip.com | IMOVEV2 hiện tại | Độ ưu tiên |
-|-----------|----------|-----------------|------------|
-| Morning/Afternoon/Evening time blocks | ✅ | ❌ Chỉ legs liên tiếp | **Cao** |
-| POI browsable cards với category filter | ✅ | ❌ Search box thuần | **Cao** |
-| Travel style preferences | ✅ Cultural/Nature/etc | ❌ Chỉ MRT/walk | **Cao** |
-| AI tạo itinerary tự động | ✅ DeepDive 7 bước | ❌ Manual pick | **Cao** |
-| Contextual travel tips | ✅ Singapore-specific | ❌ Không có | **Trung bình** |
-| Realtime transit alerts | ❌ | ✅ Supabase WebSocket | IMOVEV2 hơn |
-| Transit routing chi tiết MRT/BUS | ❌ | ✅ OneMap API | IMOVEV2 hơn |
+| Tính năng | Trip.com | IMOVEV2 trước | IMOVEV2 sau | Commit |
+|-----------|----------|--------------|-------------|--------|
+| Morning/Afternoon/Evening time blocks | ✅ | ❌ | ✅ | `a627bf9` |
+| POI browsable cards với category filter | ✅ | ❌ | ✅ | `2cf55ec` |
+| Travel style preferences | ✅ | ❌ | ✅ | `172ee6d` |
+| AI tạo itinerary tự động | ✅ | ❌ | ✅ | `a8e633d` |
+| Contextual travel tips | ✅ | ❌ | ✅ | `5658de3` |
+| Map song song itinerary (2-panel) | ✅ | ❌ tab-only | ✅ | `f6bf573` |
+| Realtime transit alerts | ❌ | ✅ | ✅ | — IMOVEV2 hơn |
+| Transit routing chi tiết MRT/BUS | ❌ | ✅ | ✅ | — IMOVEV2 hơn |
 
 ---
 
-## Bước 1 — Morning/Afternoon/Evening Time Blocks
+## Bước 1 — Morning/Afternoon/Evening Time Blocks ✅ `a627bf9`
 
 **Mục tiêu**: Group legs trong `DayPlan` theo thời gian trong ngày thay vì chỉ liệt kê tuần tự.
 
@@ -32,11 +33,8 @@ Trip.com Trip.Planner được khám phá trực tiếp qua browser automation (
 - Values: `"morning"` / `"afternoon"` / `"evening"` / `None`
 
 **File**: `backend/app/agents/planning_agent.py`
-- Khi build `LegResponse`, tra `best_time_start` của `from_place` từ `places.json`:
-  - `best_time_start < "12:00"` → `"morning"`
-  - `"12:00" <= best_time_start < "17:00"` → `"afternoon"`
-  - `best_time_start >= "17:00"` → `"evening"`
-  - Không có `from_place` trong curated list → `None`
+- Thêm `_time_slot(best_time_start)` helper — string comparison an toàn nhờ `_validate_time` zero-pads HH:MM
+- Gán `time_slot` khi build `LegResponse` từ `from_place.best_time_start`
 
 ### Frontend
 
@@ -46,58 +44,46 @@ Trip.com Trip.Planner được khám phá trực tiếp qua browser automation (
 - Thứ tự render: morning → afternoon → evening → ungrouped (time_slot = null)
 - **Fallback**: nếu tất cả `time_slot === null` → render danh sách như cũ
 
-### Tests
-- `backend/tests/test_agents/test_planning_agent.py`: kiểm tra `time_slot` assignment
-- `frontend/src/__tests__/components/DayPlan.test.jsx`: kiểm tra grouping và fallback
-
 ### Acceptance Criteria
-- [ ] Legs có `time_slot` được group đúng section
-- [ ] Legs không có `time_slot` vẫn render bình thường (backward compatible)
-- [ ] Existing trip view tests không bị break
+- [x] Legs có `time_slot` được group đúng section
+- [x] Legs không có `time_slot` vẫn render bình thường (backward compatible)
+- [x] Existing trip view tests không bị break
 
 ---
 
-## Bước 2 — POI Browsable Cards với Category Filter
+## Bước 2 — POI Browsable Cards với Category Filter ✅ `2cf55ec`
 
 **Mục tiêu**: Step 2 ("Địa điểm") hiển thị card grid thay vì chỉ search box.
 
 ### Frontend
 
-**File**: `frontend/src/pages/Planner.jsx` (Step 2 section)  
-**File**: `frontend/src/components/planner/PlaceSearch.jsx`
+**File mới**: `frontend/src/components/planner/PlaceBrowser.jsx`
+- Fetch `api.getCuratedPlaces()` khi mount
+- 6 category filter chips: Tất cả / Văn hoá / Tham quan / Thiên nhiên / Giải trí / Ẩm thực & Mua sắm
+- Grid 2 cột — mỗi card: icon category + tên + `~X phút` + selected state (aria-pressed)
+- Click card → toggle (add nếu chưa có, remove nếu có)
+- Search input filter by name, instant, client-side
 
-- Gọi `api.getPlaces()` (endpoint `GET /places` đã có) khi mount Step 2
-- Category filter chips ở trên: **All** / **Cultural** / **Nature** / **Entertainment** / **Food**
-- Mỗi POI card hiển thị:
-  - Tên địa điểm
-  - Icon category (MapPin / Leaf / Sparkles / Utensils / ShoppingBag)
-  - `~{dwell_minutes} phút`
-  - Selected state (border + checkmark khi đã chọn)
-- Click card → toggle add/remove khỏi `places` state
-- Search input: filter by name, instant, client-side
-- **Không thay đổi backend**
-
-### Tests
-- `frontend/src/__tests__/pages/Planner.test.jsx`: mock `api.getPlaces()`, kiểm tra filter/search/select
+**File**: `frontend/src/pages/Planner.jsx` (Step 2)
+- Replace `<PlaceSearch>` với `<PlaceBrowser selectedIds onToggle>`
+- Thêm `togglePlace` handler
 
 ### Acceptance Criteria
-- [ ] Hiển thị đủ ~50 POIs sau khi load
-- [ ] Filter theo category hoạt động instant
-- [ ] Search by name hoạt động
-- [ ] Select/deselect cập nhật `places` state
-- [ ] Loading skeleton khi đang fetch
+- [x] Hiển thị đủ ~50 POIs sau khi load
+- [x] Filter theo category hoạt động instant
+- [x] Search by name hoạt động
+- [x] Select/deselect cập nhật `places` state
+- [x] Loading skeleton khi đang fetch
 
 ---
 
-## Bước 3 — Travel Style Preferences Chips
+## Bước 3 — Travel Style Preferences Chips ✅ `172ee6d`
 
 **Mục tiêu**: Capture travel style và group type, dùng làm input cho AI suggest (Bước 4).
 
 ### Frontend
 
 **File**: `frontend/src/pages/Planner.jsx` (Step 3 "Tuỳ chỉnh")
-
-Thêm 2 section mới trước các preferences hiện có:
 
 **"Phong cách du lịch"** (multi-select chips):
 - `cultural` — "Văn hoá & Di sản"
@@ -106,140 +92,142 @@ Thêm 2 section mới trước các preferences hiện có:
 - `food` — "Ẩm thực địa phương"
 - `shopping` — "Mua sắm"
 
-**"Đi cùng ai"** (single-select chips):
-- `solo` — "Một mình"
-- `couple` — "Cặp đôi"
-- `group` — "Nhóm bạn"
-- `family` — "Gia đình"
+**"Đi cùng ai"** (single-select, default `solo`):
+- `solo` / `couple` / `group` / `family`
 
 Pass vào `preferences` khi submit:
 ```js
 preferences: {
-  prefer_mrt: preferMrt,
-  max_walk_minutes: maxWalkMinutes,
-  travel_styles: travelStyles,   // string[]
-  group_type: groupType,          // string
+  prefer_mrt, max_walk_minutes,
+  travel_styles: string[],
+  group_type: string,
 }
 ```
 
-### Backend
-
-**File**: `backend/app/agents/planning_agent.py`
-- `preferences` dict accept `travel_styles` và `group_type` mà không báo lỗi
-- Log chúng nhưng chưa dùng (dùng ở Bước 4)
-
-### Tests
-- Kiểm tra `preferences` object trong API request body có đúng keys
-
 ### Acceptance Criteria
-- [ ] Chips render và toggle đúng
-- [ ] `preferences` gửi lên có `travel_styles` và `group_type`
-- [ ] MRT/walk preferences không bị ảnh hưởng
+- [x] Chips render và toggle đúng
+- [x] `preferences` gửi lên có `travel_styles` và `group_type`
+- [x] MRT/walk preferences không bị ảnh hưởng
 
 ---
 
-## Bước 4 — AI Suggest Mode ("Để AI lên lịch")
+## Bước 4 — AI Suggest Mode ("Để AI lên lịch") ✅ `a8e633d`
 
 **Mục tiêu**: Tab "AI Gợi ý" ở Step 2, dùng Gemini để tạo danh sách POI phù hợp.
 
 ### Backend
 
-**File**: `backend/app/routers/trips.py`
-- Thêm endpoint: `POST /places/ai-suggest`
-- Request body: `{ "num_days": int, "travel_styles": list[str], "group_type": str }`
-- Response: `{ "suggested_place_ids": list[str] }`
+**File**: `backend/app/services/gemini.py`
+- Thêm `suggest_places(num_days, travel_styles, group_type, all_places)` với `_SUGGEST_TEMPLATE`
+- Dùng chung rate-limit lock (≤ 15 RPM)
+- Validate: chỉ trả về IDs có trong dataset
 
 **File**: `backend/app/agents/planning_agent.py`
-- Thêm function `async def ai_suggest_places(num_days, travel_styles, group_type) -> list[str]`
-- Gemini prompt inject toàn bộ places.json (id, name, category, best_time_start, is_outdoor, dwell_minutes)
-- Yêu cầu Gemini trả về JSON array of place IDs, sorted để optimize time-of-day và travel style
-- Rate-limit guard: dùng existing `services/gemini.py` rate limiter
-- **Fallback rule-based** khi Gemini fail:
-  - Filter POI có `category` trong `travel_styles`
-  - Sort by `best_time_start`
-  - Giới hạn `num_days * 3` POIs
+- `_STYLE_CATEGORY_MAP`: map travel style → place categories
+- `_rule_based_suggest(num_days, travel_styles)`: fallback sort by category match + `best_time_start`
+- `suggest_places(...)`: gọi Gemini, fallback on any exception
+
+**File**: `backend/app/routers/places.py`
+- `POST /places/ai-suggest` — request: `{num_days, travel_styles, group_type}`, response: `{suggested_place_ids}`
 
 ### Frontend
 
-**File**: `frontend/src/pages/Planner.jsx` (Step 2)  
-**File**: `frontend/src/services/api.js`
-- Thêm `api.suggestPlaces({ num_days, travel_styles, group_type })`
-- Step 2 có 2 tabs: `[🗂️ Tự chọn]` `[✨ AI Gợi ý]`
-- Tab "AI Gợi ý":
-  1. Button "Tạo gợi ý cho tôi" (disabled nếu chưa set num_days ở Step 3 — hoặc dùng default=1)
-  2. Loading state: hiển thị thinking steps animation:
-     ```
-     ⏳ Đang phân tích sở thích của bạn...
-     ⏳ Đang tìm địa điểm phù hợp...
-     ⏳ Đang tối ưu lịch trình...
-     ✅ Hoàn tất!
-     ```
-  3. Kết quả: hiển thị card grid (giống Tab "Tự chọn") nhưng pre-selected theo AI suggest
-  4. User có thể bỏ bớt hoặc thêm POI trước khi Next
+**File**: `frontend/src/services/api.js` — thêm `suggestPlaces(body)`
 
-### Tests
-- Backend: `backend/tests/test_routers/test_trips.py` — mock Gemini, test endpoint
-- Frontend: mock `api.suggestPlaces()`, test loading/success/error/fallback states
+**File**: `frontend/src/pages/Planner.jsx` (Step 2) — tab switcher `[Tự chọn | AI Gợi ý]`
+- **Idle**: description + "Tạo gợi ý cho tôi" button
+- **Thinking**: 3-step animation với Loader2 spinner
+- **Done**: PlaceBrowser pre-selected; "Tạo lại" để reset
+- **Error**: message + retry button
 
 ### Acceptance Criteria
-- [ ] Endpoint trả về valid place IDs từ `places.json`
-- [ ] Thinking animation hiển thị các bước
-- [ ] User có thể chỉnh sửa suggested list
-- [ ] Fallback rule-based hoạt động khi Gemini fail
-- [ ] Rate limit không bị vi phạm
+- [x] Endpoint trả về valid place IDs từ `places.json`
+- [x] Thinking animation hiển thị các bước
+- [x] User có thể chỉnh sửa suggested list
+- [x] Fallback rule-based hoạt động khi Gemini fail
+- [x] Rate limit không bị vi phạm
 
 ---
 
-## Bước 5 — Contextual Travel Tips Section
+## Bước 5 — Contextual Travel Tips Section ✅ `5658de3`
 
 **Mục tiêu**: Hiển thị tips thực tế Singapore tích hợp trong Trip view, liên quan đến POI đã chọn.
 
 ### Frontend
 
-**File**: `frontend/src/components/planner/TravelTips.jsx` (file mới)
-- Props: `days` (mảng DayPlan objects từ trip data)
-- Extract tất cả place IDs/categories từ `days`
-- Compute tips theo rules:
-
-| Điều kiện | Tip |
-|-----------|-----|
-| Luôn có | "Mua thẻ EZ-Link tại quầy Changi Airport để đi MRT/bus tiện lợi hơn" |
-| Luôn có | "Hầu hết hawker centre và quán ăn vỉa hè chỉ nhận tiền mặt SGD" |
-| Có `is_outdoor: true` | "Mang kem chống nắng SPF 50+ — Singapore có UV Index cao quanh năm" |
-| Có category `religious` hoặc tên chứa "mosque"/"temple" | "Ăn mặc kín đáo và cởi giày trước khi vào đền/chùa/nhà thờ Hồi giáo" |
-| Có `best_time_start >= "19:00"` | "Book vé trước trên app để tránh xếp hàng tại điểm tham quan về đêm" |
-| Có category `nature` | "Kiểm tra dự báo thời tiết — mưa chiều thường xuyên tháng 11-1" |
-
-- Render dạng collapsible `<details>` / accordion
-- Style: icon Lightbulb màu amber, không dùng destructive/warning (tránh nhầm với Alerts)
+**File mới**: `frontend/src/components/planner/TravelTips.jsx`
+- Props: `places: Place[]`
+- Luôn có: EZ-Link card, tiền mặt SGD
+- Conditional: outdoor → sunscreen, museum/heritage/mosque/temple → dress code, `best_time_start >= 19:00` → book ahead, nature → weather
+- Render dạng native `<details>/<summary>` collapsible, style amber (phân biệt với Alert đỏ/vàng)
 
 **File**: `frontend/src/pages/Trip.jsx`
-- Import và render `<TravelTips days={trip.days} />` sau section DayPlan list (trước footer)
-
-### Tests
-- `frontend/src/__tests__/components/TravelTips.test.jsx`: mock trip data với các category combinations
+- `<TravelTips places={trip.places ?? []} />` sau DayPlan list
 
 ### Acceptance Criteria
-- [ ] Tips luôn có (EZ-Link + tiền mặt)
-- [ ] Conditional tips hiển thị đúng theo POI categories
-- [ ] Collapsible hoạt động
-- [ ] Không conflict với `AlertBanner` (màu amber vs red/yellow)
+- [x] Tips luôn có (EZ-Link + tiền mặt)
+- [x] Conditional tips hiển thị đúng theo POI categories
+- [x] Collapsible hoạt động
+- [x] Không conflict với `AlertBanner` (màu amber vs red/yellow)
 
 ---
 
-## Danh sách files
+## Bước 6 — 2-Panel Layout (Map song song Itinerary) ✅ `f6bf573`
+
+**Mục tiêu**: Sao chép layout của Trip.com — map luôn hiển thị bên cạnh itinerary, không cần tab.
+
+### Frontend
+
+**File**: `frontend/src/pages/Trip.jsx` — rebuild hoàn toàn
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ 🗓 Hành trình Singapore   N ngày · M địa điểm  [Xem bản đồ] │ ← Header
+├────────────────────────────────────────────────────────────────┤
+│ ⚠ Alert zone (realtime alerts + best-time warnings)           │
+├────────────────────────┬───────────────────────────────────────┤
+│ [Tất cả][Ngày 1][Ngày 2]│                                    │
+│ ──────────────────────  │        TripMap                     │
+│ 🌅 Buổi sáng           │   (markers + polyline routes)      │
+│ 🌞 Buổi chiều           │   lọc theo day tab đang chọn      │
+│ 🌙 Buổi tối            │                                    │
+│ 💡 Lưu ý hành trình    │                                    │
+└────────────────────────┴───────────────────────────────────────┘
+  ← 420px fixed →          ← flex-1 (remaining width) →
+```
+
+- **Layout**: `h-screen flex flex-col overflow-hidden` — map không cuộn cùng itinerary
+- **Left panel**: `w-[420px] overflow-y-auto` — scrollable
+- **Right panel**: `flex-1` — map luôn hiện trên desktop
+- **Day filter tabs**: chỉ hiện khi `days.length > 1`; click lọc cả itinerary lẫn map legs
+- **TripMap**: nhận `legs` prop — hiện route lines theo ngày đang chọn
+- **Mobile**: "Xem bản đồ" toggle button trên header ẩn/hiện right panel
+
+### Acceptance Criteria
+- [x] Map luôn hiện bên phải trên desktop (không cần click tab)
+- [x] Day tabs lọc đồng thời itinerary list và map legs
+- [x] Mobile có nút toggle để xem/ẩn bản đồ
+- [x] Header hiển thị số ngày và số địa điểm
+- [x] Tất cả 9 tests cũ vẫn pass
+
+---
+
+## Danh sách files đã thay đổi
 
 | File | Bước | Loại thay đổi |
 |------|------|--------------|
-| `backend/app/models/trip.py` | 1 | Thêm field |
-| `backend/app/agents/planning_agent.py` | 1, 3, 4 | Logic mới |
-| `backend/app/routers/trips.py` | 4 | Endpoint mới |
-| `frontend/src/components/planner/DayPlan.jsx` | 1 | Refactor |
-| `frontend/src/pages/Planner.jsx` | 2, 3, 4 | Extend |
-| `frontend/src/components/planner/PlaceSearch.jsx` | 2 | Refactor |
-| `frontend/src/pages/Trip.jsx` | 5 | Thêm component |
+| `backend/app/models/trip.py` | 1 | Thêm field `time_slot` |
+| `backend/app/agents/planning_agent.py` | 1, 4 | `_time_slot`, `suggest_places`, `_rule_based_suggest` |
+| `backend/app/services/gemini.py` | 4 | Thêm `suggest_places()` |
+| `backend/app/routers/places.py` | 4 | Endpoint `POST /ai-suggest` |
+| `frontend/src/components/planner/DayPlan.jsx` | 1 | Group theo time_slot |
+| `frontend/src/components/planner/PlaceBrowser.jsx` | 2 | File mới — card grid |
+| `frontend/src/pages/Planner.jsx` | 2, 3, 4 | PlaceBrowser + chips + AI tab |
 | `frontend/src/components/planner/TravelTips.jsx` | 5 | File mới |
-| `frontend/src/services/api.js` | 4 | Thêm method |
+| `frontend/src/pages/Trip.jsx` | 5, 6 | TravelTips + 2-panel layout |
+| `frontend/src/services/api.js` | 4 | Thêm `suggestPlaces()` |
+
+**Tests thêm mới**: +60 frontend tests, +10 backend tests (tổng: 103 backend / 178 frontend)
 
 ---
 
