@@ -13,8 +13,9 @@ class Settings(BaseSettings):
 
     # Optional: only needed for Memory Agent (NICE TO HAVE in MVP)
     supabase_url: Optional[str] = None
-    supabase_anon_key: Optional[str] = None
     supabase_service_role_key: Optional[str] = None
+    # Reserved for future client-side auth (Supabase RLS via browser client) — not used server-side.
+    supabase_anon_key: Optional[str] = None
 
     # Optional: Adaptation Agent soft-error path
     openweather_api_key: Optional[str] = None

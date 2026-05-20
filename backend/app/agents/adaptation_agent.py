@@ -79,10 +79,24 @@ async def poll_lta_alerts() -> None:
     if not alerts:
         return  # All lines normal
 
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     for trip_id in mrt_trip_ids:
         for alert in alerts:
             line = alert.get("affected_line", "")
             message = alert.get("message", "Train disruption detected")
+            # Dedup: skip if the same line already has an unresolved alert in the last 10 min
+            existing = (
+                supabase.table("lta_alerts")
+                .select("id")
+                .eq("trip_id", trip_id)
+                .eq("alert_type", "train_delay")
+                .eq("affected_line", line)
+                .is_("resolved_at", "null")
+                .gte("created_at", cutoff)
+                .execute()
+            )
+            if existing.data:
+                continue
             supabase.table("lta_alerts").insert({
                 "trip_id": trip_id,
                 "alert_type": "train_delay",
@@ -109,11 +123,22 @@ async def poll_weather_alerts() -> None:
 
     trips_resp = supabase.table("trips").select("id").eq("status", "planning").execute()
     active_ids = [t["id"] for t in (trips_resp.data or [])]
+    if not active_ids:
+        return
+
+    # Bulk query all trip_places in one round-trip — avoids N+1 per trip
+    all_places_resp = (
+        supabase.table("trip_places")
+        .select("trip_id,place_id")
+        .in_("trip_id", active_ids)
+        .execute()
+    )
+    places_by_trip: dict[str, list[str]] = {}
+    for row in (all_places_resp.data or []):
+        places_by_trip.setdefault(row["trip_id"], []).append(row["place_id"])
 
     for trip_id in active_ids:
-        places_resp = supabase.table("trip_places").select("place_id").eq("trip_id", trip_id).execute()
-        place_ids = [p["place_id"] for p in (places_resp.data or [])]
-
+        place_ids = places_by_trip.get(trip_id, [])
         outdoor_places = [_PLACES[pid] for pid in place_ids if pid in _PLACES and _PLACES[pid]["is_outdoor"]]
         if not outdoor_places:
             continue
@@ -323,8 +348,10 @@ async def _recalculate_leg(
                 cost_sgd=route["fare_sgd"],
                 is_estimated=False,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # OneMap failed — fall through to estimated fallback.
+            # is_estimated=True is intentional: the user must see the badge.
+            log.warning("OneMap recalculation failed for swapped leg %s → %s: %s", new_from_id, new_to_id, exc)
 
     return LegResponse(
         id=original.id,

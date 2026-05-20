@@ -40,7 +40,7 @@ def _make_sb(prefs_data=None, feedback_data=None, existing_pref=None):
 @pytest.mark.asyncio
 async def test_save_feedback_no_supabase_does_not_crash():
     with patch("app.agents.memory_agent.supabase", None):
-        await save_feedback("trip-1", "user-1", None, 4, "Great trip")
+        await save_feedback("trip-1", "00000000-0000-0000-0000-000000000001", None, 4, "Great trip")
 
 
 @pytest.mark.asyncio
@@ -57,7 +57,7 @@ async def test_save_feedback_inserts_row():
     sb.table("trip_feedback").insert = capture
 
     with patch("app.agents.memory_agent.supabase", sb):
-        await save_feedback("trip-1", "user-1", "leg-1", 5, "Loved MRT", "explicit")
+        await save_feedback("trip-1", "00000000-0000-0000-0000-000000000001", "leg-1", 5, "Loved MRT", "explicit")
 
     assert len(inserted) == 1
     assert inserted[0]["trip_id"] == "trip-1"
@@ -70,7 +70,7 @@ async def test_save_feedback_inserts_row():
 @pytest.mark.asyncio
 async def test_get_preferences_no_supabase_returns_defaults():
     with patch("app.agents.memory_agent.supabase", None):
-        prefs = await get_preferences("user-1")
+        prefs = await get_preferences("00000000-0000-0000-0000-000000000001")
     assert prefs["max_walk_minutes"] == 15
     assert prefs["prefer_mrt"] is False
     assert prefs["avoid_transfers"] is False
@@ -80,7 +80,7 @@ async def test_get_preferences_no_supabase_returns_defaults():
 async def test_get_preferences_no_record_returns_defaults():
     sb = _make_sb(prefs_data=[])
     with patch("app.agents.memory_agent.supabase", sb):
-        prefs = await get_preferences("user-1")
+        prefs = await get_preferences("00000000-0000-0000-0000-000000000001")
     assert prefs["prefer_mrt"] is False
     assert prefs["max_walk_minutes"] == 15
 
@@ -90,7 +90,7 @@ async def test_get_preferences_returns_existing_record():
     record = [{"max_walk_minutes": 20, "prefer_mrt": True, "avoid_transfers": False}]
     sb = _make_sb(prefs_data=record)
     with patch("app.agents.memory_agent.supabase", sb):
-        prefs = await get_preferences("user-1")
+        prefs = await get_preferences("00000000-0000-0000-0000-000000000001")
     assert prefs["prefer_mrt"] is True
     assert prefs["max_walk_minutes"] == 20
 
@@ -100,14 +100,14 @@ async def test_get_preferences_returns_existing_record():
 @pytest.mark.asyncio
 async def test_learn_implicit_no_supabase_does_not_crash():
     with patch("app.agents.memory_agent.supabase", None):
-        await learn_from_implicit("user-1")
+        await learn_from_implicit("00000000-0000-0000-0000-000000000001")
 
 
 @pytest.mark.asyncio
 async def test_learn_implicit_no_feedback_no_update():
     sb = _make_sb(feedback_data=[])
     with patch("app.agents.memory_agent.supabase", sb):
-        await learn_from_implicit("user-1")
+        await learn_from_implicit("00000000-0000-0000-0000-000000000001")
     # No update should be called
     assert not sb.table("user_preferences").update.called
 
@@ -117,7 +117,7 @@ async def test_learn_implicit_single_bus_to_mrt_no_update():
     feedback = [{"comment": "Mode changed: BUS → MRT"}]
     sb = _make_sb(feedback_data=feedback)
     with patch("app.agents.memory_agent.supabase", sb):
-        await learn_from_implicit("user-1")
+        await learn_from_implicit("00000000-0000-0000-0000-000000000001")
     assert not sb.table("user_preferences").update.called
 
 
@@ -140,7 +140,7 @@ async def test_learn_implicit_two_bus_to_mrt_sets_prefer_mrt():
     sb.table("user_preferences").insert = capture_insert
 
     with patch("app.agents.memory_agent.supabase", sb):
-        await learn_from_implicit("user-1")
+        await learn_from_implicit("00000000-0000-0000-0000-000000000001")
 
     assert len(inserted) == 1
     assert inserted[0]["prefer_mrt"] is True
@@ -164,7 +164,7 @@ async def test_learn_implicit_two_walk_increases_max_walk():
     sb.table("user_preferences").insert = capture_insert
 
     with patch("app.agents.memory_agent.supabase", sb):
-        await learn_from_implicit("user-1")
+        await learn_from_implicit("00000000-0000-0000-0000-000000000001")
 
     assert len(inserted) == 1
     assert inserted[0]["max_walk_minutes"] == 20  # 15 + 5

@@ -8,7 +8,7 @@ from app.models.trip import (
     LegUpdateRequest, AdaptRequest, AdaptResponse,
 )
 from app.agents import planning_agent, adaptation_agent
-from app.agents.planning_agent import _PLACES as _CURATED_PLACES
+from app.agents.planning_agent import get_curated_place
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
 from app.services.onemap import NoRouteError
 from app.database import supabase
@@ -19,11 +19,20 @@ router = APIRouter()
 
 # In-memory fallback when Supabase is unavailable
 _trip_store: dict[str, TripPlan] = {}
+# Cache trip metadata (num_days, budget_sgd, session_id) for no-DB scenarios
+_trip_meta: dict[str, dict] = {}
 
 
 @router.post("")
 async def create_trip(body: TripCreate):
     trip_id = str(uuid.uuid4())
+
+    # Cache for no-DB fallback path (budget, num_days, session_id)
+    _trip_meta[trip_id] = {
+        "num_days": body.num_days,
+        "budget_sgd": float(body.budget_sgd),
+        "session_id": body.session_id,
+    }
 
     if supabase:
         supabase.table("trips").insert({
@@ -90,6 +99,8 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
         plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan  # cache so future mutations stay consistent
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
@@ -128,9 +139,15 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
 
 @router.post("/{trip_id}/adapt")
 async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
+    # Verify session ownership before applying adaptation
+    if body.session_id:
+        _verify_session_ownership(trip_id, body.session_id)
+
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
         plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
@@ -147,14 +164,48 @@ async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
 # ---------------------------------------------------------------------------
 
 def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
-    """Return (num_days, budget_sgd) — single DB query when Supabase is available."""
-    budget_override = float(body.preferences["budget_sgd"]) if body.preferences and "budget_sgd" in body.preferences else None
+    """Return (num_days, budget_sgd) — prefers DB, falls back to meta cache."""
+    budget_override = (
+        float(body.preferences["budget_sgd"])
+        if body.preferences and "budget_sgd" in body.preferences
+        else None
+    )
     if supabase:
         resp = supabase.table("trips").select("num_days,budget_sgd").eq("id", trip_id).execute()
         if resp.data:
             row = resp.data[0]
             return row["num_days"], budget_override if budget_override is not None else float(row["budget_sgd"])
-    return 1, budget_override if budget_override is not None else 9999.0
+
+    # Fallback: use in-process cache populated by POST /trips
+    meta = _trip_meta.get(trip_id)
+    if meta:
+        return meta["num_days"], budget_override if budget_override is not None else meta["budget_sgd"]
+
+    if budget_override is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Trip '{trip_id}' not found in database or local cache. "
+                "Provide budget_sgd in preferences or recreate the trip."
+            ),
+        )
+    return 1, budget_override
+
+
+def _verify_session_ownership(trip_id: str, session_id: str) -> None:
+    """Raise 403 if session_id doesn't match the stored trip owner."""
+    # Check in-process cache first (fast path)
+    meta = _trip_meta.get(trip_id)
+    if meta and meta["session_id"] != session_id:
+        raise HTTPException(status_code=403, detail="session_id does not match trip owner")
+    if meta:
+        return
+
+    # Verify against DB when not cached locally
+    if supabase:
+        resp = supabase.table("trips").select("session_id").eq("id", trip_id).execute()
+        if resp.data and resp.data[0]["session_id"] != session_id:
+            raise HTTPException(status_code=403, detail="session_id does not match trip owner")
 
 
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
@@ -208,7 +259,7 @@ def _fetch_trip_from_db(trip_id: str):
     for p in places_resp.data:
         # Look up full metadata from curated dataset; fall back to DB values if place
         # was removed from the dataset after the trip was created.
-        curated = _CURATED_PLACES.get(p["place_id"], {})
+        curated = get_curated_place(p["place_id"]) or {}
         places.append(Place(
             id=p["place_id"],
             name=p["place_name"],

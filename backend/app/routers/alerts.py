@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException, Query
 from app.models.trip import FeedbackRequest, PreferencesResponse
 from app.agents import memory_agent
 
+# Production TODO: replace body/query user_id with server-side JWT extraction via Supabase auth.
+
 log = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -24,6 +26,8 @@ async def submit_feedback(body: FeedbackRequest):
         )
         if body.user_id:
             await memory_agent.learn_from_implicit(body.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
         log.error("save_feedback failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to save feedback")
@@ -34,5 +38,8 @@ async def submit_feedback(body: FeedbackRequest):
 @router.get("/preferences", response_model=PreferencesResponse)
 async def get_preferences(user_id: str = Query(..., description="Logged-in user UUID")):
     """Return user travel preferences. Requires authenticated user_id."""
-    prefs = await memory_agent.get_preferences(user_id)
+    try:
+        prefs = await memory_agent.get_preferences(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     return PreferencesResponse(**prefs)

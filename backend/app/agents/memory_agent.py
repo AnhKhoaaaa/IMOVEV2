@@ -4,6 +4,7 @@ Learns from explicit ratings and implicit edit patterns in trip_feedback.
 """
 
 import logging
+import uuid as _uuid
 from typing import Optional
 
 from app.database import supabase
@@ -18,6 +19,19 @@ _PREF_DEFAULTS = {
 
 # Threshold: how many implicit changes trigger a preference update
 _IMPLICIT_CHANGE_THRESHOLD = 2
+
+
+def _validate_user_id(user_id: str) -> None:
+    """Raise ValueError if user_id is not a valid UUID.
+
+    Production note: this is a format check only. In a production deployment,
+    user_id should be extracted server-side from a verified Supabase JWT — never
+    trusted from the request body.
+    """
+    try:
+        _uuid.UUID(user_id)
+    except ValueError:
+        raise ValueError(f"Invalid user_id format: '{user_id}' is not a valid UUID")
 
 
 async def save_feedback(
@@ -45,6 +59,8 @@ async def save_feedback(
 
 async def get_preferences(user_id: str) -> dict:
     """[CODE] Return user_preferences. Returns defaults if no record exists."""
+    _validate_user_id(user_id)
+
     if not supabase:
         return dict(_PREF_DEFAULTS)
 
@@ -65,8 +81,10 @@ async def learn_from_implicit(user_id: str) -> None:
 
     Pattern rules (from PLAN_DEV2_agent_logic.md):
     - ≥2 edits where comment contains "BUS → MRT"  → prefer_mrt = True
-    - ≥2 edits where comment contains "→ WALK"     → max_walk_minutes += 5
+    - ≥2 edits where comment contains "→ WALK"     → max_walk_minutes += 5 (from current value)
     """
+    _validate_user_id(user_id)
+
     if not supabase:
         return
 
@@ -85,21 +103,38 @@ async def learn_from_implicit(user_id: str) -> None:
     bus_to_mrt = sum(1 for c in comments if "BUS → MRT" in c or "BUS -> MRT" in c)
     to_walk = sum(1 for c in comments if "→ WALK" in c or "-> WALK" in c)
 
-    updates = {}
+    updates: dict = {}
     if bus_to_mrt >= _IMPLICIT_CHANGE_THRESHOLD:
         updates["prefer_mrt"] = True
         log.info("User %s: %d BUS→MRT edits → setting prefer_mrt=True", user_id, bus_to_mrt)
 
+    if not updates and to_walk < _IMPLICIT_CHANGE_THRESHOLD:
+        return
+
+    # Read current preferences to increment max_walk_minutes from the stored value
+    existing_resp = (
+        supabase.table("user_preferences")
+        .select("id,max_walk_minutes")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    existing_row = existing_resp.data[0] if existing_resp.data else None
+
     if to_walk >= _IMPLICIT_CHANGE_THRESHOLD:
-        updates["max_walk_minutes"] = _PREF_DEFAULTS["max_walk_minutes"] + 5
-        log.info("User %s: %d walk-preference edits → increasing max_walk_minutes", user_id, to_walk)
+        current_max_walk = (
+            existing_row["max_walk_minutes"]
+            if existing_row
+            else _PREF_DEFAULTS["max_walk_minutes"]
+        )
+        updates["max_walk_minutes"] = current_max_walk + 5
+        log.info("User %s: %d walk-preference edits → max_walk_minutes %d → %d",
+                 user_id, to_walk, current_max_walk, updates["max_walk_minutes"])
 
     if not updates:
         return
 
     # Upsert: create a new preferences record if one doesn't exist
-    existing = supabase.table("user_preferences").select("id").eq("user_id", user_id).execute()
-    if existing.data:
+    if existing_row:
         supabase.table("user_preferences").update(updates).eq("user_id", user_id).execute()
     else:
         supabase.table("user_preferences").insert({"user_id": user_id, **_PREF_DEFAULTS, **updates}).execute()

@@ -16,9 +16,29 @@ from app.models.place import Place
 
 _PLACES_PATH = Path(__file__).parent.parent / "data" / "places.json"
 
-# Load once at import time — static dataset, no hot-reload needed
+
+def _validate_time(t: str, place_id: str, field: str) -> None:
+    """Raise ValueError at startup if a time string in places.json is malformed."""
+    parts = t.split(":")
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        raise ValueError(f"places.json [{place_id}] invalid {field}: '{t}' — expected HH:MM")
+
+
+# Load and validate once at import time — bad data surfaces at startup, not runtime.
 with open(_PLACES_PATH, encoding="utf-8") as _f:
-    _PLACES: dict[str, dict] = {p["id"]: p for p in json.load(_f)}
+    _raw: list[dict] = json.load(_f)
+
+for _p in _raw:
+    _validate_time(_p["best_time_start"], _p["id"], "best_time_start")
+    _validate_time(_p["best_time_end"], _p["id"], "best_time_end")
+
+_PLACES: dict[str, dict] = {p["id"]: p for p in _raw}
+del _raw
+
+
+def get_curated_place(place_id: str) -> dict | None:
+    """Public accessor for _PLACES — use this instead of importing _PLACES directly."""
+    return _PLACES.get(place_id)
 
 # Map OneMap transit modes to display labels
 _MODE_MAP = {"SUBWAY": "MRT", "TRAM": "LRT", "BUS": "BUS", "WALK": "WALK"}
@@ -171,6 +191,13 @@ async def plan_trip(
     # [CODE] 5. Budget check — after all legs are computed
     if total_cost > budget_sgd:
         raise BudgetExceededError(total_cost, budget_sgd)
+
+    # Inform caller when fewer days were needed than requested
+    if len(days) < num_days:
+        warnings.append(
+            f"All {len(places)} places fit in {len(days)} day(s) — "
+            f"add more places to fill {num_days} days."
+        )
 
     # [LLM] 6. Gemini not called — preferences are structured (prefer_mrt, max_walk_minutes,
     # budget_sgd). Free-text edge cases would require: # [LLM] call_gemini() here.

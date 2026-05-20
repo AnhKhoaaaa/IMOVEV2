@@ -171,9 +171,10 @@ async def test_poll_weather_low_rain_no_alert():
 @pytest.mark.asyncio
 async def test_poll_weather_high_rain_with_outdoor_places_inserts_alert():
     outdoor_place_id = "gardens-by-the-bay"  # is_outdoor=True in _PLACES
+    # places_data now includes trip_id because poll_weather_alerts uses a bulk IN query
     sb = _make_supabase_mock(
         trips=[{"id": "trip-1"}],
-        places_data=[{"place_id": outdoor_place_id}],
+        places_data=[{"trip_id": "trip-1", "place_id": outdoor_place_id}],
     )
     insert_calls = []
 
