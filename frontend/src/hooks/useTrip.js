@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
 
 export function useTrip(tripId) {
@@ -8,14 +8,21 @@ export function useTrip(tripId) {
 
   useEffect(() => {
     if (!tripId) return
+    let ignore = false
+    setTrip(null)
+    setError(null)
     setLoading(true)
     api.getTrip(tripId)
-      .then(setTrip)
-      .catch(setError)
-      .finally(() => setLoading(false))
+      .then((data) => { if (!ignore) setTrip(data) })
+      .catch((e) => { if (!ignore) setError(e) })
+      .finally(() => { if (!ignore) setLoading(false) })
+    return () => { ignore = true }
   }, [tripId])
 
-  const refresh = () => api.getTrip(tripId).then(setTrip).catch(setError)
+  const refresh = useCallback(() =>
+    api.getTrip(tripId).then(setTrip).catch(setError),
+    [tripId]
+  )
 
   return { trip, loading, error, refresh }
 }

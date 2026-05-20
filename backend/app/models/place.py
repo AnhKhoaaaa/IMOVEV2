@@ -11,3 +11,4 @@ class Place(BaseModel):
     best_time_end: str
     category: str
     is_outdoor: bool
+    in_curated_dataset: bool = True
