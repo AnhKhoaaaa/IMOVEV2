@@ -99,3 +99,21 @@ Migrations live in `supabase/migrations/`. Auth is only required for the Memory 
 | Shared | All | `backend/app/models/`, `frontend/src/services/api.js`, `supabase/migrations/` |
 
 Do not commit into another dev's ownership area.
+
+## Cross-Dev Communication (Handoff Files)
+
+Each parallel dev session communicates via handoff files in `docs/plans/`. Read the relevant file at the start of each session.
+
+| File | For | Purpose |
+|------|-----|---------|
+| `docs/plans/HANDOFF_DEV2.md` | Dev 2 | API contracts, agent implementation specs, status |
+| `docs/plans/HANDOFF_DEV4.md` | Dev 4 | TripMap specs, hooks verification, supabase.js |
+
+**Protocol — every update to a handoff file MUST follow this format:**
+```
+Append to the "Update Log" section at the bottom of the file.
+NEVER edit or delete previous entries.
+Header format: ### [YYYY-MM-DD | DevX] Short description
+```
+
+When you finish a task or need to communicate a contract change, append to the handoff file immediately before committing code. The other dev's session reads this log to stay in sync.
