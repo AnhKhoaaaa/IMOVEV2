@@ -219,3 +219,13 @@ frontend/src/__tests__/pages/Trip.test.jsx   — xem mock data shape để viế
 - AlertBanner.jsx, useAlerts.js, useTrip.js đã implement nhưng chưa verify với data thật
 - supabase.js có uncommitted change (env var validation) cần Dev 4 commit
 - Props contract TripMap đã document đầy đủ ở trên — Trip.jsx đang dùng đúng shape này
+
+### [2026-05-20 | Dev3] Bước 1 hoàn thành — code đã lên đúng branch
+
+- Tạo worktree `dev/frontend-core` và đồng bộ toàn bộ frontend code từ dev/backend-infra
+- 77/77 tests pass trong worktree mới (xác nhận không có regression)
+- Commit 58018d9 đã push lên origin/dev/frontend-core
+- `supabase.js` (env var validation) **chưa commit** — Dev 4 cần commit file này từ branch của mình
+  - Nội dung thay đổi: thêm null-check + console.warn khi VITE_SUPABASE_URL/KEY không có
+  - File hiện ở: `frontend/src/lib/supabase.js` trên `origin/dev/backend-infra` (uncommitted)
+  - Hoặc tự áp dụng: `createClient(url ?? '', key ?? '')` với guard warn phía trên
