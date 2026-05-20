@@ -1,25 +1,112 @@
+import { useState } from 'react'
+import { AlertTriangle, Info, CloudRain } from 'lucide-react'
 import { api } from '../../services/api'
 
-const STYLES = {
-  transport_alert: { background: '#fee2e2', icon: '!' },
-  service_unavailable: { background: '#fef9c3', icon: '!' },
-  weather_warning: { background: '#dbeafe', icon: '☔' },
+const TYPE_CONFIG = {
+  transport_alert: {
+    Icon: AlertTriangle,
+    bg: '#fee2e2',
+    color: '#991b1b',
+    label: 'Cảnh báo giao thông',
+    showAdapt: true,
+  },
+  service_unavailable: {
+    Icon: Info,
+    bg: '#f3f4f6',
+    color: '#374151',
+    label: 'Dịch vụ không khả dụng',
+    showAdapt: false,
+  },
+  weather_warning: {
+    Icon: CloudRain,
+    bg: '#dbeafe',
+    color: '#1e40af',
+    label: 'Cảnh báo thời tiết',
+    showAdapt: true,
+  },
 }
 
 export default function AlertBanner({ alert, tripId, onDismiss }) {
-  const { background, icon } = STYLES[alert.alert_type] ?? STYLES.transport_alert
+  const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.transport_alert
+  const { Icon, bg, color, label, showAdapt } = config
+  const [adapting, setAdapting] = useState(false)
+  const [adaptError, setAdaptError] = useState(null)
 
   const handleAdapt = async () => {
-    await api.adaptTrip(tripId, { alert_id: alert.id })
-    onDismiss(alert.id)
+    setAdapting(true)
+    setAdaptError(null)
+    try {
+      await api.adaptTrip(tripId, { alert_id: alert.id })
+      onDismiss(alert.id)
+    } catch (e) {
+      setAdaptError(e.message)
+    } finally {
+      setAdapting(false)
+    }
   }
 
   return (
-    <div style={{ background, padding: '12px 16px', borderRadius: 8, marginBottom: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
-      <span>{icon}</span>
-      <span style={{ flex: 1 }}>{alert.message}</span>
-      <button onClick={handleAdapt}>Cap nhat ke hoach</button>
-      <button onClick={() => onDismiss(alert.id)}>x</button>
+    <div
+      role="alert"
+      style={{
+        background: bg,
+        color,
+        borderRadius: 8,
+        marginBottom: 8,
+        padding: '12px 16px',
+        display: 'flex',
+        gap: 10,
+        alignItems: 'flex-start',
+        position: 'relative',
+      }}
+    >
+      <Icon size={18} style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.7, margin: '0 0 2px' }}>
+          {label}
+        </p>
+        <p style={{ margin: '0 0 8px', fontSize: 14 }}>{alert.message}</p>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {showAdapt && (
+            <button
+              onClick={handleAdapt}
+              disabled={adapting}
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                borderRadius: 4,
+                border: `1px solid ${color}`,
+                background: 'transparent',
+                color,
+                cursor: adapting ? 'not-allowed' : 'pointer',
+                opacity: adapting ? 0.6 : 1,
+              }}
+            >
+              {adapting ? 'Đang cập nhật...' : 'Cập nhật kế hoạch'}
+            </button>
+          )}
+          <button
+            onClick={() => onDismiss(alert.id)}
+            style={{
+              padding: '4px 10px',
+              fontSize: 12,
+              borderRadius: 4,
+              border: `1px solid ${color}`,
+              background: 'transparent',
+              color,
+              cursor: 'pointer',
+            }}
+          >
+            {showAdapt ? 'Bỏ qua' : 'Đã hiểu'}
+          </button>
+        </div>
+
+        {adaptError && (
+          <p style={{ marginTop: 6, fontSize: 12, color: '#dc2626' }}>{adaptError}</p>
+        )}
+      </div>
     </div>
   )
 }
