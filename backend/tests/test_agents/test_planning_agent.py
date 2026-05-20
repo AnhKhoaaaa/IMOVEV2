@@ -7,6 +7,8 @@ from app.agents.planning_agent import (
     _distribute_days,
     _haversine_km,
     _time_slot,
+    _rule_based_suggest,
+    suggest_places,
     _PLACES,
 )
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
@@ -44,6 +46,43 @@ def test_time_slot_evening():
     assert _time_slot("17:00") == "evening"
     assert _time_slot("19:00") == "evening"
     assert _time_slot("22:00") == "evening"
+
+
+def test_rule_based_suggest_returns_ids_within_limit():
+    ids = _rule_based_suggest(num_days=2, travel_styles=["nature"])
+    assert len(ids) <= 2 * 4
+    assert all(i in _PLACES for i in ids)
+
+
+def test_rule_based_suggest_prefers_matching_category():
+    ids = _rule_based_suggest(num_days=1, travel_styles=["nature"])
+    # All returned IDs for nature style should be nature/viewpoint category
+    nature_cats = {"nature", "viewpoint"}
+    assert all(_PLACES[pid]["category"] in nature_cats for pid in ids)
+
+
+def test_rule_based_suggest_no_styles_returns_any_places():
+    ids = _rule_based_suggest(num_days=1, travel_styles=[])
+    assert len(ids) > 0
+    assert all(i in _PLACES for i in ids)
+
+
+@pytest.mark.asyncio
+async def test_suggest_places_uses_fallback_when_gemini_fails():
+    with patch("app.services.gemini.suggest_places", new_callable=AsyncMock,
+               side_effect=Exception("API down")):
+        result = await suggest_places(2, ["nature"], "solo")
+    assert len(result) > 0
+    assert all(i in _PLACES for i in result)
+
+
+@pytest.mark.asyncio
+async def test_suggest_places_returns_gemini_result_on_success():
+    expected = ["gardens-by-the-bay", "merlion-park"]
+    with patch("app.services.gemini.suggest_places", new_callable=AsyncMock,
+               return_value=expected):
+        result = await suggest_places(2, ["nature"], "solo")
+    assert result == expected
 
 
 def test_haversine_same_point_is_zero():

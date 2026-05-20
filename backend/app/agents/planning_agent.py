@@ -4,11 +4,14 @@ LLM (Gemini) is called ONLY for edge cases not covered by rule-based logic.
 """
 
 import json
+import logging
 import math
 import uuid
 from pathlib import Path
 
 from app.services import onemap
+
+log = logging.getLogger(__name__)
 from app.services.onemap import NoRouteError
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
 from app.models.trip import TripPlan, DayPlan, LegResponse
@@ -110,6 +113,42 @@ def _parse_hhmm(t: str) -> int:
 
 def _fmt_hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+# Travel style → place categories mapping (used by rule-based suggest)
+_STYLE_CATEGORY_MAP: dict[str, set[str]] = {
+    "cultural":      {"museum", "heritage"},
+    "nature":        {"nature", "viewpoint"},
+    "entertainment": {"entertainment", "attraction"},
+    "food":          {"food"},
+    "shopping":      {"shopping"},
+}
+
+
+def _rule_based_suggest(num_days: int, travel_styles: list[str]) -> list[str]:
+    """Return up to num_days*4 place IDs sorted by style-match then best_time_start."""
+    target_cats: set[str] = set()
+    for style in travel_styles:
+        target_cats |= _STYLE_CATEGORY_MAP.get(style, set())
+    if not target_cats:
+        target_cats = {p["category"] for p in _PLACES.values()}
+
+    all_places = list(_PLACES.values())
+    # Matching categories first; within each group, sort by best_time_start (morning first)
+    all_places.sort(key=lambda p: (p["category"] not in target_cats, p["best_time_start"]))
+    return [p["id"] for p in all_places[: num_days * 4]]
+
+
+async def suggest_places(num_days: int, travel_styles: list[str], group_type: str) -> list[str]:
+    """[LLM] Suggest place IDs via Gemini, falling back to rule-based on any error."""
+    try:
+        from app.services import gemini as gemini_svc
+        return await gemini_svc.suggest_places(
+            num_days, travel_styles, group_type, list(_PLACES.values())
+        )
+    except Exception as exc:
+        log.warning("Gemini suggest_places failed (%s) — using rule-based fallback", exc)
+        return _rule_based_suggest(num_days, travel_styles)
 
 
 def _time_slot(best_time_start: str) -> str:

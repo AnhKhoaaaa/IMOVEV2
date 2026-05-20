@@ -14,6 +14,8 @@ vi.mock('../../services/api', () => ({
   api: {
     createTrip: vi.fn(),
     planTrip: vi.fn(),
+    suggestPlaces: vi.fn(),
+    getCuratedPlaces: vi.fn(),
   },
 }))
 
@@ -264,6 +266,53 @@ describe('Planner', () => {
     expect(btn).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(btn)
     expect(btn).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('shows mode tabs on step 2', async () => {
+    renderPlanner()
+    await advanceTo(2)
+    expect(screen.getByText('🗂️ Tự chọn')).toBeInTheDocument()
+    expect(screen.getByText('✨ AI Gợi ý')).toBeInTheDocument()
+  })
+
+  it('AI tab shows suggest button initially', async () => {
+    renderPlanner()
+    await advanceTo(2)
+    fireEvent.click(screen.getByText('✨ AI Gợi ý'))
+    expect(screen.getByRole('button', { name: /tạo gợi ý/i })).toBeInTheDocument()
+  })
+
+  it('AI tab shows thinking steps while loading', async () => {
+    api.suggestPlaces.mockReturnValue(new Promise(() => {}))
+    api.getCuratedPlaces.mockReturnValue(new Promise(() => {}))
+    renderPlanner()
+    await advanceTo(2)
+    fireEvent.click(screen.getByText('✨ AI Gợi ý'))
+    fireEvent.click(screen.getByRole('button', { name: /tạo gợi ý/i }))
+    expect(screen.getByText('Đang phân tích sở thích của bạn...')).toBeInTheDocument()
+  })
+
+  it('AI tab pre-selects suggested places on success', async () => {
+    const suggestedPlace = { id: 'merlion-park', name: 'Merlion Park', in_curated_dataset: true, category: 'landmark', dwell_minutes: 30 }
+    api.suggestPlaces.mockResolvedValue({ suggested_place_ids: ['merlion-park'] })
+    api.getCuratedPlaces.mockResolvedValue([suggestedPlace])
+    renderPlanner()
+    await advanceTo(2)
+    fireEvent.click(screen.getByText('✨ AI Gợi ý'))
+    fireEvent.click(screen.getByRole('button', { name: /tạo gợi ý/i }))
+    await waitFor(() => expect(screen.getByText(/ai đã gợi ý/i)).toBeInTheDocument())
+    expect(screen.getByText('Merlion Park')).toBeInTheDocument()
+  })
+
+  it('AI tab shows error message on failure', async () => {
+    api.suggestPlaces.mockRejectedValue(new Error('Gemini unavailable'))
+    api.getCuratedPlaces.mockResolvedValue([])
+    renderPlanner()
+    await advanceTo(2)
+    fireEvent.click(screen.getByText('✨ AI Gợi ý'))
+    fireEvent.click(screen.getByRole('button', { name: /tạo gợi ý/i }))
+    await waitFor(() => expect(screen.getByText('Gemini unavailable')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /thử lại/i })).toBeInTheDocument()
   })
 
   it('sends travel_styles and group_type in preferences payload', async () => {

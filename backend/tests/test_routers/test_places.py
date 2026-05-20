@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from app.main import app
 from app.routers.places import _CURATED
@@ -48,3 +49,26 @@ def test_search_no_match_returns_empty_list():
     resp = client.get("/places/search", params={"q": "xyzzy-no-match"})
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_ai_suggest_returns_place_ids():
+    expected = ["gardens-by-the-bay", "merlion-park"]
+    with patch("app.agents.planning_agent.suggest_places", new_callable=AsyncMock,
+               return_value=expected):
+        resp = client.post("/places/ai-suggest", json={
+            "num_days": 2,
+            "travel_styles": ["nature"],
+            "group_type": "solo",
+        })
+    assert resp.status_code == 200
+    assert resp.json()["suggested_place_ids"] == expected
+
+
+@pytest.mark.asyncio
+async def test_ai_suggest_uses_defaults():
+    with patch("app.agents.planning_agent.suggest_places", new_callable=AsyncMock,
+               return_value=["merlion-park"]) as mock_suggest:
+        resp = client.post("/places/ai-suggest", json={})
+    assert resp.status_code == 200
+    mock_suggest.assert_called_once_with(1, [], "solo")
