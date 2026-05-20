@@ -1,21 +1,38 @@
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+import logging
+
+from fastapi import APIRouter, HTTPException, Query
+
+from app.models.trip import FeedbackRequest, PreferencesResponse
+from app.agents import memory_agent
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_NOT_IMPL = JSONResponse(
-    status_code=501,
-    content={"detail": "Agent chưa được triển khai — Dev 2 đang phát triển tính năng này."},
-)
+
+@router.post("/feedback", status_code=201)
+async def submit_feedback(body: FeedbackRequest):
+    """Save explicit user rating/comment; trigger implicit preference learning if logged in."""
+    try:
+        await memory_agent.save_feedback(
+            trip_id=body.trip_id,
+            user_id=body.user_id,
+            leg_id=body.leg_id,
+            rating=body.rating,
+            comment=body.comment,
+            feedback_type="explicit",
+        )
+        if body.user_id:
+            await memory_agent.learn_from_implicit(body.user_id)
+    except Exception as exc:
+        log.error("save_feedback failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to save feedback")
+
+    return {"status": "ok"}
 
 
-@router.post("/feedback")
-async def submit_feedback():
-    # TODO: memory_agent — save rating/comment to trip_feedback
-    return _NOT_IMPL
-
-
-@router.get("/preferences")
-async def get_preferences():
-    # TODO: memory_agent — return user_preferences from Supabase
-    return _NOT_IMPL
+@router.get("/preferences", response_model=PreferencesResponse)
+async def get_preferences(user_id: str = Query(..., description="Logged-in user UUID")):
+    """Return user travel preferences. Requires authenticated user_id."""
+    prefs = await memory_agent.get_preferences(user_id)
+    return PreferencesResponse(**prefs)

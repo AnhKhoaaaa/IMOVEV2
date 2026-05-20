@@ -52,3 +52,17 @@ class AdaptResponse(BaseModel):
     adapted: bool
     changes: list[str]
     updated_trip: TripPlan
+
+
+class FeedbackRequest(BaseModel):
+    trip_id: str
+    user_id: Optional[str] = None
+    leg_id: Optional[str] = None
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+
+class PreferencesResponse(BaseModel):
+    max_walk_minutes: int = 15
+    prefer_mrt: bool = False
+    avoid_transfers: bool = False
