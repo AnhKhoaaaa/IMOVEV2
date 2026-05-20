@@ -6,6 +6,7 @@ from app.agents.planning_agent import (
     _sort_places_greedy,
     _distribute_days,
     _haversine_km,
+    _time_slot,
     _PLACES,
 )
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
@@ -26,6 +27,24 @@ VALID_IDS = list(_PLACES.keys())[:3]  # use first 3 real places from dataset
 
 
 # ── unit tests: helpers ───────────────────────────────────────────────────────
+
+def test_time_slot_morning():
+    assert _time_slot("07:00") == "morning"
+    assert _time_slot("08:00") == "morning"
+    assert _time_slot("11:59") == "morning"
+
+
+def test_time_slot_afternoon():
+    assert _time_slot("12:00") == "afternoon"
+    assert _time_slot("14:00") == "afternoon"
+    assert _time_slot("16:59") == "afternoon"
+
+
+def test_time_slot_evening():
+    assert _time_slot("17:00") == "evening"
+    assert _time_slot("19:00") == "evening"
+    assert _time_slot("22:00") == "evening"
+
 
 def test_haversine_same_point_is_zero():
     assert _haversine_km(1.28, 103.85, 1.28, 103.85) == pytest.approx(0.0)
@@ -158,6 +177,21 @@ async def test_no_route_error_propagates():
     ):
         with pytest.raises(NoRouteError):
             await plan_trip("t5", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+
+
+@pytest.mark.asyncio
+async def test_time_slot_assigned_to_legs():
+    # gardens-by-the-bay has best_time_start "08:00" → morning
+    ids = ["gardens-by-the-bay", "marina-bay-sands"]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        return_value=_mock_route(),
+    ):
+        result = await plan_trip("t-slot", ids, 1, 999.0, False, None)
+
+    leg = result.days[0].legs[0]
+    assert leg.time_slot == "morning"
 
 
 @pytest.mark.asyncio

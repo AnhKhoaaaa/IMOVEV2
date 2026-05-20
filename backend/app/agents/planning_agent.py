@@ -112,6 +112,18 @@ def _fmt_hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
+def _time_slot(best_time_start: str) -> str:
+    """Map best_time_start HH:MM to a time-of-day slot.
+
+    String comparison is safe here because _validate_time guarantees zero-padded HH:MM.
+    """
+    if best_time_start < "12:00":
+        return "morning"
+    if best_time_start < "17:00":
+        return "afternoon"
+    return "evening"
+
+
 async def plan_trip(
     trip_id: str,
     place_ids: list[str],
@@ -193,6 +205,7 @@ async def plan_trip(
                     duration_minutes=duration,
                     cost_sgd=cost,
                     is_estimated=is_estimated,
+                    time_slot=_time_slot(from_p["best_time_start"]),
                 ))
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))
