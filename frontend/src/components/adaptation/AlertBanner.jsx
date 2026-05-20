@@ -1,19 +1,40 @@
-import { useState } from 'react'
-import { AlertTriangle, CloudRain, Info, X, RefreshCw } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { AlertTriangle, Info, CloudRain } from 'lucide-react'
 import { api } from '../../services/api'
-import { Button } from '../ui/button'
-import { Alert, AlertDescription } from '../ui/alert'
 
 const TYPE_CONFIG = {
-  transport_alert:    { icon: AlertTriangle, variant: 'destructive', label: 'Cảnh báo giao thông' },
-  service_unavailable:{ icon: Info,          variant: 'warning',     label: 'Dịch vụ không khả dụng' },
-  weather_warning:    { icon: CloudRain,     variant: 'default',     label: 'Cảnh báo thời tiết' },
+  transport_alert: {
+    Icon: AlertTriangle,
+    bg: '#fee2e2',
+    color: '#991b1b',
+    label: 'Cảnh báo giao thông',
+    showAdapt: true,
+  },
+  service_unavailable: {
+    Icon: Info,
+    bg: '#f3f4f6',
+    color: '#374151',
+    label: 'Dịch vụ không khả dụng',
+    showAdapt: false,
+  },
+  weather_warning: {
+    Icon: CloudRain,
+    bg: '#dbeafe',
+    color: '#1e40af',
+    label: 'Cảnh báo thời tiết',
+    showAdapt: true,
+  },
 }
 
 export default function AlertBanner({ alert, tripId, onDismiss }) {
-  const { icon: Icon, variant, label } = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.transport_alert
-  const [adaptError, setAdaptError] = useState(null)
+  // Unknown types fall back to the most restrictive config (no adapt button).
+  const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.service_unavailable
+  const { Icon, bg, color, label, showAdapt } = config
   const [adapting, setAdapting] = useState(false)
+  const [adaptError, setAdaptError] = useState(null)
+
+  // Clear stale error when a different alert is shown in the same slot.
+  useEffect(() => { setAdaptError(null) }, [alert.id])
 
   const handleAdapt = async () => {
     setAdapting(true)
@@ -29,36 +50,69 @@ export default function AlertBanner({ alert, tripId, onDismiss }) {
   }
 
   return (
-    <div className="mb-3">
-      <Alert variant={variant} className="pr-10 relative">
-        <Icon className="h-4 w-4" />
-        <div className="flex-1">
-          <p className="text-xs font-semibold mb-0.5 uppercase tracking-wide opacity-70">{label}</p>
-          <AlertDescription>{alert.message}</AlertDescription>
-          <div className="flex gap-2 mt-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs gap-1"
+    <div
+      role="alert"
+      style={{
+        background: bg,
+        color,
+        borderRadius: 8,
+        marginBottom: 8,
+        padding: '12px 16px',
+        display: 'flex',
+        gap: 10,
+        alignItems: 'flex-start',
+        position: 'relative',
+      }}
+    >
+      <Icon size={18} style={{ flexShrink: 0, marginTop: 2 }} aria-hidden="true" />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.7, margin: '0 0 2px' }}>
+          {label}
+        </p>
+        <p style={{ margin: '0 0 8px', fontSize: 14 }}>{alert.message}</p>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {showAdapt && (
+            <button
               onClick={handleAdapt}
               disabled={adapting}
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                borderRadius: 4,
+                border: `1px solid ${color}`,
+                background: 'transparent',
+                color,
+                cursor: adapting ? 'not-allowed' : 'pointer',
+                opacity: adapting ? 0.6 : 1,
+              }}
             >
-              <RefreshCw className="h-3 w-3" />
               {adapting ? 'Đang cập nhật...' : 'Cập nhật kế hoạch'}
-            </Button>
-          </div>
-          {adaptError && (
-            <p className="text-xs mt-1 opacity-80">{adaptError}</p>
+            </button>
           )}
+          <button
+            onClick={() => onDismiss(alert.id)}
+            disabled={adapting}
+            style={{
+              padding: '4px 10px',
+              fontSize: 12,
+              borderRadius: 4,
+              border: `1px solid ${color}`,
+              background: 'transparent',
+              color,
+              cursor: adapting ? 'not-allowed' : 'pointer',
+              opacity: adapting ? 0.6 : 1,
+            }}
+          >
+            {showAdapt ? 'Bỏ qua' : 'Đã hiểu'}
+          </button>
         </div>
-        <button
-          onClick={() => onDismiss(alert.id)}
-          aria-label="Đóng cảnh báo"
-          className="absolute right-3 top-3 opacity-60 hover:opacity-100 transition-opacity"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </Alert>
+
+        {adaptError && (
+          <p style={{ marginTop: 6, fontSize: 12, color: '#dc2626' }}>{adaptError}</p>
+        )}
+      </div>
     </div>
   )
 }

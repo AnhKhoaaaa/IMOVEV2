@@ -1,10 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../services/api'
 
 export function useTrip(tripId) {
   const [trip, setTrip] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const isMounted = useRef(true)
+
+  useEffect(() => {
+    isMounted.current = true
+    return () => { isMounted.current = false }
+  }, [])
 
   useEffect(() => {
     if (!tripId) return
@@ -19,10 +25,18 @@ export function useTrip(tripId) {
     return () => { ignore = true }
   }, [tripId])
 
-  const refresh = useCallback(() =>
-    api.getTrip(tripId).then(setTrip).catch(setError),
-    [tripId]
-  )
+  const refresh = useCallback(async () => {
+    if (!tripId) return
+    setLoading(true)
+    try {
+      const data = await api.getTrip(tripId)
+      if (isMounted.current) setTrip(data)
+    } catch (e) {
+      if (isMounted.current) setError(e)
+    } finally {
+      if (isMounted.current) setLoading(false)
+    }
+  }, [tripId])
 
   return { trip, loading, error, refresh }
 }

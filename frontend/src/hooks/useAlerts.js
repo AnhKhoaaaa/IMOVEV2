@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 export function useAlerts(tripId) {
@@ -6,9 +6,14 @@ export function useAlerts(tripId) {
 
   useEffect(() => {
     if (!tripId) return
+    let ignore = false
 
     supabase.from('lta_alerts').select('*').eq('trip_id', tripId)
-      .then(({ data }) => { if (data) setAlerts(data) })
+      .then(({ data, error }) => {
+        if (ignore) return
+        if (error) { console.error('useAlerts: initial fetch failed', error); return }
+        if (data) setAlerts(data)
+      })
 
     const channel = supabase
       .channel(`trip-alerts-${tripId}`)
@@ -20,10 +25,16 @@ export function useAlerts(tripId) {
       }, (payload) => setAlerts((prev) => [...prev, payload.new]))
       .subscribe()
 
-    return () => supabase.removeChannel(channel)
+    return () => {
+      ignore = true
+      supabase.removeChannel(channel)
+    }
   }, [tripId])
 
-  const dismiss = (alertId) => setAlerts((prev) => prev.filter((a) => a.id !== alertId))
+  const dismiss = useCallback(
+    (alertId) => setAlerts((prev) => prev.filter((a) => a.id !== alertId)),
+    []
+  )
 
   return { alerts, dismiss }
 }
