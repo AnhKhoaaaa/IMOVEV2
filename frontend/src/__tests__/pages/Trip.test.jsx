@@ -23,6 +23,11 @@ vi.mock('../../components/adaptation/AlertBanner', () => ({
 vi.mock('../../components/map/TripMap', () => ({
   default: () => <div data-testid="trip-map" />,
 }))
+vi.mock('../../components/planner/TravelTips', () => ({
+  default: ({ places }) => (
+    <div data-testid="travel-tips" data-place-count={places.length} />
+  ),
+}))
 
 import { useTrip } from '../../hooks/useTrip'
 
@@ -97,5 +102,16 @@ describe('Trip page', () => {
     })
     render(<BrowserRouter><Trip /></BrowserRouter>)
     expect(screen.getByRole('alert')).toHaveTextContent('Warning A · Warning B')
+  })
+
+  it('renders TravelTips with trip places', () => {
+    const places = [
+      { id: 'gardens', name: 'Gardens by the Bay', category: 'nature', is_outdoor: true, best_time_start: '08:00' },
+    ]
+    useTrip.mockReturnValue({ trip: makeTrip({ places }), loading: false, error: null })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    const tips = screen.getByTestId('travel-tips')
+    expect(tips).toBeInTheDocument()
+    expect(tips).toHaveAttribute('data-place-count', '1')
   })
 })
