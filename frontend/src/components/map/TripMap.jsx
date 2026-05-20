@@ -1,5 +1,5 @@
 import L from 'leaflet'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet'
 
 const MODE_STYLE = {
@@ -7,12 +7,14 @@ const MODE_STYLE = {
   BUS:   { color: '#22c55e', dashArray: null },
   WALK:  { color: '#f97316', dashArray: '5,5' },
   DRIVE: { color: '#3b82f6', dashArray: null },
-  CYCLE: { color: '#3b82f6', dashArray: null },
+  CYCLE: { color: '#3b82f6', dashArray: '8,4' },
 }
 
+// Coerce to safe integer to prevent HTML injection via L.divIcon template string.
 function numberIcon(n) {
+  const safe = String(Math.trunc(Number(n)))
   return L.divIcon({
-    html: `<div style="background:#2563eb;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4)">${n}</div>`,
+    html: `<div style="background:#2563eb;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4)">${safe}</div>`,
     iconSize: [26, 26],
     iconAnchor: [13, 13],
     className: '',
@@ -26,13 +28,16 @@ function legTooltip(leg) {
   return parts.join(' · ')
 }
 
-// Derive ordered place list from legs chain (from_place_id → to_place_id).
-// Falls back to original places array when legs is empty.
+// Derives ordered place list from the legs chain.
+// Places not reachable via legs are appended at the end — never silently dropped.
+// Returns { ordered, byId } so callers reuse the same map without rebuilding.
 function buildOrderedPlaces(places, legs) {
-  if (!legs?.length) return places
   const byId = Object.fromEntries(places.map((p) => [p.id, p]))
+  if (!legs.length) return { ordered: places, byId }
+
   const ordered = []
   const seen = new Set()
+
   for (const leg of legs) {
     if (!seen.has(leg.from_place_id) && byId[leg.from_place_id]) {
       seen.add(leg.from_place_id)
@@ -41,9 +46,15 @@ function buildOrderedPlaces(places, legs) {
   }
   const last = legs[legs.length - 1]
   if (last && !seen.has(last.to_place_id) && byId[last.to_place_id]) {
+    seen.add(last.to_place_id)
     ordered.push(byId[last.to_place_id])
   }
-  return ordered.length ? ordered : places
+  // Append places outside the legs chain so no marker is lost.
+  for (const place of places) {
+    if (!seen.has(place.id)) ordered.push(place)
+  }
+
+  return { ordered: ordered.length ? ordered : places, byId }
 }
 
 function FitBounds({ positions }) {
@@ -59,12 +70,19 @@ function FitBounds({ positions }) {
 }
 
 export default function TripMap({ places, legs }) {
+  // Hooks must be called unconditionally — memos return empty state when places is absent.
+  const { ordered, byId } = useMemo(
+    () => places?.length ? buildOrderedPlaces(places, legs ?? []) : { ordered: [], byId: {} },
+    [places, legs]
+  )
+  const allPositions = useMemo(
+    () => ordered.map((p) => [p.lat, p.lng]),
+    [ordered]
+  )
+
   if (!places?.length) return null
 
-  const ordered = buildOrderedPlaces(places, legs ?? [])
-  const byId = Object.fromEntries(places.map((p) => [p.id, p]))
   const center = [ordered[0].lat, ordered[0].lng]
-  const allPositions = ordered.map((p) => [p.lat, p.lng])
 
   return (
     <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
@@ -84,7 +102,7 @@ export default function TripMap({ places, legs }) {
         </Marker>
       ))}
 
-      {legs?.map((leg) => {
+      {(legs ?? []).map((leg) => {
         const from = byId[leg.from_place_id]
         const to = byId[leg.to_place_id]
         if (!from || !to) return null

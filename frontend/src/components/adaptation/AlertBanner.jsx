@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AlertTriangle, Info, CloudRain } from 'lucide-react'
 import { api } from '../../services/api'
 
@@ -27,10 +27,14 @@ const TYPE_CONFIG = {
 }
 
 export default function AlertBanner({ alert, tripId, onDismiss }) {
-  const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.transport_alert
+  // Unknown types fall back to the most restrictive config (no adapt button).
+  const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.service_unavailable
   const { Icon, bg, color, label, showAdapt } = config
   const [adapting, setAdapting] = useState(false)
   const [adaptError, setAdaptError] = useState(null)
+
+  // Clear stale error when a different alert is shown in the same slot.
+  useEffect(() => { setAdaptError(null) }, [alert.id])
 
   const handleAdapt = async () => {
     setAdapting(true)
@@ -89,6 +93,7 @@ export default function AlertBanner({ alert, tripId, onDismiss }) {
           )}
           <button
             onClick={() => onDismiss(alert.id)}
+            disabled={adapting}
             style={{
               padding: '4px 10px',
               fontSize: 12,
@@ -96,7 +101,8 @@ export default function AlertBanner({ alert, tripId, onDismiss }) {
               border: `1px solid ${color}`,
               background: 'transparent',
               color,
-              cursor: 'pointer',
+              cursor: adapting ? 'not-allowed' : 'pointer',
+              opacity: adapting ? 0.6 : 1,
             }}
           >
             {showAdapt ? 'Bỏ qua' : 'Đã hiểu'}

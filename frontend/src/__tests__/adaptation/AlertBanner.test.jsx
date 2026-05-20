@@ -60,9 +60,10 @@ describe('AlertBanner', () => {
     expect(screen.getByText(/Dịch vụ không khả dụng/i)).toBeInTheDocument()
   })
 
-  it('falls back to transport_alert config for unknown type', () => {
+  it('falls back to service_unavailable for unknown type — no adapt button (safe default)', () => {
     render(<AlertBanner alert={makeAlert({ alert_type: 'unknown_type' })} tripId="trip-1" onDismiss={onDismiss} />)
-    expect(screen.getByText('Cập nhật kế hoạch')).toBeInTheDocument()
+    expect(screen.queryByText('Cập nhật kế hoạch')).not.toBeInTheDocument()
+    expect(screen.getByText('Đã hiểu')).toBeInTheDocument()
   })
 
   // --- Dismiss button ---
@@ -114,7 +115,32 @@ describe('AlertBanner', () => {
 
     await waitFor(() => expect(screen.getByText('Backend offline')).toBeInTheDocument())
     expect(onDismiss).not.toHaveBeenCalled()
-    // Button should be re-enabled after failure
     expect(screen.getByText('Cập nhật kế hoạch')).not.toBeDisabled()
+  })
+
+  it('dismiss button is disabled while adapt is in-flight', async () => {
+    let resolve
+    api.adaptTrip.mockReturnValue(new Promise((r) => { resolve = r }))
+    render(<AlertBanner alert={makeAlert()} tripId="trip-1" onDismiss={onDismiss} />)
+
+    fireEvent.click(screen.getByText('Cập nhật kế hoạch'))
+    expect(await screen.findByText('Đang cập nhật...')).toBeInTheDocument()
+    expect(screen.getByText('Bỏ qua')).toBeDisabled()
+
+    resolve({})
+    await waitFor(() => expect(screen.queryByText('Đang cập nhật...')).not.toBeInTheDocument())
+    expect(screen.getByText('Bỏ qua')).not.toBeDisabled()
+  })
+
+  it('clears stale adaptError when alert.id changes', async () => {
+    api.adaptTrip.mockRejectedValue(new Error('Timeout'))
+    const { rerender } = render(
+      <AlertBanner alert={makeAlert({ id: 'a1' })} tripId="trip-1" onDismiss={onDismiss} />
+    )
+    fireEvent.click(screen.getByText('Cập nhật kế hoạch'))
+    await waitFor(() => expect(screen.getByText('Timeout')).toBeInTheDocument())
+
+    rerender(<AlertBanner alert={makeAlert({ id: 'a2' })} tripId="trip-1" onDismiss={onDismiss} />)
+    expect(screen.queryByText('Timeout')).not.toBeInTheDocument()
   })
 })

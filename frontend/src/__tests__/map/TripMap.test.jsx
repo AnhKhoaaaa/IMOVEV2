@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import TripMap from '../../components/map/TripMap'
 
 const mockFitBounds = vi.fn()
@@ -118,7 +118,7 @@ describe('TripMap', () => {
     expect(polyline).toHaveAttribute('data-dash', '5,5')
   })
 
-  it('DRIVE and CYCLE legs use blue (#3b82f6)', () => {
+  it('DRIVE uses blue (#3b82f6) with no dash, CYCLE uses blue with dashArray 8,4', () => {
     const legs = [
       { id: 'l1', from_place_id: 'p1', to_place_id: 'p2', transport_mode: 'DRIVE', duration_minutes: 15, cost_sgd: null, is_estimated: false },
       { id: 'l2', from_place_id: 'p2', to_place_id: 'p3', transport_mode: 'CYCLE', duration_minutes: 20, cost_sgd: null, is_estimated: false },
@@ -126,7 +126,9 @@ describe('TripMap', () => {
     render(<TripMap places={makePlaces()} legs={legs} />)
     const polylines = screen.getAllByTestId('polyline')
     expect(polylines[0]).toHaveAttribute('data-color', '#3b82f6')
+    expect(polylines[0]).toHaveAttribute('data-dash', '')
     expect(polylines[1]).toHaveAttribute('data-color', '#3b82f6')
+    expect(polylines[1]).toHaveAttribute('data-dash', '8,4')
   })
 
   // --- Tooltips ---
@@ -152,13 +154,21 @@ describe('TripMap', () => {
 
   // --- Edge cases ---
 
-  it('skips leg when from_place_id is not in places (no crash)', () => {
+  it('skips polyline when leg references a place ID not in places (no crash)', () => {
     const legs = [{ id: 'l1', from_place_id: 'GHOST', to_place_id: 'p2', transport_mode: 'MRT', duration_minutes: 5, cost_sgd: null, is_estimated: false }]
     expect(() => render(<TripMap places={makePlaces()} legs={legs} />)).not.toThrow()
     expect(screen.queryAllByTestId('polyline')).toHaveLength(0)
   })
 
-  it('unknown transport_mode falls back to blue (#3b82f6)', () => {
+  it('places not in legs chain are still rendered (not silently dropped)', () => {
+    // legs only connect p1→p2; p3 is outside the chain
+    const legs = [makeLegs()[0]]
+    render(<TripMap places={makePlaces()} legs={legs} />)
+    // All 3 markers must appear: p1 and p2 from legs, p3 appended
+    expect(screen.getAllByTestId('marker')).toHaveLength(3)
+  })
+
+  it('unknown transport_mode falls back to DRIVE blue (#3b82f6)', () => {
     const legs = [{ id: 'l1', from_place_id: 'p1', to_place_id: 'p2', transport_mode: 'FERRY', duration_minutes: 30, cost_sgd: null, is_estimated: false }]
     render(<TripMap places={makePlaces()} legs={legs} />)
     expect(screen.getByTestId('polyline')).toHaveAttribute('data-color', '#3b82f6')
@@ -166,16 +176,16 @@ describe('TripMap', () => {
 
   // --- FitBounds ---
 
-  it('calls fitBounds when there are multiple places', () => {
+  it('calls fitBounds when there are multiple places', async () => {
     render(<TripMap places={makePlaces()} legs={makeLegs()} />)
-    expect(mockFitBounds).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockFitBounds).toHaveBeenCalledTimes(1))
     expect(mockFitBounds).toHaveBeenCalledWith(expect.any(Array), { padding: [40, 40] })
   })
 
-  it('calls setView (not fitBounds) when there is only one place', () => {
+  it('calls setView (not fitBounds) when there is only one place', async () => {
     const single = [makePlaces()[0]]
     render(<TripMap places={single} legs={[]} />)
-    expect(mockSetView).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockSetView).toHaveBeenCalledTimes(1))
     expect(mockFitBounds).not.toHaveBeenCalled()
   })
 })
