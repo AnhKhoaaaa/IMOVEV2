@@ -144,7 +144,7 @@ describe('Planner', () => {
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-abc', {
       place_ids: ['place-1'],
       optimize_order: true,
-      preferences: { prefer_mrt: true, max_walk_minutes: 15 },
+      preferences: { prefer_mrt: true, max_walk_minutes: 15, travel_styles: [], group_type: 'solo' },
     }))
   })
 
@@ -161,7 +161,7 @@ describe('Planner', () => {
     fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
 
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-abc', expect.objectContaining({
-      preferences: { prefer_mrt: false, max_walk_minutes: 30 },
+      preferences: expect.objectContaining({ prefer_mrt: false, max_walk_minutes: 30 }),
     })))
   })
 
@@ -223,5 +223,67 @@ describe('Planner', () => {
 
     await waitFor(() => screen.getByRole('alert'))
     expect(screen.getByRole('button', { name: /tạo kế hoạch/i })).not.toBeDisabled()
+  })
+
+  it('renders travel style chips on step 3', async () => {
+    renderPlanner()
+    await advanceTo(3)
+    expect(screen.getByText('Văn hoá & Di sản')).toBeInTheDocument()
+    expect(screen.getByText('Thiên nhiên')).toBeInTheDocument()
+    expect(screen.getByText('Ẩm thực địa phương')).toBeInTheDocument()
+  })
+
+  it('renders group type chips on step 3', async () => {
+    renderPlanner()
+    await advanceTo(3)
+    expect(screen.getByText('Một mình')).toBeInTheDocument()
+    expect(screen.getByText('Cặp đôi')).toBeInTheDocument()
+    expect(screen.getByText('Gia đình')).toBeInTheDocument()
+  })
+
+  it('"Một mình" is selected by default', async () => {
+    renderPlanner()
+    await advanceTo(3)
+    expect(screen.getByRole('button', { name: 'Một mình' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Cặp đôi' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('switches group type on click (single-select)', async () => {
+    renderPlanner()
+    await advanceTo(3)
+    fireEvent.click(screen.getByRole('button', { name: 'Cặp đôi' }))
+    expect(screen.getByRole('button', { name: 'Cặp đôi' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Một mình' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('toggles travel style chips (multi-select)', async () => {
+    renderPlanner()
+    await advanceTo(3)
+    const btn = screen.getByRole('button', { name: 'Thiên nhiên' })
+    fireEvent.click(btn)
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(btn)
+    expect(btn).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('sends travel_styles and group_type in preferences payload', async () => {
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
+    api.planTrip.mockResolvedValue({})
+    renderPlanner()
+    await advanceTo(3)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thiên nhiên' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cặp đôi' }))
+    fireEvent.click(screen.getByRole('button', { name: /tiếp theo/i }))
+    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
+
+    await waitFor(() =>
+      expect(api.planTrip).toHaveBeenCalledWith('trip-abc', expect.objectContaining({
+        preferences: expect.objectContaining({
+          travel_styles: ['nature'],
+          group_type: 'couple',
+        }),
+      }))
+    )
   })
 })
