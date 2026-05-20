@@ -6,8 +6,12 @@ export function useAlerts(tripId) {
 
   useEffect(() => {
     if (!tripId) return
+
+    supabase.from('lta_alerts').select('*').eq('trip_id', tripId)
+      .then(({ data }) => { if (data) setAlerts(data) })
+
     const channel = supabase
-      .channel('trip-alerts')
+      .channel(`trip-alerts-${tripId}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
