@@ -19,5 +19,8 @@ class Settings(BaseSettings):
     # Optional: Adaptation Agent soft-error path
     openweather_api_key: Optional[str] = None
 
+    # Optional: production frontend URL for CORS (e.g. https://imove.vercel.app)
+    frontend_url: Optional[str] = None
+
 
 settings = Settings()
