@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MapPin, Settings, Sparkles, X, AlertCircle, Check } from 'lucide-react'
-import PlaceSearch from '../components/planner/PlaceSearch'
+import PlaceBrowser from '../components/planner/PlaceBrowser'
 import { api } from '../services/api'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -33,8 +33,12 @@ export default function Planner() {
   const [loading, setLoading] = useState(false)
   const [submitError, setSubmitError] = useState(null)
 
-  const addPlace = (place) =>
-    setPlaces((prev) => prev.some((p) => p.id === place.id) ? prev : [...prev, place])
+  const togglePlace = (place) =>
+    setPlaces((prev) =>
+      prev.some((p) => p.id === place.id)
+        ? prev.filter((p) => p.id !== place.id)
+        : [...prev, place],
+    )
 
   const removePlace = (id) => setPlaces((prev) => prev.filter((p) => p.id !== id))
 
@@ -57,12 +61,12 @@ export default function Planner() {
       catch { sessionId = generateId() }
 
       const trip = await api.createTrip({ session_id: sessionId, num_days: numDays, budget_sgd: budget })
-      await api.planTrip(trip.id, {
+      await api.planTrip(trip.trip_id, {
         place_ids: places.map((p) => p.id),
         optimize_order: optimizeOrder,
         preferences: { prefer_mrt: preferMrt, max_walk_minutes: maxWalkMinutes },
       })
-      navigate(`/trip/${trip.id}`)
+      navigate(`/trip/${trip.trip_id}`)
     } catch (e) {
       setSubmitError(e.message)
     } finally {
@@ -120,16 +124,25 @@ export default function Planner() {
             <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Chọn địa điểm</h2>
-                <p className="text-sm text-slate-500 mt-1">Tìm và thêm các địa điểm bạn muốn ghé thăm</p>
+                <p className="text-sm text-slate-500 mt-1">Chọn các địa điểm bạn muốn ghé thăm tại Singapore</p>
               </div>
-              <PlaceSearch onAdd={addPlace} />
+
+              <PlaceBrowser
+                selectedIds={places.map((p) => p.id)}
+                onToggle={togglePlace}
+              />
 
               {places.length > 0 && (
                 <div>
-                  <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wide">Đã chọn ({places.length})</p>
+                  <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wide">
+                    Đã chọn ({places.length})
+                  </p>
                   <ul className="space-y-1.5">
                     {places.map((p) => (
-                      <li key={p.id} className="flex items-center justify-between rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
+                      <li
+                        key={p.id}
+                        className="flex items-center justify-between rounded-lg bg-sky-50 border border-sky-100 px-3 py-2"
+                      >
                         <div className="flex items-center gap-2">
                           <Check className="h-3.5 w-3.5 text-sky-500 shrink-0" />
                           <span className="text-sm text-slate-700">{p.name}</span>

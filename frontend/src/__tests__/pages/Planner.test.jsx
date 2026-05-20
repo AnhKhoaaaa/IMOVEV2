@@ -17,10 +17,12 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-vi.mock('../../components/planner/PlaceSearch', () => ({
-  default: ({ onAdd }) => (
+vi.mock('../../components/planner/PlaceBrowser', () => ({
+  default: ({ selectedIds, onToggle }) => (
     <button
-      onClick={() => onAdd({ id: 'place-1', name: 'Gardens by the Bay', in_curated_dataset: true })}
+      onClick={() =>
+        onToggle({ id: 'place-1', name: 'Gardens by the Bay', in_curated_dataset: true, category: 'nature', dwell_minutes: 180 })
+      }
     >
       Add Gardens
     </button>
@@ -87,12 +89,13 @@ describe('Planner', () => {
     expect(screen.getByRole('button', { name: /tiếp theo/i })).toBeDisabled()
   })
 
-  it('does not add duplicate places', async () => {
+  it('removes a place when toggled a second time', async () => {
     renderPlanner()
     await advanceTo(2)
     fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
     fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
-    expect(screen.getAllByText('Gardens by the Bay')).toHaveLength(1)
+    expect(screen.queryByText('Gardens by the Bay')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /tiếp theo/i })).toBeDisabled()
   })
 
   it('renders MRT checkbox and walk slider on step 3', async () => {
@@ -130,7 +133,7 @@ describe('Planner', () => {
   })
 
   it('calls createTrip then planTrip with correct payload', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
     api.planTrip.mockResolvedValue({})
     renderPlanner()
     await advanceTo(4)
@@ -146,7 +149,7 @@ describe('Planner', () => {
   })
 
   it('includes updated preferences in planTrip payload', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
     api.planTrip.mockResolvedValue({})
     renderPlanner()
     await advanceTo(3)
@@ -163,7 +166,7 @@ describe('Planner', () => {
   })
 
   it('navigates to /trip/:id after successful submit', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-xyz' })
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-xyz' })
     api.planTrip.mockResolvedValue({})
     renderPlanner()
     await advanceTo(4)
@@ -174,7 +177,7 @@ describe('Planner', () => {
   })
 
   it('shows loading text while submitting', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
     api.planTrip.mockReturnValue(new Promise(() => {}))
     renderPlanner()
     await advanceTo(4)
@@ -187,7 +190,7 @@ describe('Planner', () => {
   })
 
   it('shows backend error message when planTrip fails', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
     api.planTrip.mockRejectedValue(new Error('Không đủ ngân sách'))
     renderPlanner()
     await advanceTo(4)
