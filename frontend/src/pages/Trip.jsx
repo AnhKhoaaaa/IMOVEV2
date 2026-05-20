@@ -4,6 +4,7 @@ import { AlertTriangle, X } from 'lucide-react'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
 import DayPlan from '../components/planner/DayPlan'
+import TravelTips from '../components/planner/TravelTips'
 import TripMap from '../components/map/TripMap'
 import AlertBanner from '../components/adaptation/AlertBanner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
@@ -22,7 +23,7 @@ function TripSkeleton() {
 
 export default function Trip() {
   const { id } = useParams()
-  const { trip, loading, error } = useTrip(id)
+  const { trip, loading, error, refresh } = useTrip(id)
   const { alerts, dismiss } = useAlerts(id)
   const [dismissedWarnings, setDismissedWarnings] = useState(false)
 
@@ -32,7 +33,7 @@ export default function Trip() {
 
         {/* Alerts from realtime */}
         {alerts.map((a) => (
-          <AlertBanner key={a.id} alert={a} tripId={id} onDismiss={dismiss} />
+          <AlertBanner key={a.id} alert={a} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
         ))}
 
         {/* Best-time warnings */}
@@ -74,8 +75,9 @@ export default function Trip() {
 
             <TabsContent value="list">
               {trip.days?.map((day) => (
-                <DayPlan key={day.day} day={day.day} legs={day.legs} tripId={id} />
+                <DayPlan key={day.day} day={day.day} legs={day.legs} tripId={id} onLegUpdated={refresh} />
               ))}
+              <TravelTips places={trip.places ?? []} />
             </TabsContent>
 
             <TabsContent value="map">
