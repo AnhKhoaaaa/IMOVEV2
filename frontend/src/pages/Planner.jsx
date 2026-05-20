@@ -16,6 +16,21 @@ const STEPS = [
   { id: 4, label: 'Xác nhận', icon: Sparkles },
 ]
 
+const TRAVEL_STYLES = [
+  { id: 'cultural',      label: 'Văn hoá & Di sản' },
+  { id: 'nature',        label: 'Thiên nhiên' },
+  { id: 'entertainment', label: 'Giải trí & Vui chơi' },
+  { id: 'food',          label: 'Ẩm thực địa phương' },
+  { id: 'shopping',      label: 'Mua sắm' },
+]
+
+const GROUP_TYPES = [
+  { id: 'solo',   label: 'Một mình' },
+  { id: 'couple', label: 'Cặp đôi' },
+  { id: 'group',  label: 'Nhóm bạn' },
+  { id: 'family', label: 'Gia đình' },
+]
+
 const generateId = () =>
   typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -30,6 +45,8 @@ export default function Planner() {
   const [preferMrt, setPreferMrt] = useState(true)
   const [maxWalkMinutes, setMaxWalkMinutes] = useState(15)
   const [optimizeOrder, setOptimizeOrder] = useState(true)
+  const [travelStyles, setTravelStyles] = useState([])
+  const [groupType, setGroupType] = useState('solo')
   const [loading, setLoading] = useState(false)
   const [submitError, setSubmitError] = useState(null)
 
@@ -41,6 +58,11 @@ export default function Planner() {
     )
 
   const removePlace = (id) => setPlaces((prev) => prev.filter((p) => p.id !== id))
+
+  const toggleTravelStyle = (id) =>
+    setTravelStyles((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
+    )
 
   const handleNumDays = (e) => {
     const v = parseInt(e.target.value, 10)
@@ -64,7 +86,12 @@ export default function Planner() {
       await api.planTrip(trip.trip_id, {
         place_ids: places.map((p) => p.id),
         optimize_order: optimizeOrder,
-        preferences: { prefer_mrt: preferMrt, max_walk_minutes: maxWalkMinutes },
+        preferences: {
+          prefer_mrt: preferMrt,
+          max_walk_minutes: maxWalkMinutes,
+          travel_styles: travelStyles,
+          group_type: groupType,
+        },
       })
       navigate(`/trip/${trip.trip_id}`)
     } catch (e) {
@@ -182,6 +209,56 @@ export default function Planner() {
                 <div className="space-y-1.5">
                   <Label htmlFor="budget">Ngân sách (SGD)</Label>
                   <Input id="budget" type="number" value={budget} min={1} onChange={handleBudget} />
+                </div>
+              </div>
+
+              {/* Travel style */}
+              <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-700">Phong cách du lịch</p>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Phong cách du lịch">
+                  {TRAVEL_STYLES.map(({ id, label }) => {
+                    const active = travelStyles.includes(id)
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => toggleTravelStyle(id)}
+                        aria-pressed={active}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          active
+                            ? 'border-sky-400 bg-sky-500 text-white'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-600'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Group type */}
+              <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-700">Đi cùng ai</p>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Đi cùng ai">
+                  {GROUP_TYPES.map(({ id, label }) => {
+                    const active = groupType === id
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setGroupType(id)}
+                        aria-pressed={active}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                          active
+                            ? 'border-sky-400 bg-sky-500 text-white'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-600'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
