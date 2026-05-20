@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Settings, Sparkles, X, AlertCircle, Check } from 'lucide-react'
+import { MapPin, Settings, Sparkles, X, AlertCircle, Check, Loader2 } from 'lucide-react'
 import PlaceBrowser from '../components/planner/PlaceBrowser'
 import { api } from '../services/api'
 import { Button } from '../components/ui/button'
@@ -47,8 +47,18 @@ export default function Planner() {
   const [optimizeOrder, setOptimizeOrder] = useState(true)
   const [travelStyles, setTravelStyles] = useState([])
   const [groupType, setGroupType] = useState('solo')
+  const [placeMode, setPlaceMode] = useState('manual')
+  const [aiStage, setAiStage] = useState('idle')
+  const [aiError, setAiError] = useState(null)
+  const [thinkingIdx, setThinkingIdx] = useState(0)
   const [loading, setLoading] = useState(false)
   const [submitError, setSubmitError] = useState(null)
+
+  useEffect(() => {
+    if (aiStage !== 'thinking') return
+    const id = setInterval(() => setThinkingIdx((prev) => Math.min(prev + 1, 2)), 900)
+    return () => clearInterval(id)
+  }, [aiStage])
 
   const togglePlace = (place) =>
     setPlaces((prev) =>
@@ -63,6 +73,26 @@ export default function Planner() {
     setTravelStyles((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
     )
+
+  const runAiSuggest = async () => {
+    setAiStage('thinking')
+    setAiError(null)
+    setThinkingIdx(0)
+    try {
+      const [result, allPlaces] = await Promise.all([
+        api.suggestPlaces({ num_days: numDays, travel_styles: travelStyles, group_type: groupType }),
+        api.getCuratedPlaces(),
+      ])
+      const suggested = result.suggested_place_ids
+        .map((id) => allPlaces.find((p) => p.id === id))
+        .filter(Boolean)
+      setPlaces(suggested)
+      setAiStage('done')
+    } catch (e) {
+      setAiError(e.message)
+      setAiStage('error')
+    }
+  }
 
   const handleNumDays = (e) => {
     const v = parseInt(e.target.value, 10)
@@ -154,10 +184,104 @@ export default function Planner() {
                 <p className="text-sm text-slate-500 mt-1">Chọn các địa điểm bạn muốn ghé thăm tại Singapore</p>
               </div>
 
-              <PlaceBrowser
-                selectedIds={places.map((p) => p.id)}
-                onToggle={togglePlace}
-              />
+              {/* Mode tabs */}
+              <div className="flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 gap-0.5">
+                {[
+                  { id: 'manual',  label: '🗂️ Tự chọn' },
+                  { id: 'ai',      label: '✨ AI Gợi ý' },
+                ].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    onClick={() => setPlaceMode(id)}
+                    className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
+                      placeMode === id
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Manual tab */}
+              {placeMode === 'manual' && (
+                <PlaceBrowser
+                  selectedIds={places.map((p) => p.id)}
+                  onToggle={togglePlace}
+                />
+              )}
+
+              {/* AI Suggest tab */}
+              {placeMode === 'ai' && (
+                <div className="space-y-4">
+                  {aiStage === 'idle' && (
+                    <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-4 text-center">
+                      <p className="text-sm text-slate-600">
+                        AI sẽ gợi ý địa điểm phù hợp dựa trên sở thích của bạn.
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Đặt phong cách du lịch ở Bước 3 để gợi ý chính xác hơn.
+                      </p>
+                      <Button onClick={runAiSuggest} className="gap-2">
+                        <Sparkles className="h-4 w-4" />
+                        Tạo gợi ý cho tôi
+                      </Button>
+                    </div>
+                  )}
+
+                  {aiStage === 'thinking' && (
+                    <div className="space-y-3 rounded-lg border border-sky-100 bg-sky-50 p-5">
+                      {[
+                        'Đang phân tích sở thích của bạn...',
+                        'Đang tìm địa điểm phù hợp...',
+                        'Đang tối ưu lịch trình...',
+                      ].map((label, i) => (
+                        <div key={i} className={`flex items-center gap-2.5 text-sm transition-opacity ${i <= thinkingIdx ? 'opacity-100' : 'opacity-30'}`}>
+                          {i < thinkingIdx ? (
+                            <Check className="h-4 w-4 text-sky-500 shrink-0" />
+                          ) : i === thinkingIdx ? (
+                            <Loader2 className="h-4 w-4 text-sky-500 shrink-0 animate-spin" />
+                          ) : (
+                            <span className="h-4 w-4 shrink-0" />
+                          )}
+                          <span className={i <= thinkingIdx ? 'text-sky-700' : 'text-slate-400'}>{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {aiStage === 'error' && (
+                    <div className="space-y-3 rounded-lg border border-red-100 bg-red-50 p-4">
+                      <p className="text-sm text-red-600">{aiError}</p>
+                      <Button variant="outline" size="sm" onClick={runAiSuggest} className="gap-2">
+                        <Sparkles className="h-4 w-4" />
+                        Thử lại
+                      </Button>
+                    </div>
+                  )}
+
+                  {aiStage === 'done' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-slate-500">
+                          AI đã gợi ý {places.length} địa điểm — bạn có thể chỉnh sửa bên dưới.
+                        </p>
+                        <button
+                          onClick={() => setAiStage('idle')}
+                          className="text-xs text-sky-600 hover:underline"
+                        >
+                          Tạo lại
+                        </button>
+                      </div>
+                      <PlaceBrowser
+                        selectedIds={places.map((p) => p.id)}
+                        onToggle={togglePlace}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {places.length > 0 && (
                 <div>
