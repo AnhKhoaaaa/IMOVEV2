@@ -88,6 +88,7 @@ async def get_trip(trip_id: str):
     if supabase:
         plan = _fetch_trip_from_db(trip_id)
         if plan:
+            _trip_store[trip_id] = plan
             return plan
 
     raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
@@ -132,14 +133,6 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
         supabase.table("route_legs").update(
             {"transport_mode": body.transport_mode}
         ).eq("id", leg_id).execute()
-
-        # Log implicit feedback for Memory Agent
-        supabase.table("trip_feedback").insert({
-            "trip_id": trip_id,
-            "leg_id": leg_id,
-            "feedback_type": "implicit",
-            "comment": f"Mode changed: {old_mode} → {updated_leg.transport_mode}",
-        }).execute()
 
     return updated_leg
 
@@ -221,27 +214,82 @@ def _verify_session_ownership(trip_id: str, session_id: str) -> None:
         raise HTTPException(status_code=403, detail="session_id does not match trip owner")
 
 
+def _row_day_number(row: dict) -> int:
+    """Read day index from aligned or legacy column names."""
+    if row.get("day_number") is not None:
+        return int(row["day_number"])
+    if row.get("day") is not None:
+        return int(row["day"])
+    return 1
+
+
+def _row_order_in_day(row: dict, default: int = 0) -> int:
+    if row.get("order_in_day") is not None:
+        return int(row["order_in_day"])
+    if row.get("position") is not None:
+        return int(row["position"])
+    return default
+
+
+def _trip_place_rows(trip_id: str, plan: TripPlan) -> list[dict]:
+    """Build trip_places rows with day_number and order_in_day from leg chains."""
+    place_by_id = {p.id: p for p in plan.places}
+    rows: list[dict] = []
+    assigned: set[str] = set()
+
+    for day in plan.days:
+        ordered_ids: list[str] = []
+        if day.legs:
+            ordered_ids.append(day.legs[0].from_place_id)
+            for leg in day.legs:
+                ordered_ids.append(leg.to_place_id)
+        for order, pid in enumerate(ordered_ids):
+            if pid in assigned or pid not in place_by_id:
+                continue
+            assigned.add(pid)
+            p = place_by_id[pid]
+            rows.append({
+                "trip_id": trip_id,
+                "place_id": p.id,
+                "place_name": p.name,
+                "lat": p.lat,
+                "lng": p.lng,
+                "dwell_minutes": p.dwell_minutes,
+                "day_number": day.day,
+                "order_in_day": order,
+            })
+
+    for p in plan.places:
+        if p.id not in assigned:
+            rows.append({
+                "trip_id": trip_id,
+                "place_id": p.id,
+                "place_name": p.name,
+                "lat": p.lat,
+                "lng": p.lng,
+                "dwell_minutes": p.dwell_minutes,
+                "day_number": plan.days[-1].day if plan.days else 1,
+                "order_in_day": 0,
+            })
+
+    return rows
+
+
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
-    """Batch-write trip_places and route_legs to Supabase (2 round-trips total)."""
-    place_rows = [
-        {
-            "trip_id": trip_id,
-            "place_id": p.id,
-            "place_name": p.name,
-            "lat": p.lat,
-            "lng": p.lng,
-            "dwell_minutes": p.dwell_minutes,
-        }
-        for p in plan.places
-    ]
+    """Batch-write trip_places and route_legs to Supabase."""
+    supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
+    supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
+
+    place_rows = _trip_place_rows(trip_id, plan)
     if place_rows:
-        supabase.table("trip_places").upsert(place_rows).execute()
+        supabase.table("trip_places").insert(place_rows).execute()
 
     leg_rows = [
         {
             "id": leg.id,
             "trip_id": trip_id,
             "day_number": day.day,
+            "order_in_day": pos,
             "from_place_id": leg.from_place_id,
             "to_place_id": leg.to_place_id,
             "transport_mode": leg.transport_mode,
@@ -250,10 +298,12 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
             "is_estimated": leg.is_estimated,
         }
         for day in plan.days
-        for leg in day.legs
+        for pos, leg in enumerate(day.legs)
     ]
     if leg_rows:
-        supabase.table("route_legs").upsert(leg_rows).execute()
+        supabase.table("route_legs").insert(leg_rows).execute()
+
+    supabase.table("trips").update({"status": "active"}).eq("id", trip_id).execute()
 
 
 def _fetch_trip_from_db(trip_id: str):
@@ -286,18 +336,25 @@ def _fetch_trip_from_db(trip_id: str):
             in_curated_dataset=bool(curated),
         ))
 
-    days_map: dict[int, list] = {}
+    days_map: dict[int, list[tuple[int, LegResponse]]] = {}
     for leg in legs_resp.data:
-        d = leg["day_number"]
-        days_map.setdefault(d, []).append(LegResponse(
-            id=leg["id"],
-            from_place_id=leg["from_place_id"],
-            to_place_id=leg["to_place_id"],
-            transport_mode=leg["transport_mode"],
-            duration_minutes=leg["duration_minutes"],
-            cost_sgd=float(leg["cost_sgd"]),
-            is_estimated=leg["is_estimated"],
+        d = _row_day_number(leg)
+        order = _row_order_in_day(leg)
+        days_map.setdefault(d, []).append((
+            order,
+            LegResponse(
+                id=leg["id"],
+                from_place_id=leg["from_place_id"],
+                to_place_id=leg["to_place_id"],
+                transport_mode=leg["transport_mode"],
+                duration_minutes=leg["duration_minutes"],
+                cost_sgd=float(leg["cost_sgd"]),
+                is_estimated=leg["is_estimated"],
+            ),
         ))
 
-    days = [DayPlan(day=d, legs=legs) for d, legs in sorted(days_map.items())]
+    days = [
+        DayPlan(day=d, legs=[lr for _, lr in sorted(entries, key=lambda x: x[0])])
+        for d, entries in sorted(days_map.items())
+    ]
     return TripPlan(id=trip_id, days=days, places=places, warnings=[])

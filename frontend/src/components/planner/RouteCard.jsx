@@ -18,7 +18,7 @@ const MODE_CONFIG = {
 }
 const MODES = ['MRT', 'BUS', 'WALK', 'DRIVE', 'CYCLE']
 
-export default function RouteCard({ leg, tripId }) {
+export default function RouteCard({ leg, tripId, onUpdated }) {
   const [displayMode, setDisplayMode] = useState(leg.transport_mode)
   const [editOpen, setEditOpen] = useState(false)
   const [newMode, setNewMode] = useState(leg.transport_mode)
@@ -38,6 +38,7 @@ export default function RouteCard({ leg, tripId }) {
       await api.updateLeg(tripId, leg.id, { transport_mode: newMode })
       setDisplayMode(newMode)
       setEditOpen(false)
+      if (onUpdated) await onUpdated()
     } catch (e) {
       setUpdateError(e.message)
     } finally {

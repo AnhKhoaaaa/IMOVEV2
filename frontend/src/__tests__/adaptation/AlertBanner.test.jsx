@@ -18,8 +18,16 @@ const makeAlert = (overrides = {}) => ({
 
 describe('AlertBanner', () => {
   const onDismiss = vi.fn()
+  const onAdapted = vi.fn()
 
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => 'sess-test-12345678'),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    })
+  })
 
   // --- Rendering by type ---
 
@@ -82,13 +90,21 @@ describe('AlertBanner', () => {
 
   // --- Adapt button (success) ---
 
-  it('calls api.adaptTrip and then onDismiss on success', async () => {
+  it('calls api.adaptTrip with session_id and then onAdapted and onDismiss on success', async () => {
     api.adaptTrip.mockResolvedValue({})
-    render(<AlertBanner alert={makeAlert()} tripId="trip-1" onDismiss={onDismiss} />)
+    render(
+      <AlertBanner alert={makeAlert()} tripId="trip-1" onDismiss={onDismiss} onAdapted={onAdapted} />
+    )
 
     fireEvent.click(screen.getByText('Cập nhật kế hoạch'))
 
-    await waitFor(() => expect(api.adaptTrip).toHaveBeenCalledWith('trip-1', { alert_id: 'alert-1' }))
+    await waitFor(() =>
+      expect(api.adaptTrip).toHaveBeenCalledWith('trip-1', {
+        alert_id: 'alert-1',
+        session_id: 'sess-test-12345678',
+      })
+    )
+    await waitFor(() => expect(onAdapted).toHaveBeenCalled())
     await waitFor(() => expect(onDismiss).toHaveBeenCalledWith('alert-1'))
   })
 

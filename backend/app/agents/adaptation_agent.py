@@ -31,7 +31,12 @@ async def poll_lta_alerts() -> None:
     if not supabase:
         return
 
-    trips_resp = supabase.table("trips").select("id").eq("status", "planning").execute()
+    trips_resp = (
+        supabase.table("trips")
+        .select("id")
+        .in_("status", ["planning", "active"])
+        .execute()
+    )
     active_ids = [t["id"] for t in (trips_resp.data or [])]
     if not active_ids:
         return
@@ -122,7 +127,12 @@ async def poll_weather_alerts() -> None:
     if forecast["rain_probability"] <= _WEATHER_RAIN_THRESHOLD:
         return
 
-    trips_resp = supabase.table("trips").select("id").eq("status", "planning").execute()
+    trips_resp = (
+        supabase.table("trips")
+        .select("id")
+        .in_("status", ["planning", "active"])
+        .execute()
+    )
     active_ids = [t["id"] for t in (trips_resp.data or [])]
     if not active_ids:
         return

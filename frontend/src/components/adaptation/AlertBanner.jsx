@@ -26,7 +26,15 @@ const TYPE_CONFIG = {
   },
 }
 
-export default function AlertBanner({ alert, tripId, onDismiss }) {
+function getSessionId() {
+  try {
+    return localStorage.getItem('session_id')
+  } catch {
+    return null
+  }
+}
+
+export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
   // Unknown types fall back to the most restrictive config (no adapt button).
   const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.service_unavailable
   const { Icon, bg, color, label, showAdapt } = config
@@ -40,7 +48,9 @@ export default function AlertBanner({ alert, tripId, onDismiss }) {
     setAdapting(true)
     setAdaptError(null)
     try {
-      await api.adaptTrip(tripId, { alert_id: alert.id })
+      const sessionId = getSessionId()
+      await api.adaptTrip(tripId, { alert_id: alert.id, session_id: sessionId })
+      if (onAdapted) await onAdapted()
       onDismiss(alert.id)
     } catch (e) {
       setAdaptError(e.message)

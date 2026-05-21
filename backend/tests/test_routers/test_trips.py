@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.routers.trips import _trip_place_rows
 from app.models.trip import TripPlan, DayPlan, LegResponse
 from app.models.place import Place
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
@@ -41,6 +42,29 @@ def _make_plan(trip_id: str = "test-trip") -> TripPlan:
         places=[place],
         warnings=[],
     )
+
+
+def test_trip_place_rows_assigns_day_and_order():
+    plan = _make_plan("t1")
+    plan.places.append(
+        Place(
+            id="marina-bay-sands",
+            name="Marina Bay Sands",
+            lat=1.2834,
+            lng=103.8607,
+            dwell_minutes=120,
+            best_time_start="10:00",
+            best_time_end="22:00",
+            category="landmark",
+            is_outdoor=False,
+            in_curated_dataset=True,
+        )
+    )
+    rows = _trip_place_rows("t1", plan)
+    assert len(rows) == 2
+    assert rows[0]["day_number"] == 1
+    assert rows[0]["order_in_day"] == 0
+    assert rows[1]["order_in_day"] == 1
 
 
 # ── POST /trips ───────────────────────────────────────────────────────────────
