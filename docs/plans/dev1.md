@@ -343,3 +343,46 @@ Test cases (dùng FastAPI `TestClient` — sync, không cần asyncio):
 3. `test_search_finds_by_name` — q=marina → có "Marina Bay Sands"
 4. `test_search_case_insensitive` — q=GARDENS → có "Gardens by the Bay"
 5. `test_search_no_match_returns_empty_list` — q=xyzzy → `[]`
+
+---
+
+## System fixes — E2E stability (2026-05-20)
+
+Kế hoạch triển khai: đồng bộ Supabase schema với backend persist, sửa contract frontend `trip_id`, adapt flow + error messages.
+
+### Đã làm
+
+| Hạng mục | File |
+|----------|------|
+| Migration 004 | `supabase/migrations/004_schema_code_alignment.sql` |
+| Persist/fetch | `backend/app/routers/trips.py` |
+| Poll active trips | `backend/app/agents/adaptation_agent.py` |
+| API errors | `frontend/src/services/api.js` |
+| Adapt + refresh | `AlertBanner.jsx`, `Trip.jsx`, `DayPlan.jsx`, `RouteCard.jsx` |
+| Tests | `Planner.test.jsx`, `AlertBanner.test.jsx` |
+
+### Thao tác thủ công (team)
+
+1. Supabase SQL Editor: chạy `004_schema_code_alignment.sql` (sau 001–003).
+2. Dashboard → Replication → bật Realtime cho `lta_alerts`.
+3. Restart backend sau khi apply migration.
+
+### E2E checklist
+
+| # | Kiểm tra | Kỳ vọng |
+|---|----------|---------|
+| 1 | Tạo kế hoạch 3 POI | `/trip/{uuid}` có legs |
+| 2 | Refresh trang Trip | Vẫn load từ DB |
+| 3 | Backend log sau plan | Không `Supabase persist failed` |
+| 4 | PATCH leg | 200 |
+| 5 | INSERT `lta_alerts` + Adapt | 200, UI refresh |
+| 6 | Budget quá thấp | Message lỗi rõ |
+
+### Automated gate
+
+```bash
+cd backend && pytest tests/ -v --ignore=tests/test_database.py
+cd frontend && npm test
+```
+
+Kết quả: 88 backend + 124 frontend tests pass.
