@@ -40,28 +40,67 @@ function getSessionId() {
   try { return localStorage.getItem('session_id') } catch { return null }
 }
 
+function DeltaPill({ value, unit, positiveIsBad = true }) {
+  if (value === 0) return null
+  const bad = positiveIsBad ? value > 0 : value < 0
+  const sign = value > 0 ? '+' : ''
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${bad ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+      {sign}{value}{unit}
+    </span>
+  )
+}
+
 export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
   const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.service_unavailable
   const { Icon, containerClass, iconClass, badgeClass, textClass, label, btnClass, showAdapt } = config
+
+  // Phase 1: fetch tentative proposal
   const [adapting, setAdapting] = useState(false)
   const [adaptError, setAdaptError] = useState(null)
+  // Phase 2: user accepts or discards the proposal
+  const [proposal, setProposal] = useState(null)   // AdaptResponse from /adapt
+  const [accepting, setAccepting] = useState(false)
+  const [acceptError, setAcceptError] = useState(null)
 
-  useEffect(() => { setAdaptError(null) }, [alert.id])
+  useEffect(() => {
+    setAdaptError(null)
+    setProposal(null)
+    setAcceptError(null)
+  }, [alert.id])
 
   const handleAdapt = async () => {
     setAdapting(true)
     setAdaptError(null)
     try {
       const sessionId = getSessionId()
-      await api.adaptTrip(tripId, { alert_id: alert.id, session_id: sessionId })
-      if (onAdapted) await onAdapted()
-      onDismiss(alert.id)
+      const result = await api.adaptTrip(tripId, { alert_id: alert.id, session_id: sessionId })
+      setProposal(result)
     } catch (e) {
       setAdaptError(e.message)
     } finally {
       setAdapting(false)
     }
   }
+
+  const handleAccept = async () => {
+    setAccepting(true)
+    setAcceptError(null)
+    try {
+      const sessionId = getSessionId()
+      await api.acceptSwap(tripId, { alert_id: alert.id, session_id: sessionId })
+      if (onAdapted) await onAdapted()
+      onDismiss(alert.id)
+    } catch (e) {
+      setAcceptError(e.message)
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  const delta = proposal
+    ? { cost: proposal.delta_transit_cost, time: proposal.delta_active_time, walk: proposal.delta_walking_distance }
+    : null
 
   return (
     <div role="alert" className={cn('rounded-2xl border p-4 flex gap-3 animate-slide-up', containerClass)}>
@@ -73,8 +112,16 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
         </span>
         <p className={cn('text-sm mt-1.5 leading-relaxed', textClass)}>{alert.message}</p>
 
+        {delta && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            <DeltaPill value={delta.cost} unit=" SGD" positiveIsBad={true} />
+            <DeltaPill value={delta.time} unit=" min" positiveIsBad={true} />
+            <DeltaPill value={Math.round(delta.walk)} unit=" m walk" positiveIsBad={true} />
+          </div>
+        )}
+
         <div className="flex gap-2 mt-3 flex-wrap">
-          {showAdapt && (
+          {showAdapt && !proposal && (
             <button
               onClick={handleAdapt}
               disabled={adapting}
@@ -83,23 +130,38 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
                 btnClass
               )}
             >
-              {adapting ? 'Updating...' : 'Update Plan'}
+              {adapting ? 'Fetching...' : 'Update Plan'}
+            </button>
+          )}
+          {showAdapt && proposal && (
+            <button
+              onClick={handleAccept}
+              disabled={accepting}
+              className={cn(
+                'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
+                btnClass
+              )}
+            >
+              {accepting ? 'Applying...' : 'Accept Changes'}
             </button>
           )}
           <button
             onClick={() => onDismiss(alert.id)}
-            disabled={adapting}
+            disabled={adapting || accepting}
             className={cn(
               'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
               btnClass
             )}
           >
-            {showAdapt ? 'Dismiss' : 'Got it'}
+            {proposal ? 'Discard' : showAdapt ? 'Dismiss' : 'Got it'}
           </button>
         </div>
 
         {adaptError && (
           <p className="mt-2 text-xs text-red-600">{adaptError}</p>
+        )}
+        {acceptError && (
+          <p className="mt-2 text-xs text-red-600">{acceptError}</p>
         )}
       </div>
 

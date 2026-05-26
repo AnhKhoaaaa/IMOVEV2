@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.models.trip import (
     TripCreate, TripPlanRequest, TripPlan,
-    LegUpdateRequest, AdaptRequest, AdaptResponse,
+    LegUpdateRequest, AdaptRequest, AdaptResponse, TripStatus, LocationUpdate,
 )
 from app.agents import planning_agent, adaptation_agent
 from app.agents.planning_agent import get_curated_place
@@ -21,6 +21,8 @@ router = APIRouter()
 _trip_store: dict[str, TripPlan] = {}
 # Cache trip metadata (num_days, budget_sgd, session_id) for no-DB scenarios
 _trip_meta: dict[str, dict] = {}
+# Tentative adaptation proposals awaiting user accept (§6 User Consent Flow)
+_pending_swaps: dict[str, dict] = {}  # trip_id → {alert_id, updated_trip}
 
 
 @router.post("")
@@ -41,7 +43,9 @@ async def create_trip(body: TripCreate):
             "user_id": str(body.user_id) if body.user_id else None,
             "num_days": body.num_days,
             "budget_sgd": float(body.budget_sgd),
-            "status": "planning",
+            "status": "DRAFT",
+            "start_date": body.start_date.isoformat() if body.start_date else None,
+            "end_date": body.end_date.isoformat() if body.end_date else None,
         }).execute()
 
     return {"trip_id": trip_id}
@@ -162,10 +166,46 @@ async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
 
     result = await adaptation_agent.adapt_trip(trip_id, body.alert_id, plan)
 
+    # Store proposal in memory — do NOT persist to DB until user calls /accept-swap (§6)
     if result.adapted:
-        _trip_store[trip_id] = result.updated_trip
+        _pending_swaps[trip_id] = {
+            "alert_id": body.alert_id,
+            "updated_trip": result.updated_trip,
+        }
 
     return result
+
+
+@router.post("/{trip_id}/location", status_code=204)
+async def update_location(trip_id: str, body: LocationUpdate):
+    if body.session_id:
+        _verify_session_ownership(trip_id, body.session_id)
+
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+
+    if plan:
+        await adaptation_agent.check_lta_proximity(trip_id, body.lat, body.lng, plan)
+
+
+@router.post("/{trip_id}/accept-swap")
+async def accept_swap(trip_id: str, body: AdaptRequest):
+    if body.session_id:
+        _verify_session_ownership(trip_id, body.session_id)
+
+    pending = _pending_swaps.get(trip_id)
+    if not pending:
+        raise HTTPException(status_code=404, detail="No pending adaptation found for this trip")
+    if pending["alert_id"] != body.alert_id:
+        raise HTTPException(status_code=409, detail="alert_id does not match pending adaptation")
+
+    updated_trip: TripPlan = pending["updated_trip"]
+    await adaptation_agent.commit_adaptation(trip_id, updated_trip, body.alert_id)
+    _trip_store[trip_id] = updated_trip
+    del _pending_swaps[trip_id]
+
+    return updated_trip
 
 
 # ---------------------------------------------------------------------------

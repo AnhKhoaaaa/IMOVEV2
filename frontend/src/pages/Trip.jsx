@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map } from 'lucide-react'
+import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map, WifiOff } from 'lucide-react'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
+import { useGeolocation } from '../hooks/useGeolocation'
 import { buildPlacesById } from '../lib/tripUtils'
 import { api } from '../services/api'
 import DayPlan from '../components/planner/DayPlan'
@@ -47,13 +48,24 @@ function PanelSkeleton() {
 export default function Trip() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { trip, loading, error, refresh } = useTrip(id)
+  const { trip, loading, error, refresh, isOffline } = useTrip(id)
   const { alerts, dismiss } = useAlerts(id)
+  const { position } = useGeolocation()
+  const lastLocationSent = useRef(0)
 
   const [tab, setTab] = useState('overview')
   const [mode, setMode] = useState('split')  // 'split' | 'expanded'
   const [dismissedWarnings, setDismissedWarnings] = useState(false)
   const [showMobileMap, setShowMobileMap] = useState(false)
+
+  // Send position to backend at most once per 30 s for proximity-based LTA alerts (§3.2)
+  useEffect(() => {
+    if (!position || !id) return
+    const now = Date.now()
+    if (now - lastLocationSent.current < 30000) return
+    lastLocationSent.current = now
+    api.updateLocation(id, { lat: position.lat, lng: position.lng }).catch(() => {})
+  }, [position, id])
 
   const savedMeta = useMemo(() => api.getSavedTrips().find((t) => t.id === id), [id])
 
@@ -69,7 +81,7 @@ export default function Trip() {
     return trip.days.find((d) => d.day === dayNum)?.legs ?? []
   }, [trip, tab])
 
-  const hasAlertZone = alerts.length > 0 || (!dismissedWarnings && (trip?.warnings?.length ?? 0) > 0)
+  const hasAlertZone = isOffline || alerts.length > 0 || (!dismissedWarnings && (trip?.warnings?.length ?? 0) > 0)
 
   return (
     <div className="h-screen w-full flex bg-slate-50 overflow-hidden">
@@ -84,6 +96,14 @@ export default function Trip() {
         {/* Alert zone */}
         {hasAlertZone && (
           <div className="shrink-0 space-y-2 border-b border-slate-100 bg-white px-4 py-2">
+            {isOffline && (
+              <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                <WifiOff className="h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+                <p className="text-xs font-medium text-amber-800">
+                  Offline Mode — Displaying scheduled fallback itinerary
+                </p>
+              </div>
+            )}
             {alerts.map((a) => (
               <AlertBanner key={a.id} alert={a} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
             ))}

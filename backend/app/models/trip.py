@@ -1,8 +1,11 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+from datetime import date
 from uuid import UUID
 
 from app.models.place import Place
+
+TripStatus = Literal["DRAFT", "UPCOMING", "HAPPENING_TODAY", "PAST"]
 
 
 class TripCreate(BaseModel):
@@ -10,6 +13,8 @@ class TripCreate(BaseModel):
     user_id: Optional[UUID] = None
     num_days: int = Field(ge=1, le=14)
     budget_sgd: float = Field(ge=0)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
 
 
 class TripPlanRequest(BaseModel):
@@ -54,6 +59,15 @@ class AdaptResponse(BaseModel):
     adapted: bool
     changes: list[str]
     updated_trip: TripPlan
+    delta_transit_cost: float = 0.0        # positive = more expensive, negative = cheaper (SGD)
+    delta_active_time: int = 0             # minutes added (positive) or saved (negative)
+    delta_walking_distance: float = 0.0   # meters added or saved
+
+
+class LocationUpdate(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 
 class FeedbackRequest(BaseModel):

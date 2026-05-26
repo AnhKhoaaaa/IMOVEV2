@@ -9,6 +9,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 
 from app.services import lta, openweather, onemap
+from app.services.openweather import SINGAPORE_LAT, SINGAPORE_LNG
 from app.services.lta import LTAUnavailableError
 from app.services.openweather import WeatherUnavailableError
 from app.services.onemap import NoRouteError
@@ -31,7 +32,7 @@ async def poll_lta_alerts() -> None:
     if not supabase:
         return
 
-    trips_resp = supabase.table("trips").select("id").eq("status", "planning").execute()
+    trips_resp = supabase.table("trips").select("id").eq("status", "HAPPENING_TODAY").execute()
     active_ids = [t["id"] for t in (trips_resp.data or [])]
     if not active_ids:
         return
@@ -107,22 +108,13 @@ async def poll_lta_alerts() -> None:
 
 
 async def poll_weather_alerts() -> None:
-    """[CODE] Check OpenWeather; insert weather_warning if rain > 70% and trip has outdoor places."""
+    """[CODE] Check OpenWeather per-trip; insert weather_warning if rain > 70% and trip has outdoor places."""
     if not supabase:
         return
 
     today = date.today().isoformat()
 
-    try:
-        forecast = await openweather.get_forecast(today)
-    except WeatherUnavailableError as exc:
-        log.warning("OpenWeather unavailable (non-critical): %s", exc)
-        return  # Soft failure — do not crash, do not insert
-
-    if forecast["rain_probability"] <= _WEATHER_RAIN_THRESHOLD:
-        return
-
-    trips_resp = supabase.table("trips").select("id").eq("status", "planning").execute()
+    trips_resp = supabase.table("trips").select("id").eq("status", "HAPPENING_TODAY").execute()
     active_ids = [t["id"] for t in (trips_resp.data or [])]
     if not active_ids:
         return
@@ -138,11 +130,25 @@ async def poll_weather_alerts() -> None:
     for row in (all_places_resp.data or []):
         places_by_trip.setdefault(row["trip_id"], []).append(row["place_id"])
 
+    _places = get_all_places()
+
     for trip_id in active_ids:
         place_ids = places_by_trip.get(trip_id, [])
-        _places = get_all_places()
         outdoor_places = [_places[pid] for pid in place_ids if pid in _places and _places[pid]["is_outdoor"]]
         if not outdoor_places:
+            continue
+
+        # Localized forecast at this itinerary's centroid (§3.1 Weather Engine)
+        centroid = _compute_centroid(place_ids)
+        clat, clng = centroid if centroid else (SINGAPORE_LAT, SINGAPORE_LNG)
+
+        try:
+            forecast = await openweather.get_forecast(today, clat, clng)
+        except WeatherUnavailableError as exc:
+            log.warning("OpenWeather unavailable for trip %s: %s", trip_id, exc)
+            continue  # Soft failure per trip — do not crash the loop
+
+        if forecast["rain_probability"] <= _WEATHER_RAIN_THRESHOLD:
             continue
 
         suggestions = []
@@ -211,25 +217,130 @@ async def adapt_trip(
     else:
         return AdaptResponse(adapted=False, changes=["No adaptation needed"], updated_trip=current_plan)
 
-    if changes and supabase:
-        await asyncio.to_thread(_persist_updated_legs, trip_id, updated_plan)
-        supabase.table("lta_alerts").update(
-            {"resolved_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", alert_id).execute()
+    # Do NOT persist here — caller must explicitly invoke commit_adaptation()
+    # after the user accepts the proposal (§6 User Consent Flow).
+    delta = _compute_delta(current_plan, updated_plan)
+    return AdaptResponse(
+        adapted=bool(changes),
+        changes=changes,
+        updated_trip=updated_plan,
+        **delta,
+    )
 
-    return AdaptResponse(adapted=bool(changes), changes=changes, updated_trip=updated_plan)
+
+async def check_lta_proximity(
+    trip_id: str,
+    user_lat: float,
+    user_lng: float,
+    plan: TripPlan,
+) -> None:
+    """[CODE] Proximity-triggered LTA check (§3.2): alert if user ≤1km from MRT boarding node and disruption active."""
+    if not supabase:
+        return
+
+    mrt_from_ids = {
+        leg.from_place_id
+        for day in plan.days
+        for leg in day.legs
+        if leg.transport_mode == "MRT"
+    }
+    if not mrt_from_ids:
+        return
+
+    place_map = {p.id: p for p in plan.places}
+    nearby = [
+        place_map[pid]
+        for pid in mrt_from_ids
+        if pid in place_map
+        and _haversine_km(user_lat, user_lng, place_map[pid].lat, place_map[pid].lng) <= 1.0
+    ]
+    if not nearby:
+        return
+
+    try:
+        alerts = await lta.get_train_alerts()
+    except LTAUnavailableError as exc:
+        log.warning("LTA unavailable during proximity check for trip %s: %s", trip_id, exc)
+        return
+
+    if not alerts:
+        return
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    for alert in alerts:
+        line = alert.get("affected_line", "")
+        message = alert.get("message", "Train disruption detected")
+        existing = (
+            supabase.table("lta_alerts")
+            .select("id")
+            .eq("trip_id", trip_id)
+            .eq("alert_type", "transport_alert")
+            .eq("affected_line", line)
+            .is_("resolved_at", "null")
+            .gte("created_at", cutoff)
+            .execute()
+        )
+        if existing.data:
+            continue
+        supabase.table("lta_alerts").insert({
+            "trip_id": trip_id,
+            "alert_type": "transport_alert",
+            "affected_line": line,
+            "message": f"Disruption near your boarding point: {message}",
+        }).execute()
+
+
+async def commit_adaptation(trip_id: str, updated_trip: TripPlan, alert_id: str) -> None:
+    """Persist accepted adaptation to DB and mark alert resolved (POST /accept-swap)."""
+    if not supabase:
+        return
+    await asyncio.to_thread(_persist_updated_legs, trip_id, updated_trip)
+    supabase.table("lta_alerts").update(
+        {"resolved_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", alert_id).execute()
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _compute_delta(original: TripPlan, updated: TripPlan) -> dict:
+    """Compute cost/time/walking deltas between original and updated plan."""
+    def _totals(plan: TripPlan) -> tuple[float, int, float]:
+        cost = sum(leg.cost_sgd for day in plan.days for leg in day.legs)
+        time = sum(leg.duration_minutes for day in plan.days for leg in day.legs)
+        # Walking distance estimate: WALK legs at 80 m/min
+        walk_m = sum(
+            leg.duration_minutes * 80
+            for day in plan.days for leg in day.legs
+            if leg.transport_mode.upper() == "WALK"
+        )
+        return cost, time, walk_m
+
+    orig_cost, orig_time, orig_walk = _totals(original)
+    new_cost, new_time, new_walk = _totals(updated)
+    return {
+        "delta_transit_cost": round(new_cost - orig_cost, 2),
+        "delta_active_time": new_time - orig_time,
+        "delta_walking_distance": round(new_walk - orig_walk, 1),
+    }
+
+
+def _compute_centroid(place_ids: list[str]) -> tuple[float, float] | None:
+    """Return mean (lat, lng) for a list of place IDs. Returns None if no known coords."""
+    _places = get_all_places()
+    coords = [(p["lat"], p["lng"]) for pid in place_ids if (p := _places.get(pid))]
+    if not coords:
+        return None
+    return sum(lat for lat, _ in coords) / len(coords), sum(lng for _, lng in coords) / len(coords)
+
+
 def _nearest_indoor(lat: float, lng: float, exclude_id: str) -> dict | None:
-    """Find nearest indoor place within 2 km from the curated places dataset."""
+    """Find nearest indoor place within 5 km from the curated places dataset."""
     candidates = [
         p for p in get_all_places().values()
         if not p["is_outdoor"] and p["id"] != exclude_id
-        and _haversine_km(lat, lng, p["lat"], p["lng"]) < 2.0
+        and _haversine_km(lat, lng, p["lat"], p["lng"]) < 5.0
     ]
     if not candidates:
         return None

@@ -1,29 +1,24 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 export function useGeolocation() {
   const [position, setPosition] = useState(null)  // { lat, lng }
   const [error, setError] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const watchRef = useRef(null)
 
-  const request = useCallback(() => {
+  useEffect(() => {
     if (!navigator.geolocation) {
       setError('Geolocation not supported')
       return
     }
-    setLoading(true)
-    setError(null)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude })
-        setLoading(false)
-      },
-      (err) => {
-        setError(err.message)
-        setLoading(false)
-      },
-      { timeout: 8000, maximumAge: 60000 }
+    watchRef.current = navigator.geolocation.watchPosition(
+      (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => setError(err.message),
+      { timeout: 10000, maximumAge: 30000, enableHighAccuracy: false }
     )
+    return () => {
+      if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current)
+    }
   }, [])
 
-  return { position, error, loading, request }
+  return { position, error }
 }

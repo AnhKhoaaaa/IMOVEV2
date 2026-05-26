@@ -88,32 +88,48 @@ Realtime alerts use Supabase Postgres Changes (WebSocket), not polling — see `
 
 Migrations live in `supabase/migrations/`. Auth is only required for the Memory Agent — Planning and Adaptation agents work without login.
 
-## Team Branch Ownership
 
-| Branch | Dev | Owns |
-|--------|-----|------|
-| `dev/backend-infra` | Dev 1 | `backend/app/services/`, `routers/health.py`, `routers/places.py` |
-| `dev/agent-logic` | Dev 2 | `backend/app/agents/`, `routers/trips.py`, `routers/alerts.py`, `data/` |
-| `dev/frontend-core` | Dev 3 | `frontend/src/pages/`, `components/planner/`, `components/auth/` |
-| `dev/frontend-map` | Dev 4 | `frontend/src/components/map/`, `components/adaptation/`, `hooks/`, `lib/` |
-| Shared | All | `backend/app/models/`, `frontend/src/services/api.js`, `supabase/migrations/` |
 
-Do not commit into another dev's ownership area.
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
 
-## Cross-Dev Communication (Handoff Files)
+This project is indexed by GitNexus as **IMOVEV2** (1183 symbols, 1936 relationships, 26 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-Each parallel dev session communicates via handoff files in `docs/plans/`. Read the relevant file at the start of each session.
+> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
-| File | For | Purpose |
-|------|-----|---------|
-| `docs/plans/HANDOFF_DEV2.md` | Dev 2 | API contracts, agent implementation specs, status |
-| `docs/plans/HANDOFF_DEV4.md` | Dev 4 | TripMap specs, hooks verification, supabase.js |
+## Always Do
 
-**Protocol — every update to a handoff file MUST follow this format:**
-```
-Append to the "Update Log" section at the bottom of the file.
-NEVER edit or delete previous entries.
-Header format: ### [YYYY-MM-DD | DevX] Short description
-```
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
 
-When you finish a task or need to communicate a contract change, append to the handoff file immediately before committing code. The other dev's session reads this log to stay in sync.
+## Never Do
+
+- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
+- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/IMOVEV2/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/IMOVEV2/clusters` | All functional areas |
+| `gitnexus://repo/IMOVEV2/processes` | All execution flows |
+| `gitnexus://repo/IMOVEV2/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->
