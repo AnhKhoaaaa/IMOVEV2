@@ -1,14 +1,63 @@
 import { useMemo } from 'react'
-import { MapPin, Plus, X, ChevronRight } from 'lucide-react'
+import { MapPin, ChevronRight, Clock, Wallet, Footprints, ArrowLeftRight } from 'lucide-react'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
+
+const MODE_COLORS = {
+  MRT: 'bg-indigo-500',
+  LRT: 'bg-violet-500',
+  BUS: 'bg-emerald-500',
+  WALK: 'bg-orange-400',
+  DRIVE: 'bg-purple-500',
+  CYCLE: 'bg-teal-500',
+}
+
+function fmtMin(m) {
+  if (m < 60) return `${m}m`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+/* ── Metrics strip ───────────────────────────────────────────────── */
+function MetricChip({ icon, label, value }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 rounded-xl border border-slate-200 bg-white py-2.5 px-2">
+      <span className="text-slate-400">{icon}</span>
+      <span className="font-display font-extrabold text-[15px] text-slate-900 tabular-nums leading-none">{value}</span>
+      <span className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</span>
+    </div>
+  )
+}
 
 export default function OverviewTab({ trip, savedMeta, onJumpDay }) {
   const days = trip?.days ?? []
   const allPlaces = trip?.places ?? []
   const warnings = trip?.warnings ?? []
 
+  const metrics = useMemo(() => {
+    const allLegs = days.flatMap((d) => d.legs ?? [])
+    const totalMin = allLegs.reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+    const totalCost = allLegs.reduce((s, l) => s + (l.cost_sgd ?? 0), 0)
+    const walkLegs = allLegs.filter((l) => (l.transport_mode ?? '').toUpperCase() === 'WALK')
+    const walkM = walkLegs.reduce((s, l) => s + (l.duration_minutes ?? 0) * 80, 0)
+    return {
+      time: fmtMin(totalMin),
+      cost: `S$${totalCost.toFixed(2)}`,
+      walk: walkM >= 1000 ? `${(walkM / 1000).toFixed(1)}km` : `${walkM}m`,
+      stops: allPlaces.length,
+    }
+  }, [days, allPlaces])
+
   return (
     <div className="space-y-5 animate-fade-up">
+      {/* Metrics strip */}
+      {allPlaces.length > 0 && (
+        <div className="grid grid-cols-4 gap-2">
+          <MetricChip icon={<Clock size={13} />} label="Active" value={metrics.time} />
+          <MetricChip icon={<Wallet size={13} />} label="Transit" value={metrics.cost} />
+          <MetricChip icon={<Footprints size={13} />} label="Walk" value={metrics.walk} />
+          <MetricChip icon={<ArrowLeftRight size={13} />} label="Stops" value={metrics.stops} />
+        </div>
+      )}
+
       {/* Mini-map preview */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
         <div className="relative h-44 map-grid">
@@ -44,6 +93,13 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay }) {
       <div className="space-y-3">
         {days.map((d) => {
           const { ordered } = buildOrderedPlaces(allPlaces, d.legs ?? [])
+          const dayMin = (d.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+          // Collect unique transport modes for this day
+          const modes = [...new Set(
+            (d.legs ?? [])
+              .map((l) => (l.transport_mode ?? '').toUpperCase())
+              .filter(Boolean)
+          )]
           return (
             <button
               key={d.day}
@@ -58,11 +114,32 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay }) {
                   <span className="font-display font-bold text-[15px] text-slate-900">
                     Day {d.day}
                     {ordered.length > 0 && (
-                      <span className="text-slate-400 font-normal ml-1.5">· {ordered.length} stop{ordered.length !== 1 ? 's' : ''}</span>
+                      <span className="text-slate-400 font-normal ml-1.5">
+                        · {ordered.length} stop{ordered.length !== 1 ? 's' : ''}
+                      </span>
                     )}
                   </span>
                 </div>
-                <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-600 transition" />
+                <div className="flex items-center gap-2">
+                  {/* Mode-mix dots */}
+                  {modes.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      {modes.map((m) => (
+                        <span
+                          key={m}
+                          title={m}
+                          className={`inline-block h-2 w-2 rounded-full ${MODE_COLORS[m] ?? 'bg-slate-400'}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {dayMin > 0 && (
+                    <span className="text-[11.5px] text-slate-500 tabular-nums">
+                      {fmtMin(dayMin)}
+                    </span>
+                  )}
+                  <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-600 transition" />
+                </div>
               </div>
 
               {ordered.length === 0 ? (
@@ -93,7 +170,6 @@ function MiniMapSvg({ days, allPlaces }) {
 
   if (ordered.length === 0) return null
 
-  // Map real coords to SVG space (800×400 viewBox)
   const lats = ordered.map((p) => p.lat)
   const lngs = ordered.map((p) => p.lng)
   const minLat = Math.min(...lats)

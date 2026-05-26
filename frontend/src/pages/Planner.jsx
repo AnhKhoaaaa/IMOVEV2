@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Sparkles, AlertCircle, Loader2, Navigation2, Calendar, Clock } from 'lucide-react'
+import { MapPin, Sparkles, AlertCircle, Loader2, Navigation2, Calendar, Clock, ChevronDown } from 'lucide-react'
 import { api } from '../services/api'
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { cn } from '../lib/utils'
@@ -63,11 +63,13 @@ export default function Planner() {
   const [pace, setPace]               = useState('moderate')
   const [loading, setLoading]         = useState(false)
   const [submitError, setSubmitError] = useState(null)
+  const [prefsOpen, setPrefsOpen]     = useState(true)
 
   const toggleStyle = (id) =>
     setTravelStyles((p) => p.includes(id) ? p.filter((s) => s !== id) : [...p, id])
 
   const paceConfig = PACES.find((p) => p.id === pace) ?? PACES[1]
+  const canSubmit = !loading && (isFlexible || startDate !== '')
 
   // Haversine distance in km
   function dist(a, b) {
@@ -236,53 +238,75 @@ export default function Planner() {
               </div>
             </section>
 
-            {/* Companions */}
+            {/* Preferences — collapsible */}
             <section>
-              <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500 mb-3">Travelling with</p>
-              <div className="flex flex-wrap gap-2">
-                {COMPANIONS.map(({ id, emoji, label }) => (
-                  <Chip key={id} active={companion === id} onClick={() => setCompanion(id)}>
-                    <span className="text-[15px] leading-none">{emoji}</span>
-                    <span>{label}</span>
-                  </Chip>
-                ))}
-              </div>
-            </section>
+              <button
+                type="button"
+                onClick={() => setPrefsOpen((o) => !o)}
+                className="w-full flex items-center justify-between text-left mb-3"
+              >
+                <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500">
+                  Preferences
+                </p>
+                <ChevronDown
+                  size={14}
+                  className={cn('text-slate-400 transition-transform', prefsOpen && 'rotate-180')}
+                />
+              </button>
 
-            {/* Travel style */}
-            <section>
-              <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500 mb-3">Travel style</p>
-              <div className="flex flex-wrap gap-2">
-                {STYLES.map(({ id, emoji, label }) => (
-                  <Chip key={id} active={travelStyles.includes(id)} onClick={() => toggleStyle(id)}>
-                    <span className="text-[15px] leading-none">{emoji}</span>
-                    <span>{label}</span>
-                  </Chip>
-                ))}
-              </div>
-            </section>
+              {prefsOpen && (
+                <div className="space-y-5 animate-fade-up">
+                  {/* Companions */}
+                  <div>
+                    <p className="text-[11.5px] font-semibold text-slate-500 mb-2">Travelling with</p>
+                    <div className="flex flex-wrap gap-2">
+                      {COMPANIONS.map(({ id, emoji, label }) => (
+                        <Chip key={id} active={companion === id} onClick={() => setCompanion(id)}>
+                          <span className="text-[15px] leading-none">{emoji}</span>
+                          <span>{label}</span>
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
 
-            {/* Pace */}
-            <section>
-              <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500 mb-3">Trip pace</p>
-              <div className="flex gap-2">
-                {PACES.map(({ id, emoji, label, budget, walk }) => (
-                  <button
-                    key={id}
-                    onClick={() => setPace(id)}
-                    className={cn(
-                      'flex-1 flex flex-col items-center gap-1 rounded-xl border py-3 px-2 text-[13px] font-medium transition focus-ring',
-                      pace === id
-                        ? 'border-indigo-300 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-200'
-                        : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
-                    )}
-                  >
-                    <span className="text-[20px]">{emoji}</span>
-                    <span>{label}</span>
-                    <span className="text-[10px] text-slate-400 tabular-nums">≤S${budget} · {walk}m walk</span>
-                  </button>
-                ))}
-              </div>
+                  {/* Travel style */}
+                  <div>
+                    <p className="text-[11.5px] font-semibold text-slate-500 mb-2">Travel style</p>
+                    <div className="flex flex-wrap gap-2">
+                      {STYLES.map(({ id, emoji, label }) => (
+                        <Chip key={id} active={travelStyles.includes(id)} onClick={() => toggleStyle(id)}>
+                          <span className="text-[15px] leading-none">{emoji}</span>
+                          <span>{label}</span>
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Pace */}
+                  <div>
+                    <p className="text-[11.5px] font-semibold text-slate-500 mb-2">Trip pace</p>
+                    <div className="flex gap-2">
+                      {PACES.map(({ id, emoji, label, budget, walk }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setPace(id)}
+                          className={cn(
+                            'flex-1 flex flex-col items-center gap-1 rounded-xl border py-3 px-2 text-[13px] font-medium transition focus-ring',
+                            pace === id
+                              ? 'border-indigo-300 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-200'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
+                          )}
+                        >
+                          <span className="text-[20px]">{emoji}</span>
+                          <span>{label}</span>
+                          <span className="text-[10px] text-slate-400 tabular-nums">≤S${budget} · {walk}m walk</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* Hint */}
@@ -304,14 +328,19 @@ export default function Planner() {
             {/* CTA */}
             <button
               onClick={submit}
-              disabled={loading}
-              className="w-full h-14 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[16px] shadow-pop hover:opacity-90 transition-opacity disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              disabled={!canSubmit}
+              className="w-full h-14 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[16px] shadow-pop hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
             >
               {loading
                 ? <><Loader2 size={18} className="animate-spin" /> Planning your trip…</>
                 : <><Navigation2 size={18} /> Create Itinerary</>
               }
             </button>
+            {!canSubmit && !loading && (
+              <p className="text-center text-[12px] text-slate-400">
+                {isFlexible ? '' : 'Please select a start date to continue'}
+              </p>
+            )}
 
           </div>
         </div>

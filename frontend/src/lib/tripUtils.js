@@ -68,6 +68,24 @@ export function buildTimeline(legs, placesById) {
   return timeline
 }
 
+export function computeTripMetrics(tripData) {
+  if (!tripData?.days) return null
+  const allLegs = tripData.days.flatMap((d) => d.legs ?? [])
+  const totalMin = allLegs.reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+  const totalCost = allLegs.reduce((s, l) => s + (l.cost_sgd ?? 0), 0)
+  const walkLegs = allLegs.filter((l) => (l.transport_mode ?? '').toUpperCase() === 'WALK')
+  const walkM = walkLegs.reduce((s, l) => s + (l.duration_minutes ?? 0) * 80, 0)
+  const stopsCount = tripData.places?.length ?? 0
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return {
+    activeTime: h > 0 ? `${h}h ${m}m` : `${m}m`,
+    transitCost: `S$${totalCost.toFixed(2)}`,
+    walkingDist: walkM >= 1000 ? `${(walkM / 1000).toFixed(1)} km` : `${walkM} m`,
+    stopsCount,
+  }
+}
+
 export function formatDateRange(startDate, numDays) {
   if (!startDate) return null
   const start = new Date(startDate)

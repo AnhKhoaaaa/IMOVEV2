@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Navigation2, Search, User, Sparkles, Plus, Clock, Wallet, Footprints, MapPin, Edit } from 'lucide-react'
 import { useSavedTrips } from '../hooks/useSavedTrips'
-import { formatDateRange } from '../lib/tripUtils'
+import { formatDateRange, computeTripMetrics } from '../lib/tripUtils'
+import { api } from '../services/api'
 import { cn } from '../lib/utils'
 
 /* ── Status meta ─────────────────────────────────────────────────── */
@@ -30,11 +31,9 @@ const DestinationThumb = ({ trip }) => {
   const dateLabel = formatDateRange(trip.startDate, trip.numDays ?? 1)
   return (
     <div className="relative h-32 w-full overflow-hidden bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500">
-      {/* Radial highlights */}
       <div className="absolute inset-0 opacity-50" style={{
         backgroundImage: 'radial-gradient(circle at 20% 80%,rgba(255,255,255,.4),transparent 40%),radial-gradient(circle at 80% 20%,rgba(255,255,255,.3),transparent 40%)'
       }} />
-      {/* Abstract skyline bars */}
       <div className="absolute inset-x-0 bottom-0 h-1/2 flex items-end justify-around opacity-30">
         {SKYLINE_HEIGHTS.map((h, i) => (
           <div
@@ -44,7 +43,6 @@ const DestinationThumb = ({ trip }) => {
           />
         ))}
       </div>
-      {/* Text overlay */}
       <div className="absolute inset-0 flex items-start justify-between p-4">
         <div className="text-white">
           <div className="font-display font-extrabold text-[24px] leading-none drop-shadow-sm">
@@ -69,7 +67,7 @@ const DestinationThumb = ({ trip }) => {
 const StatBadge = ({ icon, label, value }) => (
   <div className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50/60 px-2 h-7 text-[11.5px]">
     <span className="text-slate-400">{icon}</span>
-    <span className="text-slate-500">{label}</span>
+    {label && <span className="text-slate-500">{label}</span>}
     <span className="font-display font-bold text-slate-900 tabular-nums">{value}</span>
   </div>
 )
@@ -77,6 +75,8 @@ const StatBadge = ({ icon, label, value }) => (
 /* ── Trip card ───────────────────────────────────────────────────── */
 const TripCard = ({ trip, onOpen, onStart }) => {
   const isToday = trip.status === 'today'
+  const metrics = computeTripMetrics(api.getCachedTripData(trip.id))
+
   return (
     <div className={cn(
       'group rounded-2xl bg-white border shadow-card overflow-hidden transition hover:shadow-pop hover:-translate-y-0.5',
@@ -93,16 +93,26 @@ const TripCard = ({ trip, onOpen, onStart }) => {
           </span>
         </div>
 
-        <div className="flex flex-wrap gap-1.5">
-          <StatBadge icon={<MapPin size={11} />} label="Dest." value="Singapore" />
-          {trip.savedAt && (
-            <StatBadge
-              icon={<Clock size={11} />}
-              label="Saved"
-              value={new Date(trip.savedAt).toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })}
-            />
-          )}
-        </div>
+        {/* Metrics — use cached trip data if available, else fallback badges */}
+        {metrics ? (
+          <div className="flex flex-wrap gap-1.5">
+            <StatBadge icon={<Clock size={11} />} value={metrics.activeTime} />
+            <StatBadge icon={<Wallet size={11} />} value={metrics.transitCost} />
+            <StatBadge icon={<Footprints size={11} />} value={metrics.walkingDist} />
+            <StatBadge icon={<MapPin size={11} />} value={`${metrics.stopsCount} stops`} />
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            <StatBadge icon={<MapPin size={11} />} label="Dest." value="Singapore" />
+            {trip.savedAt && (
+              <StatBadge
+                icon={<Clock size={11} />}
+                label="Saved"
+                value={new Date(trip.savedAt).toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })}
+              />
+            )}
+          </div>
+        )}
 
         {/* Footer actions */}
         <div className="flex items-center gap-2 pt-1">
@@ -189,6 +199,7 @@ const StartTodayModal = ({ trip, onStart, onClose }) => {
 /* ── Main ────────────────────────────────────────────────────────── */
 const FILTERS = ['All', 'Today', 'Upcoming', 'Drafts', 'Past']
 const FILTER_MAP = { All: null, Today: 'today', Upcoming: 'upcoming', Drafts: 'draft', Past: 'past' }
+const STATUS_FOR_FILTER = { Today: 'today', Upcoming: 'upcoming', Drafts: 'draft', Past: 'past' }
 
 export default function Home() {
   const navigate = useNavigate()
@@ -206,8 +217,15 @@ export default function Home() {
 
   const statusFilter = FILTER_MAP[filter]
   const filtered = statusFilter ? trips.filter((t) => t.status === statusFilter) : trips
-  const todayCount = trips.filter((t) => t.status === 'today').length
-  const upcomingCount = trips.filter((t) => t.status === 'upcoming').length
+
+  const countByStatus = {
+    today: trips.filter((t) => t.status === 'today').length,
+    upcoming: trips.filter((t) => t.status === 'upcoming').length,
+    draft: trips.filter((t) => t.status === 'draft').length,
+    past: trips.filter((t) => t.status === 'past').length,
+  }
+  const todayCount = countByStatus.today
+  const upcomingCount = countByStatus.upcoming
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -258,27 +276,37 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Filter chips */}
+        {/* Filter chips with count pills */}
         <div className="flex items-center gap-2 mb-5 flex-wrap">
-          {FILTERS.map((f, i) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={cn(
-                'h-8 px-3.5 rounded-full text-[12.5px] font-semibold border transition',
-                filter === f
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-              )}
-            >
-              {f}
-            </button>
-          ))}
+          {FILTERS.map((f) => {
+            const count = STATUS_FOR_FILTER[f] ? countByStatus[STATUS_FOR_FILTER[f]] : null
+            return (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={cn(
+                  'h-8 px-3.5 rounded-full text-[12.5px] font-semibold border transition inline-flex items-center gap-1.5',
+                  filter === f
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                )}
+              >
+                {f}
+                {count != null && count > 0 && (
+                  <span className={cn(
+                    'grid h-4 min-w-4 px-1 place-items-center rounded-full text-[10px] font-bold tabular-nums',
+                    filter === f ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'
+                  )}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
 
         {/* Grid */}
         {trips.length === 0 ? (
-          /* Empty state */
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="grid h-20 w-20 place-items-center rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white shadow-pop mb-6">
               <Navigation2 size={40} />
@@ -295,38 +323,49 @@ export default function Home() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((t) => (
-              <TripCard
-                key={t.id}
-                trip={t}
-                onOpen={() => navigate(`/trip/${t.id}`)}
-                onStart={() => navigate(`/trip/${t.id}`)}
-              />
-            ))}
-
-            {/* Create card */}
-            <button
-              onClick={() => navigate('/plan')}
-              className="rounded-2xl border-2 border-dashed border-slate-300 bg-white/40 min-h-[280px] grid place-items-center hover:border-indigo-400 hover:bg-indigo-50/30 transition group focus-ring"
-            >
-              <div className="text-center">
-                <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-indigo-100 to-fuchsia-100 text-indigo-600 group-hover:scale-110 transition mb-2">
-                  <Plus size={18} strokeWidth={2.5} />
-                </div>
-                <div className="font-display font-bold text-[15px] text-slate-700 group-hover:text-indigo-700">
-                  Plan a new trip
-                </div>
-                <div className="text-[12px] text-slate-500 mt-0.5">Start a fresh itinerary</div>
+          <>
+            {filtered.length === 0 && (
+              <div className="text-center py-16 text-slate-400 text-[14px]">
+                No trips in this category yet.
               </div>
-            </button>
-          </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filtered.map((t) => (
+                <TripCard
+                  key={t.id}
+                  trip={t}
+                  onOpen={() => navigate(`/trip/${t.id}`)}
+                  onStart={() => setModalTrip(t)}
+                />
+              ))}
+
+              {/* Create card */}
+              <button
+                onClick={() => navigate('/plan')}
+                className="rounded-2xl border-2 border-dashed border-slate-300 bg-white/40 min-h-[280px] grid place-items-center hover:border-indigo-400 hover:bg-indigo-50/30 transition group focus-ring"
+              >
+                <div className="text-center">
+                  <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-indigo-100 to-fuchsia-100 text-indigo-600 group-hover:scale-110 transition mb-2">
+                    <Plus size={18} strokeWidth={2.5} />
+                  </div>
+                  <div className="font-display font-bold text-[15px] text-slate-700 group-hover:text-indigo-700">
+                    Plan a new trip
+                  </div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">Start a fresh itinerary</div>
+                </div>
+              </button>
+            </div>
+          </>
         )}
       </main>
 
       <StartTodayModal
         trip={modalTrip}
-        onStart={() => { setModalTrip(null); navigate(`/trip/${modalTrip.id}`) }}
+        onStart={() => {
+          const tripId = modalTrip.id
+          setModalTrip(null)
+          navigate(`/trip/${tripId}`, { state: { autoStart: true } })
+        }}
         onClose={() => setModalTrip(null)}
       />
     </div>

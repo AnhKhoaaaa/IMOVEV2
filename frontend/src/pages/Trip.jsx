@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map, WifiOff } from 'lucide-react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map, WifiOff, Settings } from 'lucide-react'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
 import { useGeolocation } from '../hooks/useGeolocation'
@@ -10,6 +10,8 @@ import DayPlan from '../components/planner/DayPlan'
 import OverviewTab from '../components/planner/OverviewTab'
 import SummaryTab from '../components/planner/SummaryTab'
 import TripMap from '../components/map/TripMap'
+import TripSetupModal from '../components/planner/TripSetupModal'
+import DisruptionSimulator from '../components/adaptation/DisruptionSimulator'
 import AlertBanner from '../components/adaptation/AlertBanner'
 import { Skeleton } from '../components/ui/skeleton'
 import { Alert, AlertDescription } from '../components/ui/alert'
@@ -17,11 +19,11 @@ import { cn } from '../lib/utils'
 import { Plus } from 'lucide-react'
 
 /* ── Day pill ────────────────────────────────────────────────────── */
-const DayPill = ({ active, onClick, children, kind }) => (
+const DayPill = ({ active, onClick, children, kind, pulse }) => (
   <button
     onClick={onClick}
     className={cn(
-      'inline-flex items-center gap-1.5 rounded-full h-8 px-3.5 text-[12.5px] font-semibold transition border whitespace-nowrap',
+      'relative inline-flex items-center gap-1.5 rounded-full h-8 px-3.5 text-[12.5px] font-semibold transition border whitespace-nowrap',
       active
         ? (kind === 'overview' || kind === 'summary'
           ? 'bg-slate-900 border-slate-900 text-white'
@@ -30,6 +32,12 @@ const DayPill = ({ active, onClick, children, kind }) => (
     )}
   >
     {children}
+    {pulse && (
+      <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5">
+        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+      </span>
+    )}
   </button>
 )
 
@@ -48,17 +56,43 @@ function PanelSkeleton() {
 export default function Trip() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { state: navState } = useLocation()
   const { trip, loading, error, refresh, isOffline } = useTrip(id)
   const { alerts, dismiss } = useAlerts(id)
   const { position } = useGeolocation()
   const lastLocationSent = useRef(0)
 
-  const [tab, setTab] = useState('overview')
-  const [mode, setMode] = useState('split')  // 'split' | 'expanded'
+  // ── Navigation state ──────────────────────────────────────────
+  const [tab, setTab] = useState(navState?.autoStart ? 'd1' : 'overview')
+  const [mode, setMode] = useState('split')
   const [dismissedWarnings, setDismissedWarnings] = useState(false)
   const [showMobileMap, setShowMobileMap] = useState(false)
 
-  // Send position to backend at most once per 30 s for proximity-based LTA alerts (§3.2)
+  // ── Active leg / trip started state ───────────────────────────
+  const [tripStarted, setTripStarted] = useState(navState?.autoStart ?? false)
+  const [activeDayNum, setActiveDayNum] = useState(1)
+  const [activeLegIndex, setActiveLegIndex] = useState(0)
+  const [weatherAlert, setWeatherAlert] = useState(null)
+  const [transitAlert, setTransitAlert] = useState(null)
+  const [transitVariant, setTransitVariant] = useState('mrt')
+
+  // ── Edit setup modal ──────────────────────────────────────────
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [savedMeta, setSavedMeta] = useState(() => api.getSavedTrips().find((t) => t.id === id) ?? null)
+
+  // ── Optimization log (for SummaryTab) ─────────────────────────
+  const [optimizationLog, setOptimizationLog] = useState([])
+
+  // Auto-switch to active day tab when trip starts and data loads
+  useEffect(() => {
+    if (tripStarted && trip) {
+      const firstDay = trip.days?.[0]?.day ?? 1
+      setActiveDayNum(firstDay)
+      setTab(`d${firstDay}`)
+    }
+  }, [tripStarted, trip?.days?.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Send position to backend at most once per 30 s for proximity-based LTA alerts
   useEffect(() => {
     if (!position || !id) return
     const now = Date.now()
@@ -67,7 +101,95 @@ export default function Trip() {
     api.updateLocation(id, { lat: position.lat, lng: position.lng }).catch(() => {})
   }, [position, id])
 
-  const savedMeta = useMemo(() => api.getSavedTrips().find((t) => t.id === id), [id])
+  // ── Arrive handler ────────────────────────────────────────────
+  const handleArrive = useCallback(() => {
+    if (!trip) return
+    const currentDay = trip.days.find((d) => d.day === activeDayNum)
+    if (!currentDay) return
+
+    setWeatherAlert(null)
+    setTransitAlert(null)
+    setTransitVariant('mrt')
+
+    if (activeLegIndex < currentDay.legs.length - 1) {
+      setActiveLegIndex((i) => i + 1)
+    } else {
+      const nextDay = trip.days.find((d) => d.day === activeDayNum + 1)
+      if (nextDay) {
+        const next = activeDayNum + 1
+        setActiveDayNum(next)
+        setActiveLegIndex(0)
+        setTab(`d${next}`)
+      } else {
+        setTripStarted(false)
+        setTab('summary')
+      }
+    }
+  }, [trip, activeDayNum, activeLegIndex])
+
+  // ── Disruption handlers ───────────────────────────────────────
+  const handleWeatherDisrupt = useCallback(() => {
+    if (!trip) return
+    const currentDay = trip.days.find((d) => d.day === activeDayNum)
+    const activeLeg = currentDay?.legs[activeLegIndex]
+    if (!activeLeg) return
+    const placesById = buildPlacesById(trip.places)
+    const fromPlace = placesById[activeLeg.from_place_id]
+    const toPlace = placesById[activeLeg.to_place_id]
+    setWeatherAlert({
+      legIndex: activeLegIndex,
+      attractionName: toPlace?.name ?? 'your next stop',
+      swapName: fromPlace?.is_outdoor === false ? fromPlace.name : 'ArtScience Museum',
+    })
+  }, [trip, activeDayNum, activeLegIndex])
+
+  const handleTransitDisrupt = useCallback(() => {
+    setTransitAlert({ legIndex: activeLegIndex })
+  }, [activeLegIndex])
+
+  const handleResetTrip = useCallback(() => {
+    setTripStarted(false)
+    setActiveLegIndex(0)
+    setActiveDayNum(1)
+    setWeatherAlert(null)
+    setTransitAlert(null)
+    setTransitVariant('mrt')
+  }, [])
+
+  const handleSwitchToBus = useCallback(() => {
+    setTransitVariant('bus')
+    setTransitAlert(null)
+    setOptimizationLog((log) => [
+      ...log,
+      {
+        type: 'transit_reroute',
+        title: 'Switched to Bus Route',
+        detail: 'MRT disruption — rerouted via Bus 7',
+        time: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' }),
+      },
+    ])
+  }, [])
+
+  const handleApproveSwap = useCallback(() => {
+    if (!weatherAlert) return
+    setOptimizationLog((log) => [
+      ...log,
+      {
+        type: 'weather_swap',
+        title: `Venue swap: ${weatherAlert.attractionName} → ${weatherAlert.swapName}`,
+        detail: 'Heavy rain forecast — moved to indoor venue',
+        time: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' }),
+      },
+    ])
+    setWeatherAlert(null)
+  }, [weatherAlert])
+
+  // ── Save setup ────────────────────────────────────────────────
+  const handleSaveSetup = useCallback((updatedMeta) => {
+    const merged = { ...savedMeta, ...updatedMeta }
+    api.saveTrip(id, merged)
+    setSavedMeta(merged)
+  }, [savedMeta, id])
 
   const placesById = useMemo(
     () => buildPlacesById(trip?.places ?? []),
@@ -76,10 +198,16 @@ export default function Trip() {
 
   const mapLegs = useMemo(() => {
     if (!trip) return []
+    // Active leg mode: show only the current active leg on map
+    if (tripStarted) {
+      const currentDay = trip.days.find((d) => d.day === activeDayNum)
+      const activeLeg = currentDay?.legs[activeLegIndex]
+      return activeLeg ? [activeLeg] : []
+    }
     if (tab === 'overview' || tab === 'summary') return trip.days.flatMap((d) => d.legs)
     const dayNum = parseInt(tab.replace('d', ''), 10)
     return trip.days.find((d) => d.day === dayNum)?.legs ?? []
-  }, [trip, tab])
+  }, [trip, tab, tripStarted, activeDayNum, activeLegIndex])
 
   const hasAlertZone = isOffline || alerts.length > 0 || (!dismissedWarnings && (trip?.warnings?.length ?? 0) > 0)
 
@@ -142,11 +270,25 @@ export default function Trip() {
                 {trip && (
                   <p className="text-[12px] text-slate-400">
                     {trip.days?.length ?? 0} days · {trip.places?.length ?? 0} stops
+                    {tripStarted && (
+                      <span className="ml-1.5 inline-flex items-center gap-1 text-emerald-600 font-semibold">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                        Live
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-1.5">
+              {/* Edit setup button */}
+              <button
+                onClick={() => setSetupOpen(true)}
+                className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                title="Edit setup"
+              >
+                <Settings size={14} />
+              </button>
               <button
                 onClick={() => setMode((m) => m === 'expanded' ? 'split' : 'expanded')}
                 className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
@@ -164,7 +306,12 @@ export default function Trip() {
                 Overview
               </DayPill>
               {(trip?.days ?? []).map((d) => (
-                <DayPill key={d.day} active={tab === `d${d.day}`} onClick={() => setTab(`d${d.day}`)}>
+                <DayPill
+                  key={d.day}
+                  active={tab === `d${d.day}`}
+                  onClick={() => setTab(`d${d.day}`)}
+                  pulse={tripStarted && d.day === activeDayNum}
+                >
                   Day {d.day}
                 </DayPill>
               ))}
@@ -209,11 +356,24 @@ export default function Trip() {
                     placesById={placesById}
                     tripId={id}
                     onLegUpdated={refresh}
+                    isActiveDay={tripStarted && d.day === activeDayNum}
+                    activeLegIndex={activeLegIndex}
+                    position={position}
+                    onArrive={handleArrive}
+                    weatherAlert={weatherAlert}
+                    transitAlert={transitAlert}
+                    transitVariant={transitVariant}
+                    onSwitchToBus={handleSwitchToBus}
+                    onApproveSwap={handleApproveSwap}
+                    onDismissWeather={() => setWeatherAlert(null)}
+                    onDismissTransit={() => setTransitAlert(null)}
                   />
                 ) : null
               )}
 
-              {tab === 'summary' && <SummaryTab trip={trip} />}
+              {tab === 'summary' && (
+                <SummaryTab trip={trip} optimizationLog={optimizationLog} />
+              )}
             </>
           )}
         </div>
@@ -244,6 +404,23 @@ export default function Trip() {
           : <><Map size={14} /> Map</>
         }
       </button>
+
+      {/* Trip Setup Modal */}
+      <TripSetupModal
+        open={setupOpen}
+        savedMeta={savedMeta}
+        onClose={() => setSetupOpen(false)}
+        onSave={handleSaveSetup}
+      />
+
+      {/* Disruption Simulator (debug overlay, active leg mode only) */}
+      {tripStarted && (
+        <DisruptionSimulator
+          onWeatherDisrupt={handleWeatherDisrupt}
+          onTransitDisrupt={handleTransitDisrupt}
+          onResetTrip={handleResetTrip}
+        />
+      )}
     </div>
   )
 }

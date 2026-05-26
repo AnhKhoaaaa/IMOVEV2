@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles } from 'lucide-react'
+import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap } from 'lucide-react'
 
 function StatCard({ label, value, Icon }) {
   return (
@@ -18,7 +18,33 @@ function fmtMin(m) {
   return `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-export default function SummaryTab({ trip }) {
+const LOG_TYPE_CONFIG = {
+  weather_swap: { emoji: '☔', color: 'bg-sky-50 border-sky-200 text-sky-700' },
+  transit_reroute: { emoji: '🚇', color: 'bg-red-50 border-red-200 text-red-700' },
+  mode_change: { emoji: '🔄', color: 'bg-slate-50 border-slate-200 text-slate-600' },
+}
+
+function LogBadge({ entry }) {
+  const cfg = LOG_TYPE_CONFIG[entry.type] ?? LOG_TYPE_CONFIG.mode_change
+  return (
+    <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${cfg.color}`}>
+      <span className="text-[14px] shrink-0">{cfg.emoji}</span>
+      <div className="min-w-0">
+        <p className="text-[12.5px] font-semibold leading-snug">{entry.title}</p>
+        {entry.detail && (
+          <p className="text-[11.5px] opacity-75 leading-snug">{entry.detail}</p>
+        )}
+      </div>
+      {entry.time && (
+        <span className="ml-auto text-[10.5px] font-medium opacity-60 shrink-0 tabular-nums">
+          {entry.time}
+        </span>
+      )}
+    </div>
+  )
+}
+
+export default function SummaryTab({ trip, optimizationLog = [] }) {
   const days = trip?.days ?? []
   const allLegs = useMemo(() => days.flatMap((d) => d.legs ?? []), [days])
 
@@ -30,11 +56,17 @@ export default function SummaryTab({ trip }) {
   const totalPlaces = trip?.places?.length ?? 0
 
   const cards = [
-    { label: 'Active time',       value: fmtMin(totalMin),                   Icon: Clock },
-    { label: 'Transit cost',      value: `S$${totalCost.toFixed(2)}`,         Icon: Wallet },
+    { label: 'Active time',       value: fmtMin(totalMin),     Icon: Clock },
+    { label: 'Transit cost',      value: `S$${totalCost.toFixed(2)}`, Icon: Wallet },
     { label: 'Walking distance',  value: walkM >= 1000 ? `${(walkM/1000).toFixed(2)} km` : `${walkM} m`, Icon: Footprints },
-    { label: 'Transfers',         value: transfers,                            Icon: ArrowLeftRight },
+    { label: 'Transfers',         value: transfers,             Icon: ArrowLeftRight },
   ]
+
+  const handleShare = () => {
+    navigator.clipboard?.writeText(window.location.href).catch(() => {})
+  }
+
+  const handlePrint = () => window.print()
 
   return (
     <div className="space-y-5 animate-fade-up">
@@ -96,6 +128,47 @@ export default function SummaryTab({ trip }) {
           </div>
         </div>
       )}
+
+      {/* Agent activity log */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Zap size={13} className="text-indigo-600" />
+          <div className="font-display font-bold text-[14px] text-slate-900">Agent activity</div>
+          {optimizationLog.length > 0 && (
+            <span className="grid h-5 w-5 place-items-center rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold ml-auto">
+              {optimizationLog.length}
+            </span>
+          )}
+        </div>
+        {optimizationLog.length === 0 ? (
+          <p className="text-[12.5px] text-slate-400 italic">No agent interventions recorded yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {optimizationLog.map((entry, i) => (
+              <LogBadge key={i} entry={entry} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Share / Export */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
+        <div className="font-display font-bold text-[14px] text-slate-900 mb-3">Share &amp; Export</div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleShare}
+            className="flex-1 h-9 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
+          >
+            <Share2 size={13} /> Share Link
+          </button>
+          <button
+            onClick={handlePrint}
+            className="flex-1 h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-100 transition inline-flex items-center justify-center gap-1.5"
+          >
+            <FileDown size={13} /> Save as PDF
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
