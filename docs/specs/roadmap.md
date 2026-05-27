@@ -50,24 +50,27 @@
 
 ---
 
-## Phase 1 — Authentication & User Flow
+## Phase 1 — Authentication & User Flow ← TIẾP THEO
 **Thời gian:** Tuần 2
-**Mục tiêu:** JWT auth đầy đủ, Memory Agent hoạt động
+**Mục tiêu:** JWT auth đầy đủ, Memory Agent hoạt động (unblock 501 endpoint)
+
+### Context
+Hiện tại `GET /alerts/preferences` trả 501 vì chưa có JWT middleware. `POST /alerts/feedback` nhận `user_id` từ request body (không an toàn). Memory Agent không hoạt động được cho logged-in user. Supabase Auth đã cấu hình sẵn (anon key có trong `.env`).
 
 ### Checklist
 
-- [ ] Backend: middleware extract `user_id` từ Supabase JWT header (`Authorization: Bearer <token>`)
-- [ ] `POST /alerts/feedback`: dùng JWT `user_id`, bỏ `user_id` từ request body
+- [ ] Backend: dependency function `get_current_user(token: str = Depends(oauth2_scheme))` → extract `user_id` từ Supabase JWT
+- [ ] `POST /alerts/feedback`: bỏ `user_id` từ request body, dùng JWT `user_id`
 - [ ] `GET /alerts/preferences`: remove 501, implement với JWT auth → trả preferences của user đang đăng nhập
-- [ ] `PATCH /trips/{id}/legs/{leg_id}`: verify ownership bằng `session_id` (đã có) + log implicit feedback
-- [ ] Frontend `AuthModal`: test Google OAuth + email/password + Magic Link end-to-end
-- [ ] Frontend: auth state persist sau page reload (Supabase session đã tự persist, verify không bị mất)
+- [ ] `PATCH /trips/{id}/legs/{leg_id}`: đã verify bằng `session_id` (giữ nguyên) + log implicit feedback (đã có)
+- [ ] Frontend `AuthModal`: verify Google OAuth + email/password + Magic Link chạy được với Supabase project thật
+- [ ] Frontend: auth state persist sau page reload (Supabase `onAuthStateChange` đã có trong `lib/supabase.js`, verify)
 - [ ] Frontend: header hiển thị đúng tên user / avatar sau login
 
 ---
 
 ## Phase 2 — Complete All 3 Agents + Real Routing UI
-**Thời gian:** Tuần 2–3
+**Thời gian:** Tuần 2–3 (sau khi Phase 1 xong)
 **Mục tiêu:** 3 agent hoạt động thật, polyline + Citymapper UI hoàn chỉnh
 
 ### Checklist — Agents
@@ -206,12 +209,13 @@ grab://open?pickup[latitude]={lat}&pickup[longitude]={lng}&pickup[address]={name
 
 Nếu không biết bắt đầu từ đâu, theo thứ tự này:
 
-1. **Luồng E2E thông không?** → Phase 0 trước mọi thứ
-2. **Auth hoạt động không?** → Phase 1
-3. **3 agent chạy thật không?** → Phase 2
-4. **Deploy được chưa?** → Phase 4 (có thể làm trước Phase 3 nếu cần demo)
-5. **Tests xanh không?** → Phase 3
-6. **Chất lượng tốt không?** → Phase 5
+1. ~~**Luồng E2E thông không?** → Phase 0~~ ✅ **Xong**
+2. **Smoke test thật với OneMap** → Chạy backend + frontend, tạo 1 trip thật trước demo
+3. **Auth hoạt động không?** → Phase 1 (JWT wiring + unblock 501)
+4. **3 agent chạy thật không?** → Phase 2
+5. **Deploy được chưa?** → Phase 4 (có thể làm trước Phase 3 nếu cần demo sớm)
+6. **Tests xanh không?** → Phase 3
+7. **Chất lượng tốt không?** → Phase 5
 
 ---
 
