@@ -151,6 +151,12 @@ const EN = {
   planningBtn: 'Planning your trip…',
   selectStartDate: 'Please select a start date to continue',
 
+  /* ── Planner — confirm step ────────── */
+  planReady: 'Plan ready!',
+  saveItinerary: 'Save your itinerary?',
+  startOver: 'Start Over',
+  saveAndView: 'Save & View Itinerary',
+
   /* ── Place search ──────────────────── */
   popularPlaces: 'Popular places in Singapore',
   searchPlaceholder: 'Search places in Singapore…',
@@ -299,6 +305,12 @@ const VI = {
   planWithAIBtn: 'Lập kế hoạch bằng AI',
   planningBtn: 'Đang lên kế hoạch…',
   selectStartDate: 'Vui lòng chọn ngày khởi hành',
+
+  /* ── Planner — confirm step ────────── */
+  planReady: 'Kế hoạch sẵn sàng!',
+  saveItinerary: 'Lưu hành trình của bạn?',
+  startOver: 'Làm lại',
+  saveAndView: 'Lưu & Xem lịch trình',
 
   /* ── Place search ──────────────────── */
   popularPlaces: 'Địa điểm nổi tiếng tại Singapore',

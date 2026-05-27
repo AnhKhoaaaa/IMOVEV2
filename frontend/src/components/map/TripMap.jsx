@@ -52,6 +52,10 @@ function FitBounds({ positions }) {
   return null
 }
 
+const MODE_LABELS = {
+  MRT: 'MRT', LRT: 'LRT', BUS: 'Bus', WALK: 'Walk', DRIVE: 'Drive', CYCLE: 'Cycle',
+}
+
 export default function TripMap({ places, legs, userPosition }) {
   const { ordered, byId } = useMemo(
     () => places?.length ? buildOrderedPlaces(places, legs ?? []) : { ordered: [], byId: {} },
@@ -60,6 +64,10 @@ export default function TripMap({ places, legs, userPosition }) {
   const allPositions = useMemo(
     () => ordered.map((p) => [p.lat, p.lng]),
     [ordered]
+  )
+  const presentModes = useMemo(
+    () => [...new Set((legs ?? []).map((l) => l.transport_mode?.toUpperCase()).filter((m) => m && MODE_STYLE[m]))],
+    [legs]
   )
 
   if (!places?.length) return (
@@ -70,6 +78,23 @@ export default function TripMap({ places, legs, userPosition }) {
 
   return (
     <div className="h-full w-full rounded-2xl overflow-hidden border border-slate-200 shadow-card relative">
+      {presentModes.length > 0 && (
+        <div className="absolute bottom-6 left-2 z-[400] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
+          {presentModes.map((mode) => {
+            const style = MODE_STYLE[mode]
+            return (
+              <div key={mode} className="flex items-center gap-1.5">
+                {style.dashArray ? (
+                  <span className="inline-block w-5 h-0 border-t-2 border-dashed" style={{ borderColor: style.color }} />
+                ) : (
+                  <span className="inline-block w-5 h-1.5 rounded-full" style={{ background: style.color }} />
+                )}
+                <span className="text-slate-700">{MODE_LABELS[mode] ?? mode}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
       <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

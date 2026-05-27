@@ -32,7 +32,9 @@ export default function TransitSegment({ leg, tripId, onUpdated }) {
 
   const meta = getMeta(leg.transport_mode)
   const { Icon, label } = meta
-  const distM = Math.round((leg.duration_minutes ?? 10) * meta.distFactor)
+  const distM = leg.distance_km != null
+    ? Math.round(leg.distance_km * 1000)
+    : Math.round((leg.duration_minutes ?? 10) * meta.distFactor)
 
   const currentOptId = meta.id // 'drive' | 'transit' | 'walk'
 

@@ -3,18 +3,29 @@ import { MapPin, ChevronDown, RotateCcw, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Label } from '../ui/label'
 
-function ImageStrip() {
+function ImageStrip({ imageUrl }) {
   return (
     <div className="grid grid-cols-3 gap-1.5 mt-3">
       {[0, 1, 2].map((i) => (
         <div key={i} className="relative h-20 rounded-lg overflow-hidden bg-slate-100 border border-slate-200/70">
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" />
+          {imageUrl && i === 0 ? (
+            <img
+              src={imageUrl}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+              onError={(e) => { e.currentTarget.style.display = 'none' }}
+            />
+          ) : null}
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" style={{ zIndex: imageUrl && i === 0 ? -1 : 0 }} />
           <div className="absolute inset-0 opacity-50" style={{
-            backgroundImage: 'repeating-linear-gradient(45deg,rgba(15,23,42,0.06) 0 6px,transparent 6px 12px)'
+            backgroundImage: 'repeating-linear-gradient(45deg,rgba(15,23,42,0.06) 0 6px,transparent 6px 12px)',
+            zIndex: imageUrl && i === 0 ? -1 : 0,
           }} />
-          <div className="absolute bottom-1 left-1.5 text-[9px] font-mono text-slate-500 uppercase tracking-wide">
-            photo {i + 1}
-          </div>
+          {(!imageUrl || i !== 0) && (
+            <div className="absolute bottom-1 left-1.5 text-[9px] font-mono text-slate-500 uppercase tracking-wide">
+              photo {i + 1}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -101,7 +112,7 @@ export default function PlaceCard({ place, index, expanded, onToggle, onDelete, 
             </div>
           </div>
 
-          <ImageStrip />
+          <ImageStrip imageUrl={place.image_url} />
         </button>
 
         {expanded && (

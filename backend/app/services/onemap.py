@@ -158,12 +158,14 @@ async def get_route(
             }
             for leg in itin_legs
         ]
+        total_distance_m = sum(leg.get("distance", 0) for leg in itin_legs)
         return {
             "duration_minutes": round(itin["duration"] / 60),
             "fare_sgd": float(itin.get("fare", 0.0)),
             "legs": legs,
             "geometry": _extract_pt_geometry(itin_legs),
             "instructions": _build_pt_instructions(itin_legs),
+            "distance_km": round(total_distance_m / 1000, 2),
         }
     else:
         summary = data.get("route_summary", {})
@@ -183,4 +185,5 @@ async def get_route(
             ],
             "geometry": data.get("route_geometry"),
             "instructions": [],
+            "distance_km": round(summary.get("total_distance", 0) / 1000, 2),
         }

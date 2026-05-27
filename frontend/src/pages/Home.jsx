@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Navigation2, Search, User, Sparkles, Plus, Clock, Wallet, Footprints, MapPin, Edit } from 'lucide-react'
+import { Navigation2, Sparkles, Plus, Clock, Wallet, Footprints, MapPin, Edit, Trash2 } from 'lucide-react'
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { formatDateRange, computeTripMetrics } from '../lib/tripUtils'
 import { api } from '../services/api'
@@ -64,7 +64,7 @@ const DestinationThumb = ({ trip }) => {
           </div>
         </div>
         {dateLabel && (
-          <span className="rounded-full bg-white/25 backdrop-blur border border-white/40 px-2 h-6 inline-flex items-center text-[11px] font-medium text-white">
+          <span className="max-w-[140px] truncate rounded-full bg-white/25 backdrop-blur border border-white/40 px-2 h-6 inline-flex items-center text-[11px] font-medium text-white">
             {dateLabel}
           </span>
         )}
@@ -83,7 +83,7 @@ const StatBadge = ({ icon, label, value }) => (
 )
 
 /* ── Trip card ───────────────────────────────────────────────────── */
-const TripCard = ({ trip, onOpen, onStart }) => {
+const TripCard = ({ trip, onOpen, onStart, onDelete }) => {
   const { t } = useT()
   const isToday = trip.status === 'today'
   const metrics = computeTripMetrics(api.getCachedTripData(trip.id))
@@ -130,6 +130,13 @@ const TripCard = ({ trip, onOpen, onStart }) => {
             className="flex-1 h-9 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition focus-ring inline-flex items-center justify-center gap-1.5"
           >
             <Edit size={12} /> {t('openBtn')}
+          </button>
+          <button
+            onClick={onDelete}
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-400 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition focus-ring shrink-0"
+            aria-label="Delete trip"
+          >
+            <Trash2 size={13} />
           </button>
           {isToday && (
             <button
@@ -214,10 +221,16 @@ const STATUS_FOR_FILTER = { Today: 'today', Upcoming: 'upcoming', Drafts: 'draft
 export default function Home() {
   const navigate = useNavigate()
   const { t } = useT()
-  const { trips } = useSavedTrips()
+  const { trips, remove } = useSavedTrips()
   const [filter, setFilter] = useState('All')
   const [modalTrip, setModalTrip] = useState(null)
   const [authUser, setAuthUser] = useState(null)
+
+  const handleDelete = async (trip) => {
+    if (!window.confirm(`Delete "${trip.name ?? 'this trip'}"? This cannot be undone.`)) return
+    try { await api.deleteTrip(trip.id) } catch { /* best-effort — remove locally regardless */ }
+    remove(trip.id)
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user ?? null))
@@ -249,26 +262,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Top app bar */}
-      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur border-b border-slate-200/70">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white shadow-card">
-              <Navigation2 size={16} strokeWidth={2.5} />
-            </div>
-            <span className="font-display font-extrabold text-[18px] tracking-tight text-slate-900">IMOVE</span>
-          </div>
-          <div className="hidden sm:flex items-center gap-2">
-            <button className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100">
-              <Search size={15} />
-            </button>
-            <button className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100">
-              <User size={15} />
-            </button>
-          </div>
-        </div>
-      </header>
-
       <main className="max-w-6xl mx-auto px-6 pt-8 pb-16">
         {/* Hero header */}
         <div className="flex items-end justify-between gap-4 flex-wrap mb-8">
@@ -356,6 +349,7 @@ export default function Home() {
                   trip={trip}
                   onOpen={() => navigate(`/trip/${trip.id}`)}
                   onStart={() => setModalTrip(trip)}
+                  onDelete={() => handleDelete(trip)}
                 />
               ))}
 

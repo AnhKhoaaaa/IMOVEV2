@@ -33,6 +33,7 @@ class LegResponse(BaseModel):
     is_estimated: bool
     instructions: list[str] = []
     geometry: str | None = None
+    distance_km: float | None = None
 
 
 class DayPlan(BaseModel):

@@ -11,6 +11,7 @@ async function request(path, options = {}) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail ?? 'Request failed')
   }
+  if (res.status === 204) return null
   return res.json()
 }
 
@@ -23,6 +24,7 @@ export const api = {
   createTrip: (body) => request('/trips', { method: 'POST', body: JSON.stringify(body) }),
   planTrip: (id, body) => request(`/trips/${id}/plan`, { method: 'POST', body: JSON.stringify(body) }),
   getTrip: (id) => request(`/trips/${id}`),
+  deleteTrip: (id) => request(`/trips/${id}`, { method: 'DELETE' }),
   updateLeg: (tripId, legId, body) => request(`/trips/${tripId}/legs/${legId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   adaptTrip: (id, body) => request(`/trips/${id}/adapt`, { method: 'POST', body: JSON.stringify(body) }),
   acceptSwap: (id, body) => request(`/trips/${id}/accept-swap`, { method: 'POST', body: JSON.stringify(body) }),

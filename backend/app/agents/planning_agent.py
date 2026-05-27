@@ -197,7 +197,13 @@ async def plan_trip(
                     cost = route["fare_sgd"]
                     geometry = route.get("geometry")
                     instructions = route.get("instructions", [])
+                    distance_km = route.get("distance_km")
                     is_estimated = False
+                    # Apply user preferences (rule-based, no LLM)
+                    if prefs.get("prefer_mrt") is False and transport_mode == "MRT":
+                        transport_mode = "BUS"
+                    if transport_mode == "WALK" and duration > prefs.get("max_walk_minutes", 20):
+                        transport_mode = "BUS"
                 except NoRouteError:
                     # Hard failure — no route exists → bubble up to router → HTTP 422
                     raise NoRouteError(
@@ -222,13 +228,17 @@ async def plan_trip(
                     is_estimated=is_estimated,
                     instructions=instructions,
                     geometry=geometry,
+                    distance_km=distance_km,
                 ))
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))
 
-    # [CODE] 5. Budget check — after all legs are computed
+    # [CODE] 5. Budget check — warn instead of raising so planning still completes
     if total_cost > budget_sgd:
-        raise BudgetExceededError(total_cost, budget_sgd)
+        warnings.append(
+            f"Estimated transit cost S${total_cost:.2f} exceeds your budget of S${budget_sgd:.2f}. "
+            "Consider fewer stops or choosing a different route."
+        )
 
     # Inform caller when fewer days were needed than requested
     if len(days) < num_days:
@@ -252,6 +262,7 @@ async def plan_trip(
             category=p["category"],
             is_outdoor=p["is_outdoor"],
             in_curated_dataset=True,
+            image_url=p.get("image_url"),
         )
         for p in places
     ]

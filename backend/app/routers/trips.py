@@ -1,7 +1,11 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.dependencies import get_current_user
 
 from app.models.trip import (
     TripCreate, TripPlanRequest, TripPlan,
@@ -29,11 +33,12 @@ _pending_swaps: dict[str, dict] = {}  # trip_id → {alert_id, updated_trip}
 async def create_trip(body: TripCreate):
     trip_id = str(uuid.uuid4())
 
-    # Cache for no-DB fallback path (budget, num_days, session_id)
+    # Cache for no-DB fallback path (budget, num_days, session_id, user_id)
     _trip_meta[trip_id] = {
         "num_days": body.num_days,
         "budget_sgd": float(body.budget_sgd),
         "session_id": body.session_id,
+        "user_id": str(body.user_id) if body.user_id else None,
     }
 
     if supabase:
@@ -84,14 +89,23 @@ async def plan_trip(trip_id: str, body: TripPlanRequest):
 
 
 @router.get("/{trip_id}")
-async def get_trip(trip_id: str):
+async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
     # Try in-memory cache first (covers session without Supabase)
     if trip_id in _trip_store:
+        meta = _trip_meta.get(trip_id, {})
+        trip_user_id = meta.get("user_id")
+        if current_user and trip_user_id and trip_user_id != current_user:
+            raise HTTPException(status_code=403, detail="Access denied")
         return _trip_store[trip_id]
 
     if supabase:
         plan = _fetch_trip_from_db(trip_id)
         if plan:
+            trip_resp = supabase.table("trips").select("user_id").eq("id", trip_id).execute()
+            if trip_resp.data:
+                trip_user_id = trip_resp.data[0].get("user_id")
+                if current_user and trip_user_id and trip_user_id != current_user:
+                    raise HTTPException(status_code=403, detail="Access denied")
             return plan
 
     raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
@@ -187,6 +201,21 @@ async def update_location(trip_id: str, body: LocationUpdate):
 
     if plan:
         await adaptation_agent.check_lta_proximity(trip_id, body.lat, body.lng, plan)
+
+
+@router.delete("/{trip_id}", status_code=204)
+async def delete_trip(trip_id: str):
+    _trip_store.pop(trip_id, None)
+    _trip_meta.pop(trip_id, None)
+    _pending_swaps.pop(trip_id, None)
+
+    if supabase:
+        try:
+            supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
+            supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
+            supabase.table("trips").delete().eq("id", trip_id).execute()
+        except Exception as exc:
+            log.warning("Supabase delete failed for trip %s: %s", trip_id, exc)
 
 
 @router.post("/{trip_id}/accept-swap")

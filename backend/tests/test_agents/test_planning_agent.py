@@ -8,7 +8,7 @@ from app.agents.planning_agent import (
     _haversine_km,
     _PLACES,
 )
-from app.exceptions import PlaceDataMissingError, BudgetExceededError
+from app.exceptions import PlaceDataMissingError
 from app.services.onemap import NoRouteError
 
 
@@ -124,15 +124,17 @@ async def test_optimize_order_returns_all_places():
 
 
 @pytest.mark.asyncio
-async def test_budget_exceeded_raises():
+async def test_budget_exceeded_adds_warning():
     ids = VALID_IDS[:2]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
-        return_value=_mock_route(fare=100.0),  # 100 SGD per leg
+        return_value=_mock_route(fare=100.0),  # 100 SGD per leg, budget is 50
     ):
-        with pytest.raises(BudgetExceededError):
-            await plan_trip("t3", ids, 1, budget_sgd=50.0, optimize_order=False, preferences=None)
+        result = await plan_trip("t3", ids, 1, budget_sgd=50.0, optimize_order=False, preferences=None)
+    # Planning must complete (no exception) and emit a budget warning
+    assert any("budget" in w.lower() for w in result.warnings)
+    assert len(result.days[0].legs) == 1
 
 
 @pytest.mark.asyncio
