@@ -74,7 +74,6 @@ class LocationUpdate(BaseModel):
 
 class FeedbackRequest(BaseModel):
     trip_id: str
-    user_id: Optional[str] = None
     leg_id: Optional[str] = None
     rating: int = Field(ge=1, le=5)
     comment: Optional[str] = None
