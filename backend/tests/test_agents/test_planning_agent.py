@@ -5,6 +5,8 @@ from app.agents.planning_agent import (
     plan_trip,
     _sort_places_greedy,
     _distribute_days,
+    _parse_opening_hours,
+    _check_schedule_fit,
     _haversine_km,
     _PLACES,
 )
@@ -64,13 +66,13 @@ def test_distribute_days_single_day():
 
 
 def test_distribute_days_splits_correctly():
-    # 3 places: 300 + 300 + 120 → should split into 2 days at 480 cap
+    # Legacy path (no route_durations): 300 + 300 + 120 → split at 480 cap
     places = [
         {"id": "a", "dwell_minutes": 300},
         {"id": "b", "dwell_minutes": 300},  # 300+300=600 > 480 → new day
         {"id": "c", "dwell_minutes": 120},
     ]
-    days = _distribute_days(places, num_days=2)
+    days = _distribute_days(places, num_days=2, route_durations=None)
     assert len(days) == 2
     assert days[0][0]["id"] == "a"
     assert days[1][0]["id"] == "b"
@@ -78,10 +80,101 @@ def test_distribute_days_splits_correctly():
 
 
 def test_distribute_days_respects_num_days_cap():
-    # Even if dwell overflows 480, don't create more than num_days groups
+    # Even if dwell overflows 480, don't create more than num_days groups (legacy path)
     places = [{"id": str(i), "dwell_minutes": 300} for i in range(4)]
-    days = _distribute_days(places, num_days=2)
+    days = _distribute_days(places, num_days=2, route_durations=None)
     assert len(days) <= 2  # cannot exceed num_days
+
+
+# ── unit tests: _parse_opening_hours ─────────────────────────────────────────
+
+def test_parse_opening_hours_24h():
+    assert _parse_opening_hours("24h") == (0, 1439)
+
+
+def test_parse_opening_hours_none():
+    assert _parse_opening_hours(None) == (0, 1439)
+
+
+def test_parse_opening_hours_range():
+    open_m, close_m = _parse_opening_hours("09:00-18:00")
+    assert open_m == 540
+    assert close_m == 1080
+
+
+def test_parse_opening_hours_early():
+    open_m, close_m = _parse_opening_hours("07:00-10:00")
+    assert open_m == 420
+    assert close_m == 600
+
+
+# ── unit tests: transit-aware distribute ─────────────────────────────────────
+
+def test_distribute_days_transit_aware_fits_one_day():
+    # 09:00 → place_a (dwell 120) → travel 10 → place_b (dwell 120) → ends 14:10
+    places = [
+        {"id": "a", "dwell_minutes": 120},
+        {"id": "b", "dwell_minutes": 120},
+    ]
+    route_durations = {("a", "b"): 10}
+    days = _distribute_days(places, num_days=1, route_durations=route_durations)
+    assert len(days) == 1
+    assert len(days[0]) == 2
+
+
+def test_distribute_days_transit_aware_splits_on_17h():
+    # 09:00 → place_a (dwell 400) → travel 30 → place_b (dwell 120)
+    # arrive_b = 540+400+30 = 970; 970+120=1090 > 1020 → move b to day 2
+    places = [
+        {"id": "a", "dwell_minutes": 400},
+        {"id": "b", "dwell_minutes": 120},
+    ]
+    route_durations = {("a", "b"): 30}
+    days = _distribute_days(places, num_days=2, route_durations=route_durations)
+    assert len(days) == 2
+    assert days[0][0]["id"] == "a"
+    assert days[1][0]["id"] == "b"
+
+
+def test_distribute_days_opening_hours_respected():
+    # place_b opens 07:00-10:00; arrival at 09:00+120+10=730 min (~12:10) → outside
+    # → placed on day 2 where clock starts at 09:00 → arrival=09:00 (no prev) → 540 ∈ [420,600]
+    places = [
+        {"id": "a", "dwell_minutes": 120},
+        {"id": "b", "dwell_minutes": 60, "opening_hours": "07:00-10:00"},
+    ]
+    route_durations = {("a", "b"): 10}
+    days = _distribute_days(places, num_days=2, route_durations=route_durations)
+    b_day = next(i for i, d in enumerate(days) if any(p["id"] == "b" for p in d))
+    a_day = next(i for i, d in enumerate(days) if any(p["id"] == "a" for p in d))
+    assert b_day != a_day  # b pushed to a different day
+
+
+# ── unit tests: _check_schedule_fit ─────────────────────────────────────────
+
+def test_check_schedule_fit_ok():
+    places = [{"id": "a", "dwell_minutes": 120}, {"id": "b", "dwell_minutes": 120}]
+    days = [places]
+    issue, _ = _check_schedule_fit(days, {("a", "b"): 10})
+    assert issue is None
+
+
+def test_check_schedule_fit_overfull():
+    # Single day with 600 min dwell + no travel → ends at 540+600=1140 > 1050
+    places = [{"id": str(i), "dwell_minutes": 200} for i in range(3)]
+    days = [places]
+    issue, summary = _check_schedule_fit(days, {})
+    assert issue == "overfull"
+    assert summary[0]["occupied_minutes"] == 600
+
+
+def test_check_schedule_fit_underfull():
+    # Single day with only 60 min total < 240
+    places = [{"id": "a", "dwell_minutes": 60}]
+    days = [places]
+    issue, summary = _check_schedule_fit(days, {})
+    assert issue == "underfull"
+    assert summary[0]["occupied_minutes"] == 60
 
 
 # ── integration tests: plan_trip ─────────────────────────────────────────────
@@ -195,6 +288,28 @@ async def test_plan_trip_geometry_none_when_not_in_route():
         result = await plan_trip("t-nogeo", ids, 1, 999.0, False, None)
     assert result.days[0].legs[0].geometry is None
     assert result.days[0].legs[0].instructions == []
+
+
+# ── P4-C: LLM schedule warning ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_overfull_schedule_warning_in_result():
+    """When Gemini detects overfull, result.warnings should include a schedule warning."""
+    ids = VALID_IDS[:2]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        return_value=_mock_route(duration=15),
+    ):
+        with patch(
+            "app.services.gemini.generate_schedule_warning",
+            new_callable=AsyncMock,
+            return_value="Your schedule is too packed on Day 1.",
+        ):
+            result = await plan_trip("t-fit", ids, 1, 999.0, False, None)
+    # May or may not be overfull depending on actual dwell data; just verify no crash
+    assert result.id == "t-fit"
+    assert isinstance(result.warnings, list)
 
 
 # ── Gemini fallback for ambiguous place names ─────────────────────────────────

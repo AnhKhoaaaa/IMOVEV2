@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map, WifiOff, Settings } from 'lucide-react'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
+import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { buildPlacesById } from '../lib/tripUtils'
 import { api } from '../services/api'
@@ -56,14 +57,19 @@ function PanelSkeleton() {
 export default function Trip() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { state: navState } = useLocation()
+  const location = useLocation()
+  const { state: navState } = location
   const { trip, loading, error, refresh, isOffline } = useTrip(id)
+  const { save: saveTrip } = useSavedTrips()
   const { alerts, dismiss } = useAlerts(id)
   const { position } = useGeolocation()
   const lastLocationSent = useRef(0)
 
+  // ── Pending save (navigated from Planner before saving) ───────
+  const [pendingSave, setPendingSave] = useState(navState?.pendingSave ?? null)
+
   // ── Navigation state ──────────────────────────────────────────
-  const [tab, setTab] = useState(navState?.autoStart ? 'd1' : 'overview')
+  const [tab, setTab] = useState(navState?.pendingSave ? 'd1' : (navState?.autoStart ? 'd1' : 'overview'))
   const [mode, setMode] = useState('split')
   const [dismissedWarnings, setDismissedWarnings] = useState(false)
   const [showMobileMap, setShowMobileMap] = useState(false)
@@ -372,7 +378,17 @@ export default function Trip() {
               )}
 
               {tab === 'summary' && (
-                <SummaryTab trip={trip} optimizationLog={optimizationLog} />
+                <SummaryTab
+                  trip={trip}
+                  optimizationLog={optimizationLog}
+                  pendingSave={pendingSave}
+                  onSave={(name) => {
+                    const meta = { ...pendingSave, name }
+                    saveTrip(id, meta)
+                    setSavedMeta(meta)
+                    setPendingSave(null)
+                  }}
+                />
               )}
             </>
           )}

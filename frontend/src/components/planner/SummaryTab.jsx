@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap, Navigation2, Save } from 'lucide-react'
 
 function StatCard({ label, value, Icon }) {
   return (
@@ -44,7 +44,8 @@ function LogBadge({ entry }) {
   )
 }
 
-export default function SummaryTab({ trip, optimizationLog = [] }) {
+export default function SummaryTab({ trip, optimizationLog = [], pendingSave = null, onSave }) {
+  const [tripName, setTripName] = useState(pendingSave?.name ?? '')
   const days = trip?.days ?? []
   const allLegs = useMemo(() => days.flatMap((d) => d.legs ?? []), [days])
 
@@ -70,6 +71,32 @@ export default function SummaryTab({ trip, optimizationLog = [] }) {
 
   return (
     <div className="space-y-5 animate-fade-up">
+      {pendingSave && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Navigation2 size={16} className="text-emerald-600 shrink-0" />
+            <p className="font-display font-bold text-[15px] text-emerald-900">Save your itinerary</p>
+          </div>
+          <p className="text-[12.5px] text-emerald-700 leading-relaxed">
+            Review your days and transport modes above, then save when ready.
+          </p>
+          <div className="space-y-2">
+            <label className="text-[11.5px] font-semibold text-emerald-800 block">Trip name</label>
+            <input
+              type="text"
+              value={tripName}
+              onChange={(e) => setTripName(e.target.value)}
+              className="flex h-10 w-full rounded-xl border border-emerald-200 bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:border-emerald-400"
+            />
+          </div>
+          <button
+            onClick={() => onSave?.(tripName || pendingSave.name)}
+            className="w-full h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
+          >
+            <Save size={15} /> Save Itinerary
+          </button>
+        </div>
+      )}
       <div>
         <h2 className="font-display font-extrabold text-[22px] text-slate-900">Trip summary</h2>
         <p className="text-[13px] text-slate-500 mt-1">

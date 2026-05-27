@@ -5,7 +5,6 @@ import {
   ChevronDown, Plus, X, Footprints, Bus, Train, ChevronLeft, Pencil,
 } from 'lucide-react'
 import { api } from '../services/api'
-import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import { Alert, AlertDescription } from '../components/ui/alert'
@@ -164,14 +163,12 @@ function PlaceRow({ place, index, onRemove }) {
 export default function Planner() {
   const navigate = useNavigate()
   const { t } = useT()
-  const { save: saveTrip } = useSavedTrips()
 
   const [planMode, setPlanMode] = useState(null)
 
   /* ── Shared ────────────────────────── */
   const [loading, setLoading]       = useState(false)
   const [submitError, setSubmitError] = useState(null)
-  const [planResult, setPlanResult]   = useState(null)
 
   /* ── Manual state ──────────────────── */
   const [tripName, setTripName]             = useState('')
@@ -241,10 +238,8 @@ export default function Planner() {
           group_type: 'solo',
         },
       })
-      setPlanResult({
-        tripId: trip.trip_id,
-        meta: { name: tripName.trim() || 'Singapore Trip', startDate: manFlexible ? null : manStartDate, numDays: manNumDays },
-        numPlaces: builder.places.length,
+      navigate(`/trip/${trip.trip_id}`, {
+        state: { pendingSave: { name: tripName.trim() || 'Singapore Trip', startDate: manFlexible ? null : manStartDate, numDays: manNumDays } },
       })
     } catch (e) {
       setSubmitError(e.message)
@@ -286,70 +281,14 @@ export default function Planner() {
           group_type: companion,
         },
       })
-      setPlanResult({
-        tripId: trip.trip_id,
-        meta: { name: 'Singapore Trip', startDate: aiFlexible || !aiStartDate ? null : aiStartDate, numDays: aiNumDays },
-        numPlaces: placeIds.length,
+      navigate(`/trip/${trip.trip_id}`, {
+        state: { pendingSave: { name: 'Singapore Trip', startDate: aiFlexible || !aiStartDate ? null : aiStartDate, numDays: aiNumDays } },
       })
     } catch (e) {
       setSubmitError(e.message)
     } finally {
       setLoading(false)
     }
-  }
-
-  /* ── Plan confirm step ──────────────────────────────────────────── */
-  if (planResult) {
-    return (
-      <div className="min-h-screen bg-slate-50 py-10">
-        <div className="w-[min(480px,calc(100vw-32px))] mx-auto px-4 sm:px-0">
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
-            <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-teal-500" />
-            <div className="p-6 space-y-5">
-              <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200">
-                  <Navigation2 size={18} />
-                </div>
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">{t('planReady')}</div>
-                  <div className="font-display font-extrabold text-[20px] text-slate-900">{t('saveItinerary')}</div>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 text-[13px] text-slate-600 space-y-1">
-                <div>{t('daysUnit', planResult.meta.numDays)}</div>
-                <div>{t('stopsUnit', planResult.numPlaces)}</div>
-              </div>
-
-              <div>
-                <label className="text-[12px] font-semibold text-slate-600 block mb-1.5">{t('tripNameLabel')}</label>
-                <input
-                  type="text"
-                  value={planResult.meta.name}
-                  onChange={(e) => setPlanResult((r) => ({ ...r, meta: { ...r.meta, name: e.target.value } }))}
-                  className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPlanResult(null)}
-                  className="flex-1 h-11 rounded-xl border border-slate-200 text-slate-700 font-semibold text-[14px] hover:bg-slate-50 transition"
-                >
-                  {t('startOver')}
-                </button>
-                <button
-                  onClick={() => { saveTrip(planResult.tripId, planResult.meta); navigate(`/trip/${planResult.tripId}`) }}
-                  className="flex-1 h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
-                >
-                  <Navigation2 size={15} /> {t('saveAndView')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
   }
 
   /* ── Mode chooser ───────────────────────────────────────────────── */

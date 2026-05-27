@@ -79,18 +79,88 @@ def _sort_places_greedy(places: list[dict]) -> list[dict]:
     return result
 
 
-def _distribute_days(places: list[dict], num_days: int) -> list[list[dict]]:
-    """Distribute places into days with max 480 min dwell per day."""
-    days: list[list[dict]] = [[]]
-    day_dwell = 0
+def _parse_opening_hours(s: str) -> tuple[int, int]:
+    """Parse "HH:MM-HH:MM" or "24h" → (open_min, close_min) since midnight."""
+    if not s or s.strip().lower() == "24h":
+        return 0, 1439  # 00:00–23:59
+    parts = s.strip().split("-")
+    if len(parts) != 2:
+        return 0, 1439
+    try:
+        return _parse_hhmm(parts[0].strip()), _parse_hhmm(parts[1].strip())
+    except (ValueError, IndexError):
+        return 0, 1439
+
+
+def _distribute_days(
+    places: list[dict],
+    num_days: int,
+    route_durations: dict[tuple, int] | None = None,
+) -> list[list[dict]]:
+    """Distribute places into days by simulating a 09:00–17:00 tourist day.
+
+    Each day starts at 09:00 (540 min). A place is added to the current day
+    only when arrival_time + dwell ≤ 17:00 (1020 min) AND arrival_time falls
+    within the place's opening_hours window. Otherwise the next day is tried.
+    Falls back to old 480-min-cap behaviour when no route_durations are given.
+    """
+    START_MIN = 540    # 09:00
+    END_MIN   = 1020   # 17:00
+
+    if route_durations is None:
+        # Legacy fallback — used by tests that don't supply transit data
+        days: list[list[dict]] = [[]]
+        day_dwell = 0
+        for place in places:
+            dwell = place.get("dwell_minutes", 60)
+            if day_dwell + dwell > 480 and days[-1] and len(days) < num_days:
+                days.append([])
+                day_dwell = 0
+            days[-1].append(place)
+            day_dwell += dwell
+        return days
+
+    days: list[list[dict]] = [[] for _ in range(num_days)]
+    clock: list[int] = [START_MIN] * num_days  # current time per day
+
     for place in places:
-        dwell = place.get("dwell_minutes", 60)
-        if day_dwell + dwell > 480 and days[-1] and len(days) < num_days:
-            days.append([])
-            day_dwell = 0
-        days[-1].append(place)
-        day_dwell += dwell
-    return days
+        dwell   = place.get("dwell_minutes", 60)
+        oh_open, oh_close = _parse_opening_hours(place.get("opening_hours", "24h"))
+
+        placed = False
+        for day_idx in range(num_days):
+            # Travel time from last place in this day (0 if day is empty)
+            if days[day_idx]:
+                prev_id = days[day_idx][-1]["id"]
+                travel  = route_durations.get((prev_id, place["id"]), 15)
+            else:
+                travel = 0
+
+            arrival = clock[day_idx] + travel
+
+            # Opening-hours check
+            in_hours = oh_open <= arrival <= oh_close
+            # Day-end check
+            fits_day = arrival + dwell <= END_MIN
+
+            if in_hours and fits_day:
+                days[day_idx].append(place)
+                clock[day_idx] = arrival + dwell
+                placed = True
+                break
+
+        if not placed:
+            # Best-effort: put it in the day with the most remaining capacity
+            best_day = min(range(num_days), key=lambda i: clock[i])
+            days[best_day].append(place)
+            if days[best_day]:
+                prev_id = days[best_day][-2]["id"] if len(days[best_day]) > 1 else None
+                travel = route_durations.get((prev_id, place["id"]), 15) if prev_id else 0
+            else:
+                travel = 0
+            clock[best_day] += travel + dwell
+
+    return [d for d in days if d]  # drop empty trailing days
 
 
 def _primary_mode(legs: list[dict]) -> str:
@@ -110,6 +180,48 @@ def _parse_hhmm(t: str) -> int:
 
 def _fmt_hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _check_schedule_fit(
+    day_groups: list[list[dict]],
+    route_durations: dict[tuple, int] | None,
+) -> tuple[str | None, list[dict]]:
+    """Detect overfull/underfull days.
+
+    Returns (issue_type, days_summary) where issue_type is "overfull",
+    "underfull", or None.  days_summary is always the full list so the
+    caller can forward it to Gemini.
+    """
+    START_MIN = 540
+    END_MIN_HARD = 1050  # 17:30 — leeway beyond 17:00
+
+    days_summary = []
+    has_overfull = False
+    has_underfull = False
+
+    for day_idx, places in enumerate(day_groups):
+        clock = START_MIN
+        total_occupied = 0
+        for i, place in enumerate(places):
+            dwell = place.get("dwell_minutes", 60)
+            if i > 0 and route_durations:
+                travel = route_durations.get((places[i - 1]["id"], place["id"]), 15)
+                clock += travel
+                total_occupied += travel
+            clock += dwell
+            total_occupied += dwell
+
+        days_summary.append({"day": day_idx + 1, "occupied_minutes": total_occupied})
+        if clock > END_MIN_HARD:
+            has_overfull = True
+        if total_occupied < 240 and len(places) > 0:
+            has_underfull = True
+
+    if has_overfull:
+        return "overfull", days_summary
+    if has_underfull:
+        return "underfull", days_summary
+    return None, days_summary
 
 
 async def _resolve_via_gemini(name: str) -> str | None:
@@ -158,13 +270,47 @@ async def plan_trip(
     if optimize_order:
         places = _sort_places_greedy(places)
 
-    # [CODE] 3. Distribute across days (cap: 480 min dwell/day)
-    day_groups = _distribute_days(places, num_days)
+    # [CODE] 3. Fetch routes for all consecutive pairs (needed for smart distribution)
+    route_cache: dict[tuple, dict] = {}
+    for i in range(len(places) - 1):
+        from_p, to_p = places[i], places[i + 1]
+        key = (from_p["id"], to_p["id"])
+        try:
+            route_cache[key] = await onemap.get_route(
+                from_p["lat"], from_p["lng"],
+                to_p["lat"], to_p["lng"],
+                mode="pt",
+            )
+        except NoRouteError:
+            raise NoRouteError(
+                f"No route available from '{from_p['id']}' to '{to_p['id']}'"
+            )
+        except Exception as exc:
+            raise NoRouteError(
+                f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
+            ) from exc
 
-    # [CODE] 4. Build legs — call OneMap for each consecutive pair
+    route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
+
+    # [CODE] 4. Distribute across days — clock-simulated 09:00–17:00 window
+    day_groups = _distribute_days(places, num_days, route_durations)
+
+    # [LLM] 5. Check over/under-fill — call Gemini once if issue detected
+    issue_type, days_summary = _check_schedule_fit(day_groups, route_durations)
+    schedule_warning: str | None = None
+    if issue_type:
+        try:
+            from app.services import gemini as _gemini
+            schedule_warning = await _gemini.generate_schedule_warning(days_summary, issue_type)
+        except Exception:
+            pass  # never block planning on Gemini failure
+
+    # [CODE] 6. Build legs from pre-fetched routes + check opening-hours warnings
     days: list[DayPlan] = []
     total_cost = 0.0
     warnings: list[str] = []
+    if schedule_warning:
+        warnings.append(schedule_warning)
 
     for day_idx, day_places in enumerate(day_groups):
         legs: list[LegResponse] = []
@@ -186,35 +332,39 @@ async def plan_trip(
             if i < len(day_places) - 1:
                 from_p = place
                 to_p = day_places[i + 1]
-                try:
-                    route = await onemap.get_route(
-                        from_p["lat"], from_p["lng"],
-                        to_p["lat"], to_p["lng"],
-                        mode="pt",
-                    )
-                    transport_mode = _primary_mode(route.get("legs", []))
-                    duration = route["duration_minutes"]
-                    cost = route["fare_sgd"]
-                    geometry = route.get("geometry")
-                    instructions = route.get("instructions", [])
-                    distance_km = route.get("distance_km")
-                    is_estimated = False
-                    # Apply user preferences (rule-based, no LLM)
-                    if prefs.get("prefer_mrt") is False and transport_mode == "MRT":
-                        transport_mode = "BUS"
-                    if transport_mode == "WALK" and duration > prefs.get("max_walk_minutes", 20):
-                        transport_mode = "BUS"
-                except NoRouteError:
-                    # Hard failure — no route exists → bubble up to router → HTTP 422
-                    raise NoRouteError(
-                        f"No route available from '{from_p['id']}' to '{to_p['id']}'"
-                    )
-                except Exception as exc:
-                    # Network / transient error — raise as NoRouteError per anti-hallucination rule.
-                    # We must never fabricate duration or cost values.
-                    raise NoRouteError(
-                        f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
-                    ) from exc
+                route_key = (from_p["id"], to_p["id"])
+                if route_key in route_cache:
+                    route = route_cache[route_key]
+                else:
+                    # Cross-day pair not pre-fetched — fetch now
+                    try:
+                        route = await onemap.get_route(
+                            from_p["lat"], from_p["lng"],
+                            to_p["lat"], to_p["lng"],
+                            mode="pt",
+                        )
+                        route_cache[route_key] = route
+                    except NoRouteError:
+                        raise NoRouteError(
+                            f"No route available from '{from_p['id']}' to '{to_p['id']}'"
+                        )
+                    except Exception as exc:
+                        raise NoRouteError(
+                            f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
+                        ) from exc
+
+                transport_mode = _primary_mode(route.get("legs", []))
+                duration = route["duration_minutes"]
+                cost = route["fare_sgd"]
+                geometry = route.get("geometry")
+                instructions = route.get("instructions", [])
+                distance_km = route.get("distance_km")
+                is_estimated = False
+                # Apply user preferences (rule-based, no LLM)
+                if prefs.get("prefer_mrt") is False and transport_mode == "MRT":
+                    transport_mode = "BUS"
+                if transport_mode == "WALK" and duration > prefs.get("max_walk_minutes", 20):
+                    transport_mode = "BUS"
 
                 current_time += duration
                 total_cost += cost
@@ -233,7 +383,7 @@ async def plan_trip(
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))
 
-    # [CODE] 5. Budget check — warn instead of raising so planning still completes
+    # [CODE] 7. Budget check — warn instead of raising so planning still completes
     if total_cost > budget_sgd:
         warnings.append(
             f"Estimated transit cost S${total_cost:.2f} exceeds your budget of S${budget_sgd:.2f}. "
@@ -247,7 +397,7 @@ async def plan_trip(
             f"add more places to fill {num_days} days."
         )
 
-    # [LLM] 6. Gemini not called — preferences are structured (prefer_mrt, max_walk_minutes,
+    # [LLM] 8. Gemini not called — preferences are structured (prefer_mrt, max_walk_minutes,
     # budget_sgd). Free-text edge cases would require: # [LLM] call_gemini() here.
 
     response_places = [
@@ -263,6 +413,7 @@ async def plan_trip(
             is_outdoor=p["is_outdoor"],
             in_curated_dataset=True,
             image_url=p.get("image_url"),
+            opening_hours=p.get("opening_hours"),
         )
         for p in places
     ]

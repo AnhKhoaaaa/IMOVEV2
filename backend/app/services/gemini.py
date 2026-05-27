@@ -20,6 +20,59 @@ _PROMPT_TEMPLATE = (
 )
 
 
+_SCHEDULE_WARNING_TEMPLATE = (
+    "You are a Singapore travel planner. A tourist's itinerary has a scheduling issue.\n"
+    "Issue type: {issue_type}\n"
+    "Schedule summary (day number → total occupied minutes): {days_summary}\n\n"
+    "Write a single, friendly, specific warning sentence in English. "
+    "Mention the affected day numbers. No bullet points. Under 80 words."
+)
+
+
+async def generate_schedule_warning(days_summary: list[dict], issue_type: str) -> str:
+    """Generate a concise natural-language schedule warning via Gemini.
+
+    days_summary: list of {"day": int, "occupied_minutes": int}
+    issue_type: "overfull" | "underfull"
+    Enforces the 4-second rate-limit guard shared with parse_places_input.
+    Returns the warning string, or a plain fallback string on any error.
+    """
+    global _last_call_at
+    async with _RATE_LIMIT_LOCK:
+        elapsed = time.monotonic() - _last_call_at
+        if elapsed < _MIN_INTERVAL:
+            await asyncio.sleep(_MIN_INTERVAL - elapsed)
+        _last_call_at = time.monotonic()
+
+    summary_str = ", ".join(f"Day {d['day']}: {d['occupied_minutes']} min" for d in days_summary)
+    prompt = _SCHEDULE_WARNING_TEMPLATE.format(issue_type=issue_type, days_summary=summary_str)
+
+    try:
+        response = await _client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return (response.text or "").strip() or _fallback_warning(issue_type, days_summary)
+    except Exception:
+        return _fallback_warning(issue_type, days_summary)
+
+
+def _fallback_warning(issue_type: str, days_summary: list[dict]) -> str:
+    if issue_type == "overfull":
+        overfull_days = [d["day"] for d in days_summary if d["occupied_minutes"] > 510]
+        days_str = ", ".join(f"Day {d}" for d in overfull_days) if overfull_days else "some days"
+        return (
+            f"Your schedule may be too packed — {days_str} exceeds the 17:00 end time. "
+            "Consider removing a place or spreading across more days."
+        )
+    underfull_days = [d["day"] for d in days_summary if d["occupied_minutes"] < 240]
+    days_str = ", ".join(f"Day {d}" for d in underfull_days) if underfull_days else "some days"
+    return (
+        f"You have free time left — {days_str} has fewer than 4 hours of activities. "
+        "Consider adding more places to fill your day."
+    )
+
+
 async def parse_places_input(raw_text: str) -> list[str]:
     """Parse natural language place input into a list of place name strings.
 
