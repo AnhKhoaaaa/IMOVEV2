@@ -221,10 +221,10 @@ const STATUS_FOR_FILTER = { Today: 'today', Upcoming: 'upcoming', Drafts: 'draft
 export default function Home() {
   const navigate = useNavigate()
   const { t } = useT()
-  const { trips, remove } = useSavedTrips()
+  const [authUser, setAuthUser] = useState(null)
+  const { trips, remove } = useSavedTrips(authUser?.id)
   const [filter, setFilter] = useState('All')
   const [modalTrip, setModalTrip] = useState(null)
-  const [authUser, setAuthUser] = useState(null)
 
   const handleDelete = async (trip) => {
     if (!window.confirm(`Delete "${trip.name ?? 'this trip'}"? This cannot be undone.`)) return

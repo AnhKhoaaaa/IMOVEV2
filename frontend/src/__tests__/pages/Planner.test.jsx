@@ -173,7 +173,10 @@ describe('Planner', () => {
       b.textContent.includes('Create Itinerary') && !b.disabled
     )
     fireEvent.click(createBtn)
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/trip/trip-xyz'))
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(
+      '/trip/trip-xyz',
+      expect.objectContaining({ state: expect.objectContaining({ pendingSave: expect.any(Object) }) })
+    ))
   })
 
   it('shows error when planTrip fails', async () => {

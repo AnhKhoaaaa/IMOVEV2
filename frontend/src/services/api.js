@@ -15,8 +15,8 @@ async function request(path, options = {}) {
   return res.json()
 }
 
-const TRIPS_KEY = 'imove_trips'
-const TRIP_DATA_KEY = 'imove_trip_data'
+const tripsKey = (userId) => userId ? `imove_trips_${userId}` : 'imove_trips_guest'
+const tripDataKey = (userId) => userId ? `imove_trip_data_${userId}` : 'imove_trip_data_guest'
 
 export const api = {
   searchPlaces: (q) => request(`/places/search?q=${encodeURIComponent(q)}`),
@@ -34,47 +34,50 @@ export const api = {
   removePlaceFromDay: (id, placeId) => request(`/trips/${id}/places/${placeId}`, { method: 'DELETE' }),
   reorderPlaces: (id, day, placeIds) => request(`/trips/${id}/reorder`, { method: 'PATCH', body: JSON.stringify({ day, place_ids: placeIds }) }),
 
-  // localStorage trip metadata helpers (no backend calls)
-  saveTrip(tripId, meta) {
+  // localStorage trip metadata helpers — per-user isolated via userId key suffix
+  saveTrip(tripId, meta, userId) {
     try {
-      const raw = localStorage.getItem(TRIPS_KEY)
+      const key = tripsKey(userId)
+      const raw = localStorage.getItem(key)
       const trips = raw ? JSON.parse(raw) : []
       const idx = trips.findIndex((t) => t.id === tripId)
       const entry = { id: tripId, ...meta, savedAt: new Date().toISOString() }
       if (idx >= 0) trips[idx] = entry
       else trips.unshift(entry)
-      localStorage.setItem(TRIPS_KEY, JSON.stringify(trips))
+      localStorage.setItem(key, JSON.stringify(trips))
     } catch { /* ignore storage errors */ }
   },
 
-  getSavedTrips() {
+  getSavedTrips(userId) {
     try {
-      const raw = localStorage.getItem(TRIPS_KEY)
+      const raw = localStorage.getItem(tripsKey(userId))
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   },
 
-  deleteSavedTrip(tripId) {
+  deleteSavedTrip(tripId, userId) {
     try {
-      const raw = localStorage.getItem(TRIPS_KEY)
+      const key = tripsKey(userId)
+      const raw = localStorage.getItem(key)
       const trips = raw ? JSON.parse(raw) : []
-      localStorage.setItem(TRIPS_KEY, JSON.stringify(trips.filter((t) => t.id !== tripId)))
+      localStorage.setItem(key, JSON.stringify(trips.filter((t) => t.id !== tripId)))
     } catch { /* ignore */ }
   },
 
-  // Full trip data cache — written on every successful fetch, read as offline fallback (§5)
-  cacheTripData(tripId, data) {
+  // Full trip data cache — written on every successful fetch, read as offline fallback
+  cacheTripData(tripId, data, userId) {
     try {
-      const raw = localStorage.getItem(TRIP_DATA_KEY)
+      const key = tripDataKey(userId)
+      const raw = localStorage.getItem(key)
       const cache = raw ? JSON.parse(raw) : {}
       cache[tripId] = data
-      localStorage.setItem(TRIP_DATA_KEY, JSON.stringify(cache))
+      localStorage.setItem(key, JSON.stringify(cache))
     } catch { /* ignore storage errors */ }
   },
 
-  getCachedTripData(tripId) {
+  getCachedTripData(tripId, userId) {
     try {
-      const raw = localStorage.getItem(TRIP_DATA_KEY)
+      const raw = localStorage.getItem(tripDataKey(userId))
       const cache = raw ? JSON.parse(raw) : {}
       return cache[tripId] ?? null
     } catch { return null }

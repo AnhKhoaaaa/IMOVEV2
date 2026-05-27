@@ -81,6 +81,8 @@ export default function DayPlan({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
+  const timeline = buildTimeline(legs ?? [], placesById)
+  const dayLabel = formatDayLabel(legs ?? [])
   const placeItems = timeline.filter(t => t.type === 'place').map(t => t.data.id)
 
   const handleDragEnd = async (event) => {
@@ -97,9 +99,6 @@ export default function DayPlan({
     } catch { /* revert on error — refresh will restore original */ }
     finally { setReordering(false) }
   }
-
-  const timeline = buildTimeline(legs ?? [], placesById)
-  const dayLabel = formatDayLabel(legs ?? [])
 
   const togglePlace = (id) =>
     setExpanded((e) => ({ place: e.place === id ? null : id }))

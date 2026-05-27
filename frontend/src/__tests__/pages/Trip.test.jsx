@@ -8,6 +8,15 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useParams: () => ({ id: 'trip-123' }) }
 })
 
+vi.mock('../../lib/supabase', () => ({
+  supabase: {
+    auth: {
+      getSession: vi.fn(() => Promise.resolve({ data: { session: null } })),
+      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
+    },
+  },
+}))
+
 vi.mock('../../hooks/useTrip')
 vi.mock('../../hooks/useAlerts', () => ({
   useAlerts: () => ({ alerts: [], dismiss: vi.fn() }),
