@@ -202,14 +202,125 @@ Sau Phase 2 (3 agents + polyline UI), review thực tế phát hiện các vấn
 
 ---
 
-## Phase 4 — Testing & Quality
-**Thời gian:** Tuần 3–4
+## Phase 4 — Planning Flow Overhaul & Smart Scheduling
+**Thời gian:** Tuần 4
+**Mục tiêu:** Sửa antipattern lưu trước khi xem; phân bổ ngày thông minh theo khung 09:00–17:00 (bao gồm thời gian di chuyển và giờ mở cửa); cảnh báo LLM khi quá nhiều/ít địa điểm
+
+### Context
+Sau Phase 3, flow hiện tại lưu trip ngay sau khi planning xong — user không có cơ hội xem và điều chỉnh phương tiện trước khi lưu. Ngoài ra, `_distribute_days()` chỉ tính dwell time (cap 480 phút) mà không tính thời gian di chuyển hay giờ mở cửa, dẫn đến lịch không khả thi.
+
+---
+
+### Checklist — P4-A: Save-after-view flow
+
+- [ ] **`frontend/src/pages/Planner.jsx`**: Xoá `planResult` state và confirm-step render block. Sau khi `planTrip()` thành công, gọi `navigate('/trip/${tripId}', { state: { pendingSave: { name, startDate, numDays } } })` trực tiếp (cả `submitManual()` và `submitAI()`).
+- [ ] **`frontend/src/pages/Trip.jsx`**: Đọc `location.state?.pendingSave` on mount. Nếu có, hiển thị banner "Save Itinerary" ở Summary tab (hoặc sticky bottom bar). Click → `saveTrip(id, pendingSave)` → xoá pending state. Trip chưa lưu vẫn có thể xem/chỉnh transport mode.
+
+### Checklist — P4-B: Smart day distribution (09:00–17:00 + opening hours)
+
+- [ ] **`backend/app/models/place.py`**: Thêm `opening_hours: Optional[str] = None`
+- [ ] **`backend/app/agents/planning_agent.py`**:
+  - Thêm `_parse_opening_hours(s: str) -> tuple[int, int]` — parse "HH:MM-HH:MM" và "24h" → (open_min, close_min)
+  - Rewrite `_distribute_days(places, num_days, route_durations: dict) -> list[list]` — simulate clock từ 09:00; add place to day nếu `arrival + dwell ≤ 17:00` AND arrival nằm trong opening_hours; nếu không → thử ngày tiếp theo; nếu không còn ngày → add warning
+  - Trong `plan_trip()`: build `route_durations` dict `{(from_id, to_id): duration_min}` từ routes đã fetch, truyền vào `_distribute_days()`
+- [ ] **`backend/tests/test_agents/test_planning_agent.py`**: Cập nhật `test_distribute_days_splits_correctly` (signature mới); thêm test transit-aware distribution và opening-hours validation
+
+### Checklist — P4-C: LLM over/under-fill warning
+
+- [ ] **`backend/app/agents/planning_agent.py`**: Thêm `_check_schedule_fit(days_schedule, route_durations) -> tuple[str|None, str]` — phát hiện overfull (end > 17:30) hoặc underfull (total < 4h); nếu có issue → gọi Gemini
+- [ ] **`backend/app/services/gemini.py`**: Thêm `generate_schedule_warning(days_summary: list, issue_type: str) -> str` — dùng existing rate-limit guard; trả về cảnh báo tự nhiên với số ngày cụ thể
+- [ ] Test: mock Gemini, verify warning xuất hiện trong `result.warnings` khi overfull
+
+### Định nghĩa "Done" cho Phase 4
+
+- [ ] Plan trip → navigate thẳng vào Day 1 tab (không qua confirm step)
+- [ ] Summary tab hiện nút "Save Itinerary" khi trip chưa được lưu
+- [ ] Trip với 10 địa điểm, 2 ngày → phân bổ đúng theo 09:00–17:00 với transit time
+- [ ] Place có opening_hours "07:00-10:00" không được xếp vào buổi chiều
+- [ ] Khi nhét quá nhiều địa điểm → `result.warnings` có cảnh báo từ Gemini
+
+---
+
+## Phase 5 — Interactive Itinerary Editing
+**Thời gian:** Tuần 4–5
+**Mục tiêu:** Cho phép user tái cấu trúc lịch sau khi xem: tối ưu global, thêm/xoá địa điểm theo ngày, kéo-thả sắp xếp lại
+
+### Context
+Sau Phase 4, user thấy lịch trước khi lưu. Phase này cho phép họ chỉnh sửa cấu trúc (thêm/xoá/sắp xếp địa điểm) mà không cần lập lịch lại từ đầu. "Optimize Route" chuyển thành global action ở Overview tab.
+
+---
+
+### Checklist — P5-A: Global Optimize Route (Overview tab)
+
+- [ ] **`backend/app/routers/trips.py`**: Thêm `POST /{trip_id}/optimize` — đọc plan hiện tại, re-run `_sort_places_greedy()` + `_distribute_days()` với place list hiện có, cập nhật `_trip_store`, trả về `TripPlan` mới
+- [ ] **`frontend/src/services/api.js`**: Thêm `optimizeRoute: (id) => request('/trips/${id}/optimize', { method: 'POST' })`
+- [ ] **`frontend/src/pages/Trip.jsx`**: Thêm nút "Optimize Route" (với loading state) vào Overview tab; on success → `refresh()`
+
+### Checklist — P5-B: Add/Delete place per day (thay thế per-day optimize)
+
+- [ ] **`frontend/src/components/planner/DayPlan.jsx`**: Xoá nút "Optimize route" (`<RotateCcw>`) hiện không hoạt động; thêm `<Trash2>` button trên mỗi place item; thêm "Add place +" button cuối mỗi ngày (mở `PlaceSearch` modal)
+- [ ] **`backend/app/routers/trips.py`**:
+  - `DELETE /{trip_id}/places/{place_id}` — xoá place khỏi plan, tính lại legs cho ngày đó
+  - `POST /{trip_id}/places` body `{ place_id, day }` — chèn place vào ngày chỉ định, fetch route legs với hàng xóm
+- [ ] **`frontend/src/services/api.js`**: Thêm `addPlaceToDay`, `removePlaceFromDay`
+
+### Checklist — P5-C: Drag-and-drop reordering
+
+- [ ] **`frontend/package.json`**: Thêm `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities`
+- [ ] **`frontend/src/components/planner/DayPlan.jsx`**: Bọc place timeline items trong `<SortableContext>` + `useSortable()`; on drag-end → `api.reorderPlaces(tripId, day, newPlaceIds)`
+- [ ] **`backend/app/routers/trips.py`**: `PATCH /{trip_id}/reorder` body `{ day: int, place_ids: list[str] }` — tính lại legs theo thứ tự mới
+- [ ] **`frontend/src/services/api.js`**: Thêm `reorderPlaces: (tripId, day, placeIds) => request(...)`
+- [ ] (Phase 5.2 optional) Cross-day drag: kéo place sang ngày khác — `PATCH /{trip_id}/move-place` body `{ place_id, from_day, to_day, position }`
+
+### Định nghĩa "Done" cho Phase 5
+
+- [ ] Click "Optimize Route" ở Overview → days re-render với thứ tự tối ưu mới
+- [ ] Xoá 1 địa điểm khỏi Day 2 → legs của Day 2 cập nhật (leg nối 2 địa điểm xung quanh)
+- [ ] Thêm địa điểm mới vào Day 1 → leg mới xuất hiện
+- [ ] Kéo địa điểm lên trên → legs tính lại theo thứ tự mới
+
+---
+
+## Phase 6 — Account Data Isolation
+**Thời gian:** Tuần 5
+**Mục tiêu:** Mỗi tài khoản có kho lưu trữ itinerary riêng; đăng nhập tài khoản khác không thấy trip của tài khoản cũ
+
+### Context
+`api.js` dùng key cố định `'imove_trips'` cho tất cả user → toàn bộ trip của mọi người dùng trên cùng browser bị trộn lẫn. Backend đã isolate bằng `user_id` + JWT; frontend cần theo.
+
+---
+
+### Checklist — P6-A: Per-user localStorage key
+
+- [ ] **`frontend/src/services/api.js`**:
+  - Thay `TRIPS_KEY = 'imove_trips'` bằng function `tripsKey(userId) => userId ? 'imove_trips_${userId}' : 'imove_trips_guest'`
+  - Tương tự cho `TRIP_DATA_KEY`: `tripDataKey(userId)`
+  - Tất cả `getSavedTrips`, `saveTrip`, `deleteSavedTrip`, `getCachedTripData`, `cacheTripData` nhận thêm param `userId?: string`
+- [ ] **`frontend/src/hooks/useSavedTrips.js`**: Nhận `userId` prop; truyền xuống tất cả `api.*` calls
+- [ ] **`frontend/src/pages/Home.jsx`**: Truyền `authUser?.id` vào `useSavedTrips(authUser?.id)`; `onAuthStateChange` → `reload()` tự động load đúng kho của user mới
+
+### Checklist — P6-B: Auth state change cleanup
+
+- [ ] Khi logout (event `SIGNED_OUT`) → `useSavedTrips` reload với `userId=null` (guest key) — trips của user cũ tự ẩn, không bị xoá
+- [ ] Khi login (event `SIGNED_IN`) → reload với `userId` mới — chỉ thấy trips của user đó
+- [ ] Verify: login A → lưu 2 trips → logout → login B → trip list rỗng → logout → login A → 2 trips còn nguyên
+
+### Định nghĩa "Done" cho Phase 6
+
+- [ ] Login user A, lưu trip X → logout → login user B → Home page không có trip X
+- [ ] Logout → Home page hiển thị guest trips (key khác)
+- [ ] Login lại user A → trip X xuất hiện trở lại
+
+---
+
+## Phase 7 — Testing & Quality
+**Thời gian:** Tuần 5–6
 **Mục tiêu:** Coverage đủ để tự tin deploy, PWA hoạt động
 
 ### Checklist
 
 **Backend tests (pytest):**
-- [ ] `tests/test_agents/test_planning_agent.py`: cover `_sort_places_greedy()`, `_distribute_days()`, budget check, `NoRouteError`
+- [ ] `tests/test_agents/test_planning_agent.py`: cover `_sort_places_greedy()`, `_distribute_days()` (với transit-aware signature mới), opening-hours validation, budget check, `NoRouteError`
 - [ ] `tests/test_agents/test_adaptation_agent.py`: cover `_apply_weather_swap()`, `_reroute_mrt_legs()`, dedup logic
 - [ ] `tests/test_services/test_onemap.py`: mock HTTP, cover success + `NoRouteError`
 - [ ] Target: ≥70% coverage cho `agents/` và `services/`
@@ -220,8 +331,8 @@ Sau Phase 2 (3 agents + polyline UI), review thực tế phát hiện các vấn
 - [ ] `RouteCard`: test render với `geometry = null` và `geometry = "encoded_string"`
 
 **E2E (Playwright):**
-- [ ] Happy path: Home → Planner → tạo trip 3 địa điểm → xem itinerary trên Trip page
-- [ ] Auth flow: login → tạo trip → logout → trip vẫn hiển thị (guest vs. auth)
+- [ ] Happy path: Home → Planner → tạo trip 3 địa điểm → navigate thẳng vào Day 1 → xem itinerary → Save từ Summary tab
+- [ ] Auth flow: login → tạo trip → logout → login account khác → trip không hiển thị
 
 **Load test:**
 - [ ] 10 concurrent `POST /trips/{id}/plan` requests không timeout (< 30s)
@@ -235,8 +346,8 @@ Sau Phase 2 (3 agents + polyline UI), review thực tế phát hiện các vấn
 
 ---
 
-## Phase 5 — Production Deployment
-**Thời gian:** Tuần 4
+## Phase 8 — Production Deployment
+**Thời gian:** Tuần 6
 **Mục tiêu:** App chạy production, CI/CD tự động
 
 ### Checklist
@@ -270,8 +381,8 @@ Sau Phase 2 (3 agents + polyline UI), review thực tế phát hiện các vấn
 
 ---
 
-## Phase 6 — Polish & Documentation
-**Thời gian:** Tuần 4+
+## Phase 9 — Polish & Documentation
+**Thời gian:** Tuần 6+
 **Mục tiêu:** Production-grade quality, tài liệu đầy đủ cho giáo viên
 
 ### Checklist
@@ -284,8 +395,8 @@ Sau Phase 2 (3 agents + polyline UI), review thực tế phát hiện các vấn
 
 ---
 
-## Phase 7 — Future: Grab Deep Linking
-**Thời gian:** Sau khi Phase 0–5 hoàn thành
+## Phase 10 — Future: Grab Deep Linking
+**Thời gian:** Sau khi Phase 0–8 hoàn thành
 **Mục tiêu:** Taxi/rideshare integration qua Grab Deep Link — không cần Grab API key
 
 ### Luồng hoạt động
@@ -320,9 +431,12 @@ Nếu không biết bắt đầu từ đâu, theo thứ tự này:
 3. ~~**Auth hoạt động không?** → Phase 1 (JWT wiring + unblock 501)~~ ✅ **Xong**
 4. ~~**3 agent chạy thật không?** → Phase 2~~ ✅ **Xong**
 5. ~~**UX/bug fixes trước testing?** → Phase 3 (12 vấn đề xác định sau review Phase 2)~~ ✅ **Xong**
-6. **Deploy được chưa?** → Phase 5 (có thể làm trước Phase 4 nếu cần demo sớm)
-7. **Tests xanh không?** → Phase 4
-8. **Chất lượng tốt không?** → Phase 6
+6. **Planning flow + smart scheduling?** → Phase 4 (save-after-view + 09:00–17:00 distribution)
+7. **Itinerary editing?** → Phase 5 (optimize route global, add/delete/drag)
+8. **Account isolation?** → Phase 6 (per-user localStorage)
+9. **Deploy được chưa?** → Phase 8 (có thể làm trước Phase 7 nếu cần demo sớm)
+10. **Tests xanh không?** → Phase 7
+11. **Chất lượng tốt không?** → Phase 9
 
 ---
 
