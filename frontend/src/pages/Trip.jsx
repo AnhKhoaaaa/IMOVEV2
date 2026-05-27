@@ -350,6 +350,7 @@ export default function Trip() {
                   trip={trip}
                   savedMeta={savedMeta}
                   onJumpDay={(dayNum) => setTab(`d${dayNum}`)}
+                  onOptimize={async () => { await api.optimizeRoute(id); await refresh() }}
                 />
               )}
 

@@ -29,6 +29,10 @@ export const api = {
   adaptTrip: (id, body) => request(`/trips/${id}/adapt`, { method: 'POST', body: JSON.stringify(body) }),
   acceptSwap: (id, body) => request(`/trips/${id}/accept-swap`, { method: 'POST', body: JSON.stringify(body) }),
   updateLocation: (id, body) => request(`/trips/${id}/location`, { method: 'POST', body: JSON.stringify(body) }),
+  optimizeRoute: (id) => request(`/trips/${id}/optimize`, { method: 'POST' }),
+  addPlaceToDay: (id, body) => request(`/trips/${id}/places`, { method: 'POST', body: JSON.stringify(body) }),
+  removePlaceFromDay: (id, placeId) => request(`/trips/${id}/places/${placeId}`, { method: 'DELETE' }),
+  reorderPlaces: (id, day, placeIds) => request(`/trips/${id}/reorder`, { method: 'PATCH', body: JSON.stringify({ day, place_ids: placeIds }) }),
 
   // localStorage trip metadata helpers (no backend calls)
   saveTrip(tripId, meta) {

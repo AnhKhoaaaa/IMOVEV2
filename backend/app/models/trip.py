@@ -73,6 +73,16 @@ class LocationUpdate(BaseModel):
     session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 
+class AddPlaceRequest(BaseModel):
+    place_id: str
+    day: int = Field(ge=1)
+
+
+class ReorderRequest(BaseModel):
+    day: int = Field(ge=1)
+    place_ids: list[str] = Field(min_length=1)
+
+
 class FeedbackRequest(BaseModel):
     trip_id: str
     leg_id: Optional[str] = None

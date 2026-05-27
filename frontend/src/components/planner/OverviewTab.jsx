@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { MapPin, ChevronRight, Clock, Wallet, Footprints, ArrowLeftRight } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { MapPin, ChevronRight, Clock, Wallet, Footprints, ArrowLeftRight, RotateCcw, Loader2 } from 'lucide-react'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
 
 const MODE_COLORS = {
@@ -27,10 +27,17 @@ function MetricChip({ icon, label, value }) {
   )
 }
 
-export default function OverviewTab({ trip, savedMeta, onJumpDay }) {
+export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) {
+  const [optimizing, setOptimizing] = useState(false)
   const days = trip?.days ?? []
   const allPlaces = trip?.places ?? []
   const warnings = trip?.warnings ?? []
+
+  const handleOptimize = async () => {
+    if (!onOptimize || optimizing) return
+    setOptimizing(true)
+    try { await onOptimize() } finally { setOptimizing(false) }
+  }
 
   const metrics = useMemo(() => {
     const allLegs = days.flatMap((d) => d.legs ?? [])
@@ -48,6 +55,19 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay }) {
 
   return (
     <div className="space-y-5 animate-fade-up">
+      {/* Optimize Route button */}
+      {allPlaces.length > 1 && onOptimize && (
+        <button
+          onClick={handleOptimize}
+          disabled={optimizing}
+          className="w-full h-10 rounded-xl border border-indigo-200 bg-indigo-50 text-[13.5px] font-semibold text-indigo-700 hover:bg-indigo-100 transition inline-flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          {optimizing
+            ? <><Loader2 size={14} className="animate-spin" /> Optimizing…</>
+            : <><RotateCcw size={14} /> Optimize Route</>}
+        </button>
+      )}
+
       {/* Metrics strip */}
       {allPlaces.length > 0 && (
         <div className="grid grid-cols-4 gap-2">

@@ -10,6 +10,7 @@ from app.dependencies import get_current_user
 from app.models.trip import (
     TripCreate, TripPlanRequest, TripPlan,
     LegUpdateRequest, AdaptRequest, AdaptResponse, TripStatus, LocationUpdate,
+    AddPlaceRequest, ReorderRequest,
 )
 from app.agents import planning_agent, adaptation_agent
 from app.agents.planning_agent import get_curated_place
@@ -203,6 +204,190 @@ async def update_location(trip_id: str, body: LocationUpdate):
         await adaptation_agent.check_lta_proximity(trip_id, body.lat, body.lng, plan)
 
 
+@router.post("/{trip_id}/optimize")
+async def optimize_trip(trip_id: str):
+    """Re-run greedy sort + smart distribution on the current place list."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
+    budget_sgd = meta.get("budget_sgd", 999.0)
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=[p.id for p in plan.places],
+            num_days=num_days,
+            budget_sgd=budget_sgd,
+            optimize_order=True,
+            preferences=None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s optimize: %s", trip_id, exc)
+
+    return result
+
+
+@router.delete("/{trip_id}/places/{place_id}", status_code=204)
+async def remove_place(trip_id: str, place_id: str):
+    """Remove a place from the trip and re-fetch legs for affected days."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    if not any(p.id == place_id for p in plan.places):
+        raise HTTPException(status_code=404, detail=f"Place '{place_id}' not in trip")
+
+    # Re-plan with place removed
+    remaining_ids = [p.id for p in plan.places if p.id != place_id]
+    if len(remaining_ids) < 2:
+        raise HTTPException(status_code=422, detail="Trip must have at least 2 places")
+
+    meta = _trip_meta.get(trip_id, {})
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=remaining_ids,
+            num_days=meta.get("num_days", len(plan.days)),
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s remove_place: %s", trip_id, exc)
+
+
+@router.post("/{trip_id}/places")
+async def add_place(trip_id: str, body: AddPlaceRequest):
+    """Add a place to a specific day and re-fetch affected legs."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    from app.agents.planning_agent import get_curated_place
+    if not get_curated_place(body.place_id):
+        raise HTTPException(status_code=422, detail=f"Place '{body.place_id}' not in curated dataset")
+
+    # Build per-day place lists, insert new place at end of target day
+    meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
+
+    # Map day number → ordered place ids
+    days_map: dict[int, list[str]] = {}
+    for d in plan.days:
+        ordered = _ordered_place_ids(d.legs, plan.places)
+        days_map[d.day] = ordered
+
+    target_day = min(body.day, num_days)
+    if target_day not in days_map:
+        days_map[target_day] = []
+    days_map[target_day].append(body.place_id)
+
+    # Flatten back to full place list in day order
+    all_ids = []
+    for day_num in sorted(days_map.keys()):
+        for pid in days_map[day_num]:
+            if pid not in all_ids:
+                all_ids.append(pid)
+    if body.place_id not in all_ids:
+        all_ids.append(body.place_id)
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=all_ids,
+            num_days=num_days,
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s add_place: %s", trip_id, exc)
+    return result
+
+
+@router.patch("/{trip_id}/reorder")
+async def reorder_places(trip_id: str, body: ReorderRequest):
+    """Reorder places within a day and re-fetch legs for that day."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
+
+    # Rebuild place list: replace target day's order, keep other days unchanged
+    days_map: dict[int, list[str]] = {}
+    for d in plan.days:
+        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+    days_map[body.day] = list(body.place_ids)
+
+    all_ids = []
+    for day_num in sorted(days_map.keys()):
+        for pid in days_map[day_num]:
+            if pid not in all_ids:
+                all_ids.append(pid)
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=all_ids,
+            num_days=num_days,
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s reorder: %s", trip_id, exc)
+    return result
+
+
 @router.delete("/{trip_id}", status_code=204)
 async def delete_trip(trip_id: str):
     _trip_store.pop(trip_id, None)
@@ -325,6 +510,19 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
     ]
     if leg_rows:
         supabase.table("route_legs").upsert(leg_rows).execute()
+
+
+def _ordered_place_ids(legs: list, places) -> list[str]:
+    """Reconstruct ordered place ids for a day from its legs."""
+    if not legs:
+        return [p.id for p in places] if hasattr(places[0], 'id') else list(places)
+    ids: list[str] = []
+    for leg in legs:
+        if leg.from_place_id not in ids:
+            ids.append(leg.from_place_id)
+    if legs and legs[-1].to_place_id not in ids:
+        ids.append(legs[-1].to_place_id)
+    return ids
 
 
 def _fetch_trip_from_db(trip_id: str):
