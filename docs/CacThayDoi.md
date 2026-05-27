@@ -1,6 +1,4 @@
-# Thay đổi so với nhánh Anh-Khoa
-
-Tài liệu này tóm tắt các phần đã sửa/bổ sung sau khi lấy code từ nhánh `Anh-Khoa`.
+# Các thay đổi
 
 ## Backend
 
