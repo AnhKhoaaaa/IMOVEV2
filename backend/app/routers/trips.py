@@ -288,6 +288,8 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
             "duration_minutes": leg.duration_minutes,
             "cost_sgd": leg.cost_sgd,
             "is_estimated": leg.is_estimated,
+            "instructions": leg.instructions,
+            "geometry": leg.geometry,
         }
         for day in plan.days
         for leg in day.legs
@@ -337,6 +339,8 @@ def _fetch_trip_from_db(trip_id: str):
             duration_minutes=leg["duration_minutes"],
             cost_sgd=float(leg["cost_sgd"]),
             is_estimated=leg["is_estimated"],
+            instructions=leg.get("instructions") or [],
+            geometry=leg.get("geometry"),
         ))
 
     days = [DayPlan(day=d, legs=legs) for d, legs in sorted(days_map.items())]

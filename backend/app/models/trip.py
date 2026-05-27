@@ -31,6 +31,8 @@ class LegResponse(BaseModel):
     duration_minutes: int
     cost_sgd: float
     is_estimated: bool
+    instructions: list[str] = []
+    geometry: str | None = None
 
 
 class DayPlan(BaseModel):

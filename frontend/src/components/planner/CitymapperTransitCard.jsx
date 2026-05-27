@@ -15,12 +15,6 @@ const MODE_CONFIG = {
     crowdingText: 'text-emerald-700',
     lineBadge: 'EW',
     lineBadgeColor: 'bg-indigo-600',
-    steps: (leg) => [
-      { icon: Footprints, label: 'Walk to MRT station', sub: '3–5 min · ~350 m' },
-      { icon: Train,      label: 'Board MRT · East-West Line', sub: 'Platform 1 · Direction: Pasir Ris · Next in 3 min' },
-      { icon: Train,      label: `Ride ${Math.max(2, Math.round((leg.duration_minutes ?? 15) * 0.6))} min`, sub: '2–4 stops' },
-      { icon: Footprints, label: 'Alight · Exit B', sub: '2–3 min walk to destination' },
-    ],
   },
   LRT: {
     label: 'LRT',
@@ -34,12 +28,6 @@ const MODE_CONFIG = {
     crowdingText: 'text-emerald-700',
     lineBadge: 'BP',
     lineBadgeColor: 'bg-violet-600',
-    steps: (leg) => [
-      { icon: Footprints, label: 'Walk to LRT station', sub: '2–4 min' },
-      { icon: Train,      label: 'Board LRT', sub: 'Platform A' },
-      { icon: Train,      label: `Ride ${leg.duration_minutes ?? 8} min`, sub: '1–2 stops' },
-      { icon: Footprints, label: 'Alight and walk', sub: '1–2 min to destination' },
-    ],
   },
   BUS: {
     label: 'Bus',
@@ -53,12 +41,6 @@ const MODE_CONFIG = {
     crowdingText: 'text-amber-700',
     lineBadge: '7',
     lineBadgeColor: 'bg-rose-600',
-    steps: (leg) => [
-      { icon: Footprints, label: 'Walk to bus stop', sub: '3–5 min · ~300 m' },
-      { icon: Bus,        label: 'Board Bus · Next in 3 min', sub: 'Platform A' },
-      { icon: Bus,        label: `Ride ${leg.duration_minutes ?? 12} min`, sub: '3–5 stops' },
-      { icon: Footprints, label: 'Alight and walk', sub: '2–4 min to destination' },
-    ],
   },
   WALK: {
     label: 'Walk',
@@ -68,9 +50,6 @@ const MODE_CONFIG = {
     border: 'border-orange-200',
     accentText: 'text-orange-700',
     crowding: null,
-    steps: (leg) => [
-      { icon: Footprints, label: `Walk ${leg.duration_minutes ?? 10} min`, sub: 'Pedestrian route' },
-    ],
   },
   DRIVE: {
     label: 'Drive / Taxi',
@@ -80,9 +59,6 @@ const MODE_CONFIG = {
     border: 'border-violet-200',
     accentText: 'text-violet-700',
     crowding: null,
-    steps: (leg) => [
-      { icon: Car, label: `Drive or take taxi · ${leg.duration_minutes ?? 10} min`, sub: 'Approx. S$8–15 by taxi' },
-    ],
   },
   CYCLE: {
     label: 'Cycle',
@@ -92,37 +68,24 @@ const MODE_CONFIG = {
     border: 'border-teal-200',
     accentText: 'text-teal-700',
     crowding: null,
-    steps: (leg) => [
-      { icon: Bike, label: `Cycle ${leg.duration_minutes ?? 10} min`, sub: 'Bike-sharing available' },
-    ],
   },
 }
 
-/* ── Step row ─────────────────────────────────────────────────────── */
-function StepRow({ step, isLast, accentColor, alertHighlight }) {
-  const { icon: StepIcon, label, sub } = step
+/* ── Instruction row (Phase 2: real step-by-step from backend) ──── */
+function InstructionRow({ text, isLast, accentColor }) {
   return (
     <div className="flex gap-3">
       <div className="flex flex-col items-center">
         <div
-          className={cn(
-            'grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 bg-white transition',
-            alertHighlight && 'ring-2 ring-red-400 animate-pulse'
-          )}
-          style={{ borderColor: alertHighlight ? '#ef4444' : accentColor }}
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 bg-white"
+          style={{ borderColor: accentColor }}
         >
-          <StepIcon
-            className="h-3 w-3"
-            style={{ color: alertHighlight ? '#ef4444' : accentColor }}
-          />
+          <div className="h-1.5 w-1.5 rounded-full" style={{ background: accentColor }} />
         </div>
         {!isLast && <div className="mt-1 w-px flex-1 bg-slate-100" style={{ minHeight: 16 }} />}
       </div>
       <div className="pb-3 pt-0.5 min-w-0">
-        <p className={cn('text-sm font-medium leading-tight', alertHighlight ? 'text-red-700' : 'text-slate-900')}>
-          {label}
-        </p>
-        {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
+        <p className="text-sm font-medium leading-tight text-slate-900">{text}</p>
       </div>
     </div>
   )
@@ -189,6 +152,7 @@ export default function CitymapperTransitCard({
   onSwitchToBus,
   onDismissTransit,
 }) {
+  const hasInstructions = Array.isArray(leg.instructions) && leg.instructions.length > 0
   const [open, setOpen] = useState(isActive)
 
   const effectiveMode = isActive && transitVariant === 'bus' && transitAlert == null
@@ -196,13 +160,19 @@ export default function CitymapperTransitCard({
     : (leg.transport_mode ?? 'BUS').toUpperCase()
 
   const config = MODE_CONFIG[effectiveMode] ?? MODE_CONFIG.BUS
-  const { label, Icon, color, bg, border, accentText, crowding, crowdingColor, crowdingText, steps } = config
-  const stepList = steps(leg)
+  const { label, Icon, color, bg, border, crowding, crowdingColor, crowdingText } = config
   const cost = leg.cost_sgd != null ? `S$${leg.cost_sgd.toFixed(2)}` : null
 
   const alertMode = !!transitAlert && isActive
   const showAlternativeBus =
     alertMode && transitVariant === 'mrt' && (effectiveMode === 'MRT' || effectiveMode === 'LRT')
+
+  // Expanded content is only available when there are instructions or active alerts
+  const canExpand = hasInstructions || alertMode || showAlternativeBus
+
+  const toggleOpen = () => {
+    if (!isActive && hasInstructions) setOpen((o) => !o)
+  }
 
   return (
     <div className={cn(
@@ -211,10 +181,10 @@ export default function CitymapperTransitCard({
     )}>
       {/* Collapsed header */}
       <button
-        onClick={() => !isActive && setOpen((o) => !o)}
+        onClick={toggleOpen}
         className={cn(
           'w-full flex items-center gap-3 px-4 py-3 text-left',
-          isActive && 'cursor-default'
+          (isActive || !hasInstructions) && 'cursor-default'
         )}
       >
         <div
@@ -248,7 +218,7 @@ export default function CitymapperTransitCard({
             {leg.is_estimated && ' · ~Est.'}
           </p>
         </div>
-        {crowding && !isActive && (
+        {crowding && !isActive && hasInstructions && (
           <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-slate-100 bg-slate-50 px-2 h-6 text-xs font-medium">
             <span className={cn('inline-block h-1.5 w-1.5 rounded-full', crowdingColor)} />
             <span className={cn(crowdingText)}>{crowding}</span>
@@ -266,27 +236,32 @@ export default function CitymapperTransitCard({
             </svg>
           </button>
         )}
-        {!isActive && (
+        {!isActive && hasInstructions && (
           <ChevronDown
             className={cn('h-4 w-4 text-slate-400 transition-transform shrink-0', open && 'rotate-180')}
           />
         )}
       </button>
 
-      {/* Expanded steps */}
-      {(open || isActive) && (
+      {/* Expanded content */}
+      {(open || isActive) && canExpand && (
         <div className="border-t border-slate-50 px-4 pb-3 pt-4 animate-fade-up">
-          {stepList.map((step, i) => (
-            <StepRow
-              key={i}
-              step={step}
-              isLast={i === stepList.length - 1}
-              accentColor={color}
-              alertHighlight={alertMode && i === 1}
-            />
-          ))}
-          {leg.is_estimated && (
-            <p className="mt-1 text-xs text-amber-600">~ Times are estimated based on typical route durations</p>
+          {hasInstructions && (
+            <>
+              {leg.instructions.map((instruction, i) => (
+                <InstructionRow
+                  key={i}
+                  text={instruction}
+                  isLast={i === leg.instructions.length - 1}
+                  accentColor={alertMode ? '#ef4444' : color}
+                />
+              ))}
+              {leg.is_estimated && (
+                <p className="mt-1 text-xs text-amber-600">
+                  ~ Times are estimated based on typical route durations
+                </p>
+              )}
+            </>
           )}
 
           {/* Transit disruption alert strip */}
