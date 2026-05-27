@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { api } from '../../services/api'
 import CitymapperTransitCard from './CitymapperTransitCard'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Label } from '../ui/label'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
 import { AlertCircle } from 'lucide-react'
+import { TRANSPORT_MODES } from '../../services/api'
 
-const MODES = ['MRT', 'LRT', 'BUS', 'WALK', 'DRIVE']
-const MODE_LABEL = { MRT: 'MRT', LRT: 'LRT', BUS: 'Bus', WALK: 'Walk', DRIVE: 'Drive / Taxi' }
+const MODE_LABEL = { MRT: 'MRT', LRT: 'LRT', BUS: 'Bus', WALK: 'Walk' }
 
 export default function RouteCard({ leg, tripId, onUpdated }) {
   const [editOpen, setEditOpen] = useState(false)
@@ -44,6 +44,9 @@ export default function RouteCard({ leg, tripId, onUpdated }) {
           <DialogContent className="sm:max-w-xs">
             <DialogHeader>
               <DialogTitle>Change transport mode</DialogTitle>
+              <DialogDescription>
+                Select a backend-supported mode for this leg.
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-1.5">
@@ -54,7 +57,7 @@ export default function RouteCard({ leg, tripId, onUpdated }) {
                   onChange={(e) => setNewMode(e.target.value)}
                   className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
-                  {MODES.map((m) => (
+                  {TRANSPORT_MODES.map((m) => (
                     <option key={m} value={m}>{MODE_LABEL[m]}</option>
                   ))}
                 </select>

@@ -35,14 +35,17 @@ async def create_trip(body: TripCreate):
     }
 
     if supabase:
-        supabase.table("trips").insert({
-            "id": trip_id,
-            "session_id": body.session_id,
-            "user_id": str(body.user_id) if body.user_id else None,
-            "num_days": body.num_days,
-            "budget_sgd": float(body.budget_sgd),
-            "status": "planning",
-        }).execute()
+        try:
+            supabase.table("trips").insert({
+                "id": trip_id,
+                "session_id": body.session_id,
+                "user_id": str(body.user_id) if body.user_id else None,
+                "num_days": body.num_days,
+                "budget_sgd": float(body.budget_sgd),
+                "status": "planning",
+            }).execute()
+        except Exception as exc:
+            log.warning("Supabase create_trip persist failed for trip %s: %s", trip_id, exc)
 
     return {"trip_id": trip_id}
 
@@ -129,17 +132,24 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
                 break
 
     if supabase:
-        supabase.table("route_legs").update(
-            {"transport_mode": body.transport_mode}
-        ).eq("id", leg_id).execute()
+        try:
+            supabase.table("route_legs").update(
+                {"transport_mode": body.transport_mode}
+            ).eq("id", leg_id).execute()
+        except Exception as exc:
+            log.warning("Supabase leg update failed for leg %s: %s", leg_id, exc)
 
-        # Log implicit feedback for Memory Agent
-        supabase.table("trip_feedback").insert({
-            "trip_id": trip_id,
-            "leg_id": leg_id,
-            "feedback_type": "implicit",
-            "comment": f"Mode changed: {old_mode} → {updated_leg.transport_mode}",
-        }).execute()
+        # Memory is optional until JWT auth is wired. A feedback write failure
+        # must not break the core leg update flow.
+        try:
+            supabase.table("trip_feedback").insert({
+                "trip_id": trip_id,
+                "leg_id": leg_id,
+                "feedback_type": "implicit",
+                "comment": f"Mode changed: {old_mode} -> {updated_leg.transport_mode}",
+            }).execute()
+        except Exception as exc:
+            log.info("Skipping implicit feedback for leg %s: %s", leg_id, exc)
 
     return updated_leg
 
@@ -180,10 +190,13 @@ def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
         else None
     )
     if supabase:
-        resp = supabase.table("trips").select("num_days,budget_sgd").eq("id", trip_id).execute()
-        if resp.data:
-            row = resp.data[0]
-            return row["num_days"], budget_override if budget_override is not None else float(row["budget_sgd"])
+        try:
+            resp = supabase.table("trips").select("num_days,budget_sgd").eq("id", trip_id).execute()
+            if resp.data:
+                row = resp.data[0]
+                return row["num_days"], budget_override if budget_override is not None else float(row["budget_sgd"])
+        except Exception as exc:
+            log.warning("Supabase trip metadata fetch failed for trip %s: %s", trip_id, exc)
 
     # Fallback: use in-process cache populated by POST /trips
     meta = _trip_meta.get(trip_id)
@@ -222,26 +235,60 @@ def _verify_session_ownership(trip_id: str, session_id: str) -> None:
 
 
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
-    """Batch-write trip_places and route_legs to Supabase (2 round-trips total)."""
-    place_rows = [
-        {
-            "trip_id": trip_id,
-            "place_id": p.id,
-            "place_name": p.name,
-            "lat": p.lat,
-            "lng": p.lng,
-            "dwell_minutes": p.dwell_minutes,
-        }
-        for p in plan.places
-    ]
-    if place_rows:
-        supabase.table("trip_places").upsert(place_rows).execute()
+    """Replace persisted rows for this trip with the latest computed plan."""
+    place_rows = _build_place_rows(trip_id, plan)
+    leg_rows = _build_leg_rows(trip_id, plan)
 
-    leg_rows = [
+    # Re-planning generates new leg ids, so stale rows must be removed before
+    # inserting the latest plan. Keep existing feedback, but detach old leg refs.
+    supabase.table("trip_feedback").update({"leg_id": None}).eq("trip_id", trip_id).execute()
+    supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
+    supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
+
+    if place_rows:
+        supabase.table("trip_places").insert(place_rows).execute()
+
+    if leg_rows:
+        supabase.table("route_legs").insert(leg_rows).execute()
+
+
+def _build_place_rows(trip_id: str, plan: TripPlan) -> list[dict]:
+    day_positions: dict[str, tuple[int, int]] = {}
+    for day in plan.days:
+        if day.legs:
+            day_positions.setdefault(day.legs[0].from_place_id, (day.day, 1))
+        for index, leg in enumerate(day.legs, start=2):
+            day_positions.setdefault(leg.to_place_id, (day.day, index))
+
+    unassigned_places = [p for p in plan.places if p.id not in day_positions]
+    empty_days = [day.day for day in plan.days if not day.legs]
+    for place, day_number in zip(unassigned_places, empty_days):
+        day_positions[place.id] = (day_number, 1)
+
+    rows = []
+    for fallback_position, place in enumerate(plan.places, start=1):
+        day_number, position = day_positions.get(place.id, (None, fallback_position))
+        rows.append({
+            "trip_id": trip_id,
+            "place_id": place.id,
+            "place_name": place.name,
+            "lat": place.lat,
+            "lng": place.lng,
+            "dwell_minutes": place.dwell_minutes,
+            "day": day_number,
+            "position": position,
+        })
+    return rows
+
+
+def _build_leg_rows(trip_id: str, plan: TripPlan) -> list[dict]:
+    return [
         {
             "id": leg.id,
             "trip_id": trip_id,
+            "day": day.day,
             "day_number": day.day,
+            "position": position,
             "from_place_id": leg.from_place_id,
             "to_place_id": leg.to_place_id,
             "transport_mode": leg.transport_mode,
@@ -250,10 +297,8 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
             "is_estimated": leg.is_estimated,
         }
         for day in plan.days
-        for leg in day.legs
+        for position, leg in enumerate(day.legs, start=1)
     ]
-    if leg_rows:
-        supabase.table("route_legs").upsert(leg_rows).execute()
 
 
 def _fetch_trip_from_db(trip_id: str):
@@ -262,23 +307,51 @@ def _fetch_trip_from_db(trip_id: str):
     if not trip_resp.data:
         return None
 
-    places_resp = supabase.table("trip_places").select("*").eq("trip_id", trip_id).execute()
-    legs_resp = supabase.table("route_legs").select("*").eq("trip_id", trip_id).order("day_number").execute()
+    places_resp = (
+        supabase.table("trip_places")
+        .select("*")
+        .eq("trip_id", trip_id)
+        .order("day")
+        .order("position")
+        .execute()
+    )
+    legs_resp = (
+        supabase.table("route_legs")
+        .select("*")
+        .eq("trip_id", trip_id)
+        .order("day_number")
+        .order("position")
+        .execute()
+    )
 
     from app.models.place import Place
     from app.models.trip import LegResponse, DayPlan, TripPlan
 
+    place_rows = sorted(
+        places_resp.data or [],
+        key=lambda p: (
+            p.get("day") if p.get("day") is not None else 10_000,
+            p.get("position") if p.get("position") is not None else 10_000,
+            p.get("place_id", ""),
+        ),
+    )
+
     places = []
-    for p in places_resp.data:
+    for p in place_rows:
         # Look up full metadata from curated dataset; fall back to DB values if place
         # was removed from the dataset after the trip was created.
         curated = get_curated_place(p["place_id"]) or {}
+        lat = p.get("lat") if p.get("lat") is not None else curated.get("lat")
+        lng = p.get("lng") if p.get("lng") is not None else curated.get("lng")
+        if lat is None or lng is None:
+            log.warning("Skipping trip_place %s for trip %s: missing coordinates", p.get("place_id"), trip_id)
+            continue
         places.append(Place(
             id=p["place_id"],
-            name=p["place_name"],
-            lat=p["lat"],
-            lng=p["lng"],
-            dwell_minutes=curated.get("dwell_minutes", p.get("dwell_minutes", 60)),
+            name=p.get("place_name") or curated.get("name", p["place_id"]),
+            lat=lat,
+            lng=lng,
+            dwell_minutes=p.get("dwell_minutes") or curated.get("dwell_minutes", 60),
             best_time_start=curated.get("best_time_start", "00:00"),
             best_time_end=curated.get("best_time_end", "23:59"),
             category=curated.get("category", ""),
@@ -286,9 +359,22 @@ def _fetch_trip_from_db(trip_id: str):
             in_curated_dataset=bool(curated),
         ))
 
-    days_map: dict[int, list] = {}
-    for leg in legs_resp.data:
-        d = leg["day_number"]
+    days_map: dict[int, list] = {
+        p.get("day"): []
+        for p in place_rows
+        if p.get("day") is not None
+    }
+    if not days_map and place_rows:
+        days_map[1] = []
+    leg_rows = sorted(
+        legs_resp.data or [],
+        key=lambda leg: (
+            leg.get("day_number") or leg.get("day") or 10_000,
+            leg.get("position") or 10_000,
+        ),
+    )
+    for leg in leg_rows:
+        d = leg.get("day_number") or leg.get("day") or 1
         days_map.setdefault(d, []).append(LegResponse(
             id=leg["id"],
             from_place_id=leg["from_place_id"],

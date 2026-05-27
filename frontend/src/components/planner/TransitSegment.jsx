@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Train, Bus, Footprints, Car, Bike, ChevronDown, CheckCircle2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { api } from '../../services/api'
+import { api, TRANSPORT_MODES } from '../../services/api'
 
 const MODE_MAP = {
   MRT:   { id: 'transit', label: 'Transit',  Icon: Train,      distFactor: 100 },
@@ -13,10 +13,11 @@ const MODE_MAP = {
 }
 
 const OPTS = [
-  { id: 'drive',   label: 'Driving',  Icon: Car,       apiMode: 'DRIVE' },
-  { id: 'transit', label: 'Transit',  Icon: Bus,       apiMode: 'MRT'   },
-  { id: 'walk',    label: 'Walking',  Icon: Footprints, apiMode: 'WALK' },
-]
+  { id: 'MRT',  label: 'MRT',     Icon: Train },
+  { id: 'LRT',  label: 'LRT',     Icon: Train },
+  { id: 'BUS',  label: 'Bus',     Icon: Bus },
+  { id: 'WALK', label: 'Walking', Icon: Footprints },
+].filter((opt) => TRANSPORT_MODES.includes(opt.id))
 
 function getMeta(transportMode) {
   return MODE_MAP[(transportMode ?? '').toUpperCase()] ?? MODE_MAP.BUS
@@ -34,13 +35,15 @@ export default function TransitSegment({ leg, tripId, onUpdated }) {
   const { Icon, label } = meta
   const distM = Math.round((leg.duration_minutes ?? 10) * meta.distFactor)
 
-  const currentOptId = meta.id // 'drive' | 'transit' | 'walk'
+  const currentMode = TRANSPORT_MODES.includes((leg.transport_mode ?? '').toUpperCase())
+    ? leg.transport_mode.toUpperCase()
+    : 'BUS'
 
   const handleSelect = async (opt) => {
-    if (opt.id === currentOptId || !tripId || !leg.id) { setOpen(false); return }
+    if (opt.id === currentMode || !tripId || !leg.id) { setOpen(false); return }
     setSaving(true)
     try {
-      await api.updateLeg(tripId, leg.id, { transport_mode: opt.apiMode })
+      await api.updateLeg(tripId, leg.id, { transport_mode: opt.id })
       if (onUpdated) await onUpdated()
     } catch { /* ignore, refresh will revert */ }
     finally { setSaving(false); setOpen(false) }
@@ -81,12 +84,8 @@ export default function TransitSegment({ leg, tripId, onUpdated }) {
               Choose mode of transport
             </div>
             {OPTS.map((opt) => {
-              const selected = opt.id === currentOptId
-              const detail = opt.id === 'walk'
-                ? `${leg.duration_minutes} min · ${formatDist(distM)}`
-                : opt.id === 'drive'
-                ? `${Math.max(1, Math.round((leg.duration_minutes ?? 10) * 0.4))} min · ${formatDist(distM)}`
-                : `${leg.duration_minutes} min · ${formatDist(distM)}`
+              const selected = opt.id === currentMode
+              const detail = `${leg.duration_minutes} min · ${formatDist(distM)}`
               return (
                 <button
                   key={opt.id}

@@ -20,6 +20,13 @@ _SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search"
 _ROUTE_URL = "https://www.onemap.gov.sg/api/public/routingsvc/route"
 
 
+def _response_detail(exc: httpx.HTTPStatusError) -> str:
+    text = (exc.response.text or "").strip()
+    if text:
+        return f"{exc.response.status_code}: {text[:300]}"
+    return str(exc)
+
+
 async def _get_token() -> str:
     # Fast path — no lock needed for a cache hit
     if _TOKEN_CACHE["token"] and time.time() < _TOKEN_CACHE["expires_at"] - 60:
@@ -36,7 +43,9 @@ async def _get_token() -> str:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        except httpx.HTTPStatusError as exc:
+            raise NoRouteError(f"OneMap auth failed: {_response_detail(exc)}") from exc
+        except httpx.RequestError as exc:
             raise NoRouteError(f"OneMap auth failed: {exc}") from exc
         _TOKEN_CACHE["token"] = data["access_token"]
         _TOKEN_CACHE["expires_at"] = float(data["expiry_timestamp"])
@@ -88,16 +97,16 @@ async def get_route(
     """
     token = await _get_token()
     headers = {"Authorization": f"Bearer {token}"}
+    now = time.gmtime()
     params: dict = {
         "start": f"{from_lat},{from_lng}",
         "end": f"{to_lat},{to_lng}",
         "routeType": mode.lower(),
+        "date": time.strftime("%m-%d-%Y", now),
+        "time": time.strftime("%H:%M:%S", now),
     }
     if mode.lower() == "pt":
-        now = time.gmtime()
         params.update({
-            "date": time.strftime("%m-%d-%Y", now),
-            "time": time.strftime("%H:%M:%S", now),
             "mode": "TRANSIT",
             "numItineraries": 1,
         })
@@ -106,8 +115,14 @@ async def get_route(
             resp = await client.get(_ROUTE_URL, params=params, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+    except httpx.HTTPStatusError as exc:
+        raise NoRouteError(f"OneMap routing unavailable: {_response_detail(exc)}") from exc
+    except httpx.RequestError as exc:
         raise NoRouteError(f"OneMap routing unavailable: {exc}") from exc
+
+    api_error = data.get("message") or data.get("error")
+    if api_error:
+        raise NoRouteError(f"OneMap routing error for {mode.lower()}: {api_error}")
 
     if mode.lower() == "pt":
         itineraries = data.get("plan", {}).get("itineraries", [])

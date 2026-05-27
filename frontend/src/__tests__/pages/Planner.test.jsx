@@ -12,213 +12,110 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('../../services/api', () => ({
   api: {
+    getCuratedPlaces: vi.fn(),
     createTrip: vi.fn(),
     planTrip: vi.fn(),
+    getSavedTrips: vi.fn(),
+    saveTrip: vi.fn(),
+    deleteSavedTrip: vi.fn(),
   },
-}))
-
-vi.mock('../../components/planner/PlaceSearch', () => ({
-  default: ({ onAdd }) => (
-    <button
-      onClick={() => onAdd({ id: 'place-1', name: 'Gardens by the Bay', in_curated_dataset: true })}
-    >
-      Add Gardens
-    </button>
-  ),
 }))
 
 import { api } from '../../services/api'
 
-const renderPlanner = () => render(<BrowserRouter><Planner /></BrowserRouter>)
+const curatedPlaces = [
+  { id: 'gardens-by-the-bay', name: 'Gardens by the Bay', lat: 1.2816, lng: 103.8636, category: 'nature', is_outdoor: true },
+  { id: 'marina-bay-sands', name: 'Marina Bay Sands', lat: 1.3016, lng: 103.8636, category: 'landmark', is_outdoor: false },
+  { id: 'national-gallery', name: 'National Gallery Singapore', lat: 1.3216, lng: 103.8636, category: 'museum', is_outdoor: false },
+  { id: 'sentosa', name: 'Sentosa', lat: 1.3416, lng: 103.8636, category: 'entertainment', is_outdoor: true },
+]
 
-const advanceTo = async (targetStep) => {
-  fireEvent.click(screen.getByRole('button', { name: /tiếp theo/i }))
-  if (targetStep === 2) return
-  fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
-  fireEvent.click(screen.getByRole('button', { name: /tiếp theo/i }))
-  if (targetStep === 3) return
-  fireEvent.click(screen.getByRole('button', { name: /tiếp theo/i }))
-}
+const renderPlanner = () => render(<BrowserRouter><Planner /></BrowserRouter>)
 
 describe('Planner', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    mockNavigate.mockReset()
+    api.getSavedTrips.mockReturnValue([])
+    api.getCuratedPlaces.mockResolvedValue(curatedPlaces)
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
+    api.planTrip.mockResolvedValue({})
   })
 
-  it('renders step 1 with Singapore destination', () => {
+  it('renders the current one-screen Singapore planner', () => {
     renderPlanner()
     expect(screen.getByText('Singapore')).toBeInTheDocument()
-    expect(screen.getByText(/bước 1 \/ 4/i)).toBeInTheDocument()
+    expect(screen.getByText(/Specific dates/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Create Itinerary/i })).toBeInTheDocument()
   })
 
-  it('advances to step 2 when Tiếp theo is clicked', () => {
+  it('creates and plans a trip with default settings', async () => {
     renderPlanner()
-    fireEvent.click(screen.getByRole('button', { name: /tiếp theo/i }))
-    expect(screen.getByText(/bước 2 \/ 4/i)).toBeInTheDocument()
-  })
+    fireEvent.click(screen.getByRole('button', { name: /Create Itinerary/i }))
 
-  it('"Tiếp theo" is disabled on step 2 when no places selected', async () => {
-    renderPlanner()
-    await advanceTo(2)
-    expect(screen.getByRole('button', { name: /tiếp theo/i })).toBeDisabled()
-  })
-
-  it('enables "Tiếp theo" after adding a place', async () => {
-    renderPlanner()
-    await advanceTo(2)
-    fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
-    expect(screen.getByRole('button', { name: /tiếp theo/i })).not.toBeDisabled()
-  })
-
-  it('shows added place in list', async () => {
-    renderPlanner()
-    await advanceTo(2)
-    fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
-    expect(screen.getByText('Gardens by the Bay')).toBeInTheDocument()
-  })
-
-  it('removes place when Xoá is clicked', async () => {
-    renderPlanner()
-    await advanceTo(2)
-    fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
-    fireEvent.click(screen.getByRole('button', { name: /xoá gardens by the bay/i }))
-    expect(screen.queryByText('Gardens by the Bay')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /tiếp theo/i })).toBeDisabled()
-  })
-
-  it('does not add duplicate places', async () => {
-    renderPlanner()
-    await advanceTo(2)
-    fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
-    fireEvent.click(screen.getByRole('button', { name: /add gardens/i }))
-    expect(screen.getAllByText('Gardens by the Bay')).toHaveLength(1)
-  })
-
-  it('renders MRT checkbox and walk slider on step 3', async () => {
-    renderPlanner()
-    await advanceTo(3)
-    expect(screen.getByText(/ưu tiên mrt/i)).toBeInTheDocument()
-    expect(screen.getByRole('slider')).toBeInTheDocument()
-  })
-
-  it('MRT checkbox is checked by default', async () => {
-    renderPlanner()
-    await advanceTo(3)
-    const checkbox = screen.getAllByRole('checkbox')[0]
-    expect(checkbox).toBeChecked()
-  })
-
-  it('walk slider defaults to 15 phút', async () => {
-    renderPlanner()
-    await advanceTo(3)
-    expect(screen.getByText('15 phút')).toBeInTheDocument()
-  })
-
-  it('updates walk minutes label when slider changes', async () => {
-    renderPlanner()
-    await advanceTo(3)
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '30' } })
-    expect(screen.getByText('30 phút')).toBeInTheDocument()
-  })
-
-  it('renders optimize toggle and submit button on step 4', async () => {
-    renderPlanner()
-    await advanceTo(4)
-    expect(screen.getByText(/tối ưu thứ tự/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /tạo kế hoạch/i })).toBeInTheDocument()
-  })
-
-  it('calls createTrip then planTrip with correct payload', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
-    api.planTrip.mockResolvedValue({})
-    renderPlanner()
-    await advanceTo(4)
-
-    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
-
-    await waitFor(() => expect(api.createTrip).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.getCuratedPlaces).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.createTrip).toHaveBeenCalledWith(expect.objectContaining({
+      num_days: 3,
+      budget_sgd: 60,
+    })))
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-abc', {
-      place_ids: ['place-1'],
+      place_ids: curatedPlaces.map((p) => p.id),
       optimize_order: true,
-      preferences: { prefer_mrt: true, max_walk_minutes: 15 },
+      preferences: {
+        prefer_mrt: true,
+        max_walk_minutes: 15,
+        travel_styles: [],
+        group_type: 'solo',
+      },
     }))
+    expect(api.saveTrip).toHaveBeenCalledWith('trip-abc', expect.objectContaining({
+      name: 'Singapore Trip',
+      numDays: 3,
+    }))
+    expect(mockNavigate).toHaveBeenCalledWith('/trip/trip-abc')
   })
 
-  it('includes updated preferences in planTrip payload', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
-    api.planTrip.mockResolvedValue({})
+  it('includes selected duration, group, style, and pace in the API payload', async () => {
     renderPlanner()
-    await advanceTo(3)
+    fireEvent.click(screen.getByRole('button', { name: /Family/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Nature/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Relaxed/i }))
+    fireEvent.click(screen.getByRole('button', { name: '+' }))
 
-    fireEvent.click(screen.getAllByRole('checkbox')[0])
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '30' } })
-    fireEvent.click(screen.getByRole('button', { name: /tiếp theo/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Create Itinerary/i }))
 
-    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
-
+    await waitFor(() => expect(api.createTrip).toHaveBeenCalledWith(expect.objectContaining({
+      num_days: 4,
+      budget_sgd: 100,
+    })))
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-abc', expect.objectContaining({
-      preferences: { prefer_mrt: false, max_walk_minutes: 30 },
+      preferences: expect.objectContaining({
+        max_walk_minutes: 30,
+        travel_styles: ['nature'],
+        group_type: 'family',
+      }),
     })))
   })
 
-  it('navigates to /trip/:id after successful submit', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-xyz' })
-    api.planTrip.mockResolvedValue({})
+  it('shows loading state while itinerary creation is pending', async () => {
+    api.createTrip.mockReturnValue(new Promise(() => {}))
     renderPlanner()
-    await advanceTo(4)
 
-    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
-
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/trip/trip-xyz'))
-  })
-
-  it('shows loading text while submitting', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
-    api.planTrip.mockReturnValue(new Promise(() => {}))
-    renderPlanner()
-    await advanceTo(4)
-
-    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Create Itinerary/i }))
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /đang tạo kế hoạch/i })).toBeDisabled()
+      expect(screen.getByRole('button', { name: /Planning your trip/i })).toBeDisabled()
     )
   })
 
-  it('shows backend error message when planTrip fails', async () => {
-    api.createTrip.mockResolvedValue({ id: 'trip-abc' })
-    api.planTrip.mockRejectedValue(new Error('Không đủ ngân sách'))
+  it('shows backend error and re-enables submit after failure', async () => {
+    api.planTrip.mockRejectedValue(new Error('Budget exceeded'))
     renderPlanner()
-    await advanceTo(4)
 
-    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Create Itinerary/i }))
 
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent('Không đủ ngân sách')
-    )
-  })
-
-  it('shows backend error message when createTrip fails', async () => {
-    api.createTrip.mockRejectedValue(new Error('Session expired'))
-    renderPlanner()
-    await advanceTo(4)
-
-    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
-
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent('Session expired')
-    )
-  })
-
-  it('re-enables submit button after error', async () => {
-    api.createTrip.mockRejectedValue(new Error('Server error'))
-    renderPlanner()
-    await advanceTo(4)
-
-    fireEvent.click(screen.getByRole('button', { name: /tạo kế hoạch/i }))
-
-    await waitFor(() => screen.getByRole('alert'))
-    expect(screen.getByRole('button', { name: /tạo kế hoạch/i })).not.toBeDisabled()
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Budget exceeded'))
+    expect(screen.getByRole('button', { name: /Create Itinerary/i })).not.toBeDisabled()
   })
 })

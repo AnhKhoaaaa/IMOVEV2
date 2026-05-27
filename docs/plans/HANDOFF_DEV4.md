@@ -219,3 +219,25 @@ frontend/src/__tests__/pages/Trip.test.jsx   — xem mock data shape để viế
 - AlertBanner.jsx, useAlerts.js, useTrip.js đã implement nhưng chưa verify với data thật
 - supabase.js có uncommitted change (env var validation) cần Dev 4 commit
 - Props contract TripMap đã document đầy đủ ở trên — Trip.jsx đang dùng đúng shape này
+
+### [2026-05-26 | Dev1] Align frontend/backend contracts
+
+- Frontend transport update contract now matches backend `LegUpdateRequest`: only `MRT`, `LRT`, `BUS`, `WALK` are sent to `PATCH /trips/{id}/legs/{leg_id}`.
+- Removed `DRIVE` from mode-selection UI paths and added API-side validation in `frontend/src/services/api.js`.
+- `AlertBanner.jsx` now handles backend alert types `train_delay`, `bus_cancellation`, `weather_warning`, `service_unavailable`; legacy `transport_alert` still displays for compatibility.
+- `useAlerts.js` now initial-fetches only unresolved alerts via `resolved_at is null` and removes alerts when realtime UPDATE marks them resolved.
+- `TripMap.jsx` no longer falls back unknown route modes to `DRIVE`; fallback is `BUS`.
+
+### [2026-05-27 | Dev1] Supabase optional in local frontend
+
+- `frontend/src/lib/supabase.js` now exports `supabase = null` when `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` is missing.
+- `useAlerts.js` no-ops when Supabase is not configured, so Trip pages still render in local/demo mode without realtime.
+- `AuthModal.jsx` disables sign-in/sign-up and shows a clear message when Supabase Auth env vars are missing.
+
+### [2026-05-27 | Dev1] TripMap data quality hardening
+
+- `TripMap.jsx` now renders a non-crashing placeholder when no valid coordinates are available.
+- One-place trips and trips with zero route legs render markers without requiring polylines.
+- Invalid place/user coordinates are filtered before reaching Leaflet.
+- Route mode styling is normalized; unsupported modes fall back to Bus styling and label.
+- Route tooltips now include mode, duration, cost, and estimated status with clean ASCII text.

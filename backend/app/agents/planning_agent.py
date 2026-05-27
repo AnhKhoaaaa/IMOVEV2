@@ -51,6 +51,7 @@ def get_all_places() -> dict:
 
 # Map OneMap transit modes to display labels
 _MODE_MAP = {"SUBWAY": "MRT", "TRAM": "LRT", "BUS": "BUS", "WALK": "WALK"}
+_WALK_FALLBACK_MAX_KM = 2.0
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -167,21 +168,36 @@ async def plan_trip(
                         to_p["lat"], to_p["lng"],
                         mode="pt",
                     )
-                    transport_mode = _primary_mode(route.get("legs", []))
-                    duration = route["duration_minutes"]
-                    cost = route["fare_sgd"]
-                    is_estimated = False
-                except NoRouteError:
+                except NoRouteError as pt_exc:
+                    if "no pt route" not in str(pt_exc).lower():
+                        raise
                     # Hard failure — no route exists → bubble up to router → HTTP 422
-                    raise NoRouteError(
-                        f"No route available from '{from_p['id']}' to '{to_p['id']}'"
-                    )
+                    distance_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
+                    if distance_km > _WALK_FALLBACK_MAX_KM:
+                        raise NoRouteError(
+                            f"No route available from '{from_p['id']}' to '{to_p['id']}'"
+                        ) from pt_exc
+                    try:
+                        route = await onemap.get_route(
+                            from_p["lat"], from_p["lng"],
+                            to_p["lat"], to_p["lng"],
+                            mode="walk",
+                        )
+                    except NoRouteError as walk_exc:
+                        raise NoRouteError(
+                            f"No route available from '{from_p['id']}' to '{to_p['id']}'"
+                        ) from walk_exc
                 except Exception as exc:
                     # Network / transient error — raise as NoRouteError per anti-hallucination rule.
                     # We must never fabricate duration or cost values.
                     raise NoRouteError(
                         f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
                     ) from exc
+
+                transport_mode = _primary_mode(route.get("legs", []))
+                duration = route["duration_minutes"]
+                cost = route["fare_sgd"]
+                is_estimated = False
 
                 current_time += duration
                 total_cost += cost

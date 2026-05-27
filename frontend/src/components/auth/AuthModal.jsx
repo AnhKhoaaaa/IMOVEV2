@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { AlertCircle } from 'lucide-react'
-import { supabase } from '../../lib/supabase'
+import { isSupabaseConfigured, supabase } from '../../lib/supabase'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
@@ -13,9 +13,15 @@ export default function AuthModal({ onClose }) {
   const [mode, setMode] = useState('signin')
   const [authError, setAuthError] = useState(null)
   const [loading, setLoading] = useState(false)
+  const authUnavailable = !isSupabaseConfigured || !supabase
+  const unavailableMessage = 'Sign-in is disabled because Supabase Auth is not configured for this environment.'
 
   const submit = async () => {
     setAuthError(null)
+    if (authUnavailable) {
+      setAuthError(unavailableMessage)
+      return
+    }
     setLoading(true)
     try {
       const { error } = mode === 'signin'
@@ -41,10 +47,10 @@ export default function AuthModal({ onClose }) {
         </DialogHeader>
 
         <div className="space-y-4">
-          {authError && (
+          {(authError || authUnavailable) && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{authError}</AlertDescription>
+              <AlertDescription>{authError || unavailableMessage}</AlertDescription>
             </Alert>
           )}
 
@@ -71,7 +77,7 @@ export default function AuthModal({ onClose }) {
             />
           </div>
 
-          <Button className="w-full" onClick={submit} disabled={loading}>
+          <Button className="w-full" onClick={submit} disabled={loading || authUnavailable}>
             {loading ? 'Đang xử lý...' : mode === 'signin' ? 'Đăng nhập' : 'Tạo tài khoản'}
           </Button>
 

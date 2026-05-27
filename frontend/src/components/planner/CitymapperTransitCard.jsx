@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Train, Bus, Footprints, Car, Bike, ChevronDown } from 'lucide-react'
+import { Train, Bus, Footprints, Car, Bike, ChevronDown, Pencil } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 const MODE_CONFIG = {
@@ -14,10 +14,10 @@ const MODE_CONFIG = {
     crowdingColor: 'bg-emerald-500',
     crowdingText: 'text-emerald-700',
     steps: (leg) => [
-      { icon: Footprints, label: 'Walk to MRT station', sub: '3–5 min' },
-      { icon: Train,     label: `Board MRT · Platform 1`, sub: `Direction: East-West` },
-      { icon: Train,     label: `Ride ${Math.max(2, Math.round((leg.duration_minutes ?? 15) * 0.6))} min`, sub: '2–4 stops' },
-      { icon: Footprints, label: 'Alight · Exit B', sub: '2–3 min walk to destination' },
+      { icon: Footprints, label: 'Walk to MRT station', sub: '3-5 min' },
+      { icon: Train,     label: 'Board MRT - Platform 1', sub: 'Direction: East-West' },
+      { icon: Train,     label: `Ride ${Math.max(2, Math.round((leg.duration_minutes ?? 15) * 0.6))} min`, sub: '2-4 stops' },
+      { icon: Footprints, label: 'Alight - Exit B', sub: '2-3 min walk to destination' },
     ],
   },
   LRT: {
@@ -31,10 +31,10 @@ const MODE_CONFIG = {
     crowdingColor: 'bg-emerald-500',
     crowdingText: 'text-emerald-700',
     steps: (leg) => [
-      { icon: Footprints, label: 'Walk to LRT station', sub: '2–4 min' },
+      { icon: Footprints, label: 'Walk to LRT station', sub: '2-4 min' },
       { icon: Train,     label: 'Board LRT', sub: 'Platform A' },
-      { icon: Train,     label: `Ride ${leg.duration_minutes ?? 8} min`, sub: '1–2 stops' },
-      { icon: Footprints, label: 'Alight and walk', sub: '1–2 min to destination' },
+      { icon: Train,     label: `Ride ${leg.duration_minutes ?? 8} min`, sub: '1-2 stops' },
+      { icon: Footprints, label: 'Alight and walk', sub: '1-2 min to destination' },
     ],
   },
   BUS: {
@@ -48,10 +48,10 @@ const MODE_CONFIG = {
     crowdingColor: 'bg-amber-500',
     crowdingText: 'text-amber-700',
     steps: (leg) => [
-      { icon: Footprints, label: 'Walk to bus stop', sub: '3–5 min' },
-      { icon: Bus,       label: 'Board Bus · Next in 3 min', sub: 'Platform A' },
-      { icon: Bus,       label: `Ride ${leg.duration_minutes ?? 12} min`, sub: '3–5 stops' },
-      { icon: Footprints, label: 'Alight and walk', sub: '2–4 min to destination' },
+      { icon: Footprints, label: 'Walk to bus stop', sub: '3-5 min' },
+      { icon: Bus,       label: 'Board Bus - Next in 3 min', sub: 'Platform A' },
+      { icon: Bus,       label: `Ride ${leg.duration_minutes ?? 12} min`, sub: '3-5 stops' },
+      { icon: Footprints, label: 'Alight and walk', sub: '2-4 min to destination' },
     ],
   },
   WALK: {
@@ -75,7 +75,7 @@ const MODE_CONFIG = {
     accentText: 'text-violet-700',
     crowding: null,
     steps: (leg) => [
-      { icon: Car, label: `Drive or take taxi · ${leg.duration_minutes ?? 10} min`, sub: 'Approx. S$8–15 by taxi' },
+      { icon: Car, label: `Drive or take taxi - ${leg.duration_minutes ?? 10} min`, sub: 'Approx. S$8-15 by taxi' },
     ],
   },
   CYCLE: {
@@ -124,10 +124,13 @@ export default function CitymapperTransitCard({ leg, onEdit }) {
   return (
     <div className={cn('rounded-2xl border bg-white shadow-card overflow-hidden', border)}>
       {/* Collapsed header */}
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left"
-      >
+      <div className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          aria-expanded={open}
+        >
         <div
           className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
           style={{ background: bg }}
@@ -137,8 +140,8 @@ export default function CitymapperTransitCard({ leg, onEdit }) {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-slate-900">{label}</p>
           <p className="text-xs text-slate-500">
-            {leg.duration_minutes} min{cost ? ` · ${cost}` : ''}
-            {leg.is_estimated && ' · ~Est.'}
+            {leg.duration_minutes} min{cost ? ` - ${cost}` : ''}
+            {leg.is_estimated && ' - ~Est.'}
           </p>
         </div>
         {crowding && (
@@ -147,22 +150,21 @@ export default function CitymapperTransitCard({ leg, onEdit }) {
             <span className={cn(crowdingText)}>{crowding}</span>
           </span>
         )}
-        {onEdit && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onEdit() }}
-            className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0"
-            aria-label="Edit transport mode"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-          </button>
-        )}
         <ChevronDown
           className={cn('h-4 w-4 text-slate-400 transition-transform shrink-0', open && 'rotate-180')}
         />
-      </button>
+        </button>
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0"
+            aria-label="Edit transport mode"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       {/* Expanded steps */}
       {open && (

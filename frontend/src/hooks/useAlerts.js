@@ -5,10 +5,11 @@ export function useAlerts(tripId) {
   const [alerts, setAlerts] = useState([])
 
   useEffect(() => {
-    if (!tripId) return
+    if (!tripId || !supabase) return
 
-    supabase.from('lta_alerts').select('*').eq('trip_id', tripId)
-      .then(({ data }) => { if (data) setAlerts(data) })
+    supabase.from('lta_alerts').select('*').eq('trip_id', tripId).is('resolved_at', null)
+      .then(({ data, error }) => { if (!error && data) setAlerts(data) })
+      .catch(() => {})
 
     const channel = supabase
       .channel(`trip-alerts-${tripId}`)
@@ -18,6 +19,18 @@ export function useAlerts(tripId) {
         table: 'lta_alerts',
         filter: `trip_id=eq.${tripId}`,
       }, (payload) => setAlerts((prev) => [...prev, payload.new]))
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'lta_alerts',
+        filter: `trip_id=eq.${tripId}`,
+      }, (payload) => {
+        setAlerts((prev) => (
+          payload.new?.resolved_at
+            ? prev.filter((a) => a.id !== payload.new.id)
+            : prev.map((a) => (a.id === payload.new.id ? payload.new : a))
+        ))
+      })
       .subscribe()
 
     return () => supabase.removeChannel(channel)

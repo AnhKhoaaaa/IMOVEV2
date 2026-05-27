@@ -44,6 +44,16 @@ async def test_save_feedback_no_supabase_does_not_crash():
 
 
 @pytest.mark.asyncio
+async def test_save_feedback_without_user_id_skips_insert():
+    sb = _make_sb()
+
+    with patch("app.agents.memory_agent.supabase", sb):
+        await save_feedback("trip-1", None, None, 4, "Great trip")
+
+    assert not sb.table("trip_feedback").insert.called
+
+
+@pytest.mark.asyncio
 async def test_save_feedback_inserts_row():
     sb = _make_sb()
     inserted = []

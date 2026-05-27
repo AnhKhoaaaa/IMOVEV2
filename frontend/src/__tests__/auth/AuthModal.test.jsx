@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import AuthModal from '../../components/auth/AuthModal'
 
 vi.mock('../../lib/supabase', () => ({
+  isSupabaseConfigured: true,
   supabase: {
     auth: {
       signInWithPassword: vi.fn(),

@@ -42,7 +42,16 @@ async def save_feedback(
     comment: Optional[str],
     feedback_type: str = "explicit",
 ) -> None:
-    """[CODE] Insert a feedback row into trip_feedback."""
+    """[CODE] Insert a feedback row into trip_feedback for authenticated users."""
+    if not user_id:
+        log.info("Skipping feedback for trip %s because authenticated user_id is missing", trip_id)
+        return
+
+    _validate_user_id(user_id)
+
+    if feedback_type not in {"explicit", "implicit"}:
+        raise ValueError(f"Invalid feedback_type: '{feedback_type}'")
+
     if not supabase:
         return
 

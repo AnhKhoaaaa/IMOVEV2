@@ -55,6 +55,8 @@ _ROUTE_JSON = {
     }
 }
 
+_WALK_ROUTE_JSON = {"route_summary": {"total_time": 1200}}
+
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -115,6 +117,26 @@ async def test_get_route_pt_success():
     assert result["fare_sgd"] == 1.50
     assert len(result["legs"]) == 3
     assert result["legs"][1]["mode"] == "SUBWAY"
+
+
+@pytest.mark.asyncio
+async def test_get_route_walk_success_includes_required_time_params():
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_WALK_ROUTE_JSON)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2816, 103.8636, 1.2869, 103.8545, "walk")
+
+    assert result["duration_minutes"] == 20
+    assert result["fare_sgd"] == 0.0
+    assert result["legs"] == [
+        {"mode": "WALK", "duration_minutes": 20, "instruction": ""}
+    ]
+
+    params = client.get.call_args.kwargs["params"]
+    assert params["routeType"] == "walk"
+    assert "date" in params
+    assert "time" in params
+    assert "mode" not in params
+    assert "numItineraries" not in params
 
 
 @pytest.mark.asyncio

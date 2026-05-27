@@ -161,6 +161,39 @@ async def test_no_route_error_propagates():
 
 
 @pytest.mark.asyncio
+async def test_onemap_auth_failure_is_not_masked_as_no_route():
+    ids = ["gardens-by-the-bay", "merlion-park"]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        side_effect=NoRouteError("OneMap auth failed: 400 Bad Request"),
+    ) as mock_get_route:
+        with pytest.raises(NoRouteError, match="OneMap auth failed"):
+            await plan_trip("t5-auth", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+
+    assert mock_get_route.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_nearby_no_pt_route_falls_back_to_real_walk_route():
+    ids = ["gardens-by-the-bay", "merlion-park"]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        side_effect=[NoRouteError("no pt route"), _mock_route(duration=18, fare=0.0, mode="WALK")],
+    ) as mock_get_route:
+        result = await plan_trip("t5-walk", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+
+    assert mock_get_route.await_count == 2
+    assert mock_get_route.await_args_list[0].kwargs["mode"] == "pt"
+    assert mock_get_route.await_args_list[1].kwargs["mode"] == "walk"
+    leg = result.days[0].legs[0]
+    assert leg.transport_mode == "WALK"
+    assert leg.duration_minutes == 18
+    assert leg.is_estimated is False
+
+
+@pytest.mark.asyncio
 async def test_best_time_no_warning_when_arrival_in_window():
     # gardens: arrival 09:00 ∈ [08:00, 11:00] → OK
     # After dwell 180 min → 12:00, travel 10 min → arrive marina at 12:10

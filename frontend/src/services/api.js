@@ -1,6 +1,15 @@
 // Empty string → Vite dev proxy handles routing (no CORS issues)
 // Set VITE_API_BASE_URL=https://your-backend.com for production
 const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+export const TRANSPORT_MODES = ['MRT', 'LRT', 'BUS', 'WALK']
+
+function normalizeLegUpdate(body = {}) {
+  const mode = String(body.transport_mode ?? '').toUpperCase()
+  if (!TRANSPORT_MODES.includes(mode)) {
+    throw new Error(`Unsupported transport mode: ${body.transport_mode ?? 'empty'}`)
+  }
+  return { ...body, transport_mode: mode }
+}
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
@@ -22,7 +31,10 @@ export const api = {
   createTrip: (body) => request('/trips', { method: 'POST', body: JSON.stringify(body) }),
   planTrip: (id, body) => request(`/trips/${id}/plan`, { method: 'POST', body: JSON.stringify(body) }),
   getTrip: (id) => request(`/trips/${id}`),
-  updateLeg: (tripId, legId, body) => request(`/trips/${tripId}/legs/${legId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  updateLeg: (tripId, legId, body) => request(`/trips/${tripId}/legs/${legId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(normalizeLegUpdate(body)),
+  }),
   adaptTrip: (id, body) => request(`/trips/${id}/adapt`, { method: 'POST', body: JSON.stringify(body) }),
 
   // localStorage trip metadata helpers (no backend calls)

@@ -34,68 +34,74 @@ const makeTrip = (overrides = {}) => ({
   ...overrides,
 })
 
+const renderTrip = () => render(<BrowserRouter><Trip /></BrowserRouter>)
+
 describe('Trip page', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
 
   it('shows loading skeleton', () => {
-    useTrip.mockReturnValue({ trip: null, loading: true, error: null })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByLabelText('Đang tải hành trình')).toBeInTheDocument()
+    const { container } = renderTripWith({ trip: null, loading: true, error: null })
+    expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
   })
 
   it('shows error message', () => {
-    useTrip.mockReturnValue({ trip: null, loading: false, error: new Error('Not found') })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByText(/Not found/)).toBeInTheDocument()
+    renderTripWith({ trip: null, loading: false, error: new Error('Not found') })
+    expect(screen.getByText(/Could not load trip: Not found/i)).toBeInTheDocument()
   })
 
-  it('renders trip days when loaded', () => {
-    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByTestId('day-1')).toBeInTheDocument()
+  it('renders overview and day tabs when loaded', () => {
+    renderTripWith({ trip: makeTrip(), loading: false, error: null })
+    expect(screen.getByRole('button', { name: /Overview/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Day 1/i }).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /Summary/i })).toBeInTheDocument()
   })
 
-  it('passes tripId to DayPlan', () => {
-    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
+  it('renders selected day content and passes tripId to DayPlan', () => {
+    renderTripWith({ trip: makeTrip(), loading: false, error: null })
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/i })[0])
     expect(screen.getByTestId('day-1')).toHaveAttribute('data-trip-id', 'trip-123')
   })
 
   it('does not show warnings banner when warnings is empty', () => {
-    useTrip.mockReturnValue({ trip: makeTrip({ warnings: [] }), loading: false, error: null })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
+    renderTripWith({ trip: makeTrip({ warnings: [] }), loading: false, error: null })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('shows warnings banner when trip has warnings', () => {
-    useTrip.mockReturnValue({
+    renderTripWith({
       trip: makeTrip({ warnings: ['Sentosa best time conflict'] }),
       loading: false,
       error: null,
     })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
     expect(screen.getByRole('alert')).toHaveTextContent('Sentosa best time conflict')
   })
 
-  it('dismisses warnings banner when × is clicked', () => {
-    useTrip.mockReturnValue({
+  it('dismisses warnings banner when Dismiss is clicked', () => {
+    renderTripWith({
       trip: makeTrip({ warnings: ['Some warning'] }),
       loading: false,
       error: null,
     })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
     expect(screen.getByRole('alert')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /dismiss warnings/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss/i }))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('shows multiple warnings joined by separator', () => {
-    useTrip.mockReturnValue({
+  it('shows multiple warnings in the banner', () => {
+    renderTripWith({
       trip: makeTrip({ warnings: ['Warning A', 'Warning B'] }),
       loading: false,
       error: null,
     })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByRole('alert')).toHaveTextContent('Warning A · Warning B')
+    expect(screen.getByRole('alert')).toHaveTextContent('Warning A')
+    expect(screen.getByRole('alert')).toHaveTextContent('Warning B')
   })
 })
+
+function renderTripWith(state) {
+  useTrip.mockReturnValue({ refresh: vi.fn(), ...state })
+  return renderTrip()
+}

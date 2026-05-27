@@ -4,6 +4,26 @@ import { api } from '../../services/api'
 import { cn } from '../../lib/utils'
 
 const TYPE_CONFIG = {
+  train_delay: {
+    Icon: AlertTriangle,
+    containerClass: 'bg-red-50 border-red-200',
+    iconClass: 'text-red-500',
+    badgeClass: 'bg-red-100 text-red-700',
+    textClass: 'text-red-900',
+    label: 'Train Delay',
+    btnClass: 'border-red-300 text-red-700 hover:bg-red-100',
+    showAdapt: true,
+  },
+  bus_cancellation: {
+    Icon: AlertTriangle,
+    containerClass: 'bg-red-50 border-red-200',
+    iconClass: 'text-red-500',
+    badgeClass: 'bg-red-100 text-red-700',
+    textClass: 'text-red-900',
+    label: 'Bus Cancellation',
+    btnClass: 'border-red-300 text-red-700 hover:bg-red-100',
+    showAdapt: true,
+  },
   transport_alert: {
     Icon: AlertTriangle,
     containerClass: 'bg-red-50 border-red-200',
@@ -43,6 +63,7 @@ function getSessionId() {
 export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
   const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.service_unavailable
   const { Icon, containerClass, iconClass, badgeClass, textClass, label, btnClass, showAdapt } = config
+  const badgeLabel = alert.affected_line ? `${label} · ${alert.affected_line}` : label
   const [adapting, setAdapting] = useState(false)
   const [adaptError, setAdaptError] = useState(null)
 
@@ -53,6 +74,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
     setAdaptError(null)
     try {
       const sessionId = getSessionId()
+      if (!sessionId) throw new Error('Session expired. Please create the trip again.')
       await api.adaptTrip(tripId, { alert_id: alert.id, session_id: sessionId })
       if (onAdapted) await onAdapted()
       onDismiss(alert.id)
@@ -69,7 +91,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
 
       <div className="flex-1 min-w-0">
         <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide', badgeClass)}>
-          {label}
+          {badgeLabel}
         </span>
         <p className={cn('text-sm mt-1.5 leading-relaxed', textClass)}>{alert.message}</p>
 

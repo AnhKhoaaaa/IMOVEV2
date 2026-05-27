@@ -203,3 +203,17 @@ backend/app/data/places.json     — ~50 POIs với dwell_minutes, best_time
 - Backend `POST /trips/{id}/plan`, `PATCH .../legs/...`, `POST .../adapt` đang trả 501
 - Contract frontend mong đợi đã được document đầy đủ ở trên
 - Dev 2 có thể bắt đầu implement `planning_agent.py` ngay
+
+### [2026-05-26 | Dev1] Frontend aligned to implemented backend contract
+
+- Frontend now sends only backend-supported transport modes to `PATCH /trips/{id}/legs/{leg_id}`: `MRT`, `LRT`, `BUS`, `WALK`.
+- `POST /trips/{id}/adapt` calls now include `{ alert_id, session_id }`, matching the current backend ownership guard when Supabase is enabled.
+- Alert UI now recognizes backend alert types `train_delay`, `bus_cancellation`, `weather_warning`, `service_unavailable`; old `transport_alert` remains display-compatible.
+- Supabase alert hook now expects `lta_alerts.resolved_at` and filters out resolved alerts.
+
+### [2026-05-27 | Dev1] Memory/Auth endpoints gated until JWT auth
+
+- `POST /alerts/feedback` now returns HTTP 501 until verified Supabase JWT user extraction is wired; it no longer writes untrusted or null `user_id` feedback.
+- `GET /alerts/preferences` also returns HTTP 501 for the same reason.
+- `memory_agent.save_feedback()` skips inserts when there is no authenticated `user_id` and validates UUID/feedback type before writing.
+- `PATCH /trips/{id}/legs/{leg_id}` still updates the leg even if optional implicit feedback logging fails.
