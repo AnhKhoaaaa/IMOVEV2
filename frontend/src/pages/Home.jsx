@@ -4,22 +4,31 @@ import { Navigation2, Search, User, Sparkles, Plus, Clock, Wallet, Footprints, M
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { formatDateRange, computeTripMetrics } from '../lib/tripUtils'
 import { api } from '../services/api'
+import { supabase } from '../lib/supabase'
+import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 
 /* ── Status meta ─────────────────────────────────────────────────── */
 const STATUS_META = {
-  today:    { label: 'Happening Today', dot: 'bg-emerald-500 animate-pulse', pill: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  upcoming: { label: 'Upcoming',        dot: 'bg-indigo-500',               pill: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-  draft:    { label: 'Draft',           dot: 'bg-slate-400',                pill: 'bg-slate-100 text-slate-600 border-slate-200' },
-  past:     { label: 'Past',            dot: 'bg-slate-300',                pill: 'bg-slate-50 text-slate-500 border-slate-200' },
+  today:    { dot: 'bg-emerald-500 animate-pulse', pill: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  upcoming: { dot: 'bg-indigo-500',               pill: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  draft:    { dot: 'bg-slate-400',                pill: 'bg-slate-100 text-slate-600 border-slate-200' },
+  past:     { dot: 'bg-slate-300',                pill: 'bg-slate-50 text-slate-500 border-slate-200' },
 }
 
 const StatusTag = ({ status }) => {
+  const { t } = useT()
   const m = STATUS_META[status] ?? STATUS_META.draft
+  const labels = {
+    today: t('statusToday'),
+    upcoming: t('filter_Upcoming'),
+    draft: t('filter_Drafts'),
+    past: t('filter_Past'),
+  }
   return (
     <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 h-6 text-[11px] font-semibold whitespace-nowrap', m.pill)}>
       <span className={cn('inline-block h-1.5 w-1.5 rounded-full', m.dot)} />
-      {m.label}
+      {labels[status] ?? status}
     </span>
   )
 }
@@ -28,6 +37,7 @@ const StatusTag = ({ status }) => {
 const SKYLINE_HEIGHTS = [24, 36, 18, 48, 28, 56, 22, 40, 30]
 
 const DestinationThumb = ({ trip }) => {
+  const { t } = useT()
   const dateLabel = formatDateRange(trip.startDate, trip.numDays ?? 1)
   return (
     <div className="relative h-32 w-full overflow-hidden bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500">
@@ -49,8 +59,8 @@ const DestinationThumb = ({ trip }) => {
             {trip.name ?? 'Singapore'}
           </div>
           <div className="text-[12px] text-white/85 mt-1.5">
-            {trip.numDays ?? 1} day{(trip.numDays ?? 1) !== 1 ? 's' : ''}
-            {trip.startDate ? ` · ${dateLabel}` : ' · Flexible dates'}
+            {t('daysUnit', trip.numDays ?? 1)}
+            {trip.startDate ? ` · ${dateLabel}` : ` · ${t('flexibleDates')}`}
           </div>
         </div>
         {dateLabel && (
@@ -74,6 +84,7 @@ const StatBadge = ({ icon, label, value }) => (
 
 /* ── Trip card ───────────────────────────────────────────────────── */
 const TripCard = ({ trip, onOpen, onStart }) => {
+  const { t } = useT()
   const isToday = trip.status === 'today'
   const metrics = computeTripMetrics(api.getCachedTripData(trip.id))
 
@@ -89,38 +100,36 @@ const TripCard = ({ trip, onOpen, onStart }) => {
           <StatusTag status={trip.status} />
           <span className="text-[11.5px] text-slate-500 inline-flex items-center gap-1">
             <Clock size={11} className="text-slate-400" />
-            {trip.numDays ?? 1} day{(trip.numDays ?? 1) !== 1 ? 's' : ''}
+            {t('daysUnit', trip.numDays ?? 1)}
           </span>
         </div>
 
-        {/* Metrics — use cached trip data if available, else fallback badges */}
         {metrics ? (
           <div className="flex flex-wrap gap-1.5">
             <StatBadge icon={<Clock size={11} />} value={metrics.activeTime} />
             <StatBadge icon={<Wallet size={11} />} value={metrics.transitCost} />
             <StatBadge icon={<Footprints size={11} />} value={metrics.walkingDist} />
-            <StatBadge icon={<MapPin size={11} />} value={`${metrics.stopsCount} stops`} />
+            <StatBadge icon={<MapPin size={11} />} value={t('stopsUnit', metrics.stopsCount)} />
           </div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            <StatBadge icon={<MapPin size={11} />} label="Dest." value="Singapore" />
+            <StatBadge icon={<MapPin size={11} />} label={t('dest')} value="Singapore" />
             {trip.savedAt && (
               <StatBadge
                 icon={<Clock size={11} />}
-                label="Saved"
+                label={t('savedLabel')}
                 value={new Date(trip.savedAt).toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })}
               />
             )}
           </div>
         )}
 
-        {/* Footer actions */}
         <div className="flex items-center gap-2 pt-1">
           <button
             onClick={onOpen}
             className="flex-1 h-9 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition focus-ring inline-flex items-center justify-center gap-1.5"
           >
-            <Edit size={12} /> Open
+            <Edit size={12} /> {t('openBtn')}
           </button>
           {isToday && (
             <button
@@ -128,7 +137,7 @@ const TripCard = ({ trip, onOpen, onStart }) => {
               className="relative inline-flex items-center justify-center gap-1.5 h-9 rounded-lg px-4 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-display font-bold text-[13px] shadow-card hover:shadow-pop transition focus-ring overflow-hidden"
             >
               <span className="absolute inset-0 rounded-lg ring-4 ring-emerald-400/50 animate-ping pointer-events-none" />
-              <Navigation2 size={13} /> Start Trip
+              <Navigation2 size={13} /> {t('startTripBtn')}
             </button>
           )}
         </div>
@@ -139,6 +148,7 @@ const TripCard = ({ trip, onOpen, onStart }) => {
 
 /* ── Today modal ─────────────────────────────────────────────────── */
 const StartTodayModal = ({ trip, onStart, onClose }) => {
+  const { t } = useT()
   if (!trip) return null
   return (
     <div
@@ -159,10 +169,10 @@ const StartTodayModal = ({ trip, onStart, onClose }) => {
               <div>
                 <div className="text-[11px] uppercase tracking-wide font-semibold text-emerald-700 inline-flex items-center gap-1.5">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Live trip
+                  {t('liveLabel')}
                 </div>
                 <div className="font-display font-extrabold text-[18px] text-slate-900">
-                  Your trip to Singapore starts today!
+                  {t('startsTodayTitle')}
                 </div>
               </div>
             </div>
@@ -174,20 +184,20 @@ const StartTodayModal = ({ trip, onStart, onClose }) => {
             </button>
           </div>
           <p className="mt-3 text-[13.5px] text-slate-600 leading-relaxed">
-            Ready to explore? We'll navigate you through your itinerary.
+            {t('startsTodayDesc')}
           </p>
           <div className="mt-4 flex items-center gap-2">
             <button
               onClick={onClose}
               className="flex-1 h-10 rounded-md border border-slate-200 text-slate-700 font-semibold text-[14px] hover:bg-slate-50 transition"
             >
-              Later
+              {t('laterBtn')}
             </button>
             <button
               onClick={onStart}
               className="flex-1 h-10 rounded-md bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-1.5 hover:shadow-pop transition"
             >
-              <Navigation2 size={14} /> Ready to navigate
+              <Navigation2 size={14} /> {t('readyToNavigate')}
             </button>
           </div>
         </div>
@@ -203,9 +213,19 @@ const STATUS_FOR_FILTER = { Today: 'today', Upcoming: 'upcoming', Drafts: 'draft
 
 export default function Home() {
   const navigate = useNavigate()
+  const { t } = useT()
   const { trips } = useSavedTrips()
   const [filter, setFilter] = useState('All')
   const [modalTrip, setModalTrip] = useState(null)
+  const [authUser, setAuthUser] = useState(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user ?? null))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
 
   useEffect(() => {
     const todayTrip = trips.find((t) => t.status === 'today')
@@ -254,17 +274,19 @@ export default function Home() {
         <div className="flex items-end justify-between gap-4 flex-wrap mb-8">
           <div>
             <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-500 inline-flex items-center gap-1.5">
-              <Sparkles size={12} className="text-fuchsia-600" /> Your itineraries
+              <Sparkles size={12} className="text-fuchsia-600" /> {t('yourItineraries')}
             </div>
             <h1 className="font-display font-extrabold text-[34px] sm:text-[40px] leading-[1.05] tracking-tight text-slate-900 mt-1">
-              Welcome back
+              {authUser
+                ? t('welcomeUser', authUser.user_metadata?.username || authUser.email?.split('@')[0])
+                : t('welcomeBack')}
             </h1>
             <p className="text-[14px] text-slate-500 mt-2">
-              {trips.length} trip{trips.length !== 1 ? 's' : ''} saved
+              {t('tripsCount', trips.length)}
               {todayCount > 0 && (
-                <span> · <span className="font-semibold text-emerald-700">{todayCount} happening today</span></span>
+                <span> · <span className="font-semibold text-emerald-700">{t('happeningToday', todayCount)}</span></span>
               )}
-              {upcomingCount > 0 && <span> · {upcomingCount} upcoming</span>}
+              {upcomingCount > 0 && <span> · {t('upcomingCount', upcomingCount)}</span>}
             </p>
           </div>
           <button
@@ -272,7 +294,7 @@ export default function Home() {
             className="group relative inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[14px] shadow-pop overflow-hidden focus-ring"
           >
             <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
-            <Plus size={15} strokeWidth={2.5} /> Create New Itinerary
+            <Plus size={15} strokeWidth={2.5} /> {t('createNewItinerary')}
           </button>
         </div>
 
@@ -291,7 +313,7 @@ export default function Home() {
                     : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
                 )}
               >
-                {f}
+                {t(`filter_${f}`)}
                 {count != null && count > 0 && (
                   <span className={cn(
                     'grid h-4 min-w-4 px-1 place-items-center rounded-full text-[10px] font-bold tabular-nums',
@@ -311,31 +333,29 @@ export default function Home() {
             <div className="grid h-20 w-20 place-items-center rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white shadow-pop mb-6">
               <Navigation2 size={40} />
             </div>
-            <h2 className="font-display font-bold text-2xl text-slate-900">Plan your Singapore adventure</h2>
-            <p className="text-slate-500 mt-2 max-w-sm">
-              Create your first trip with real MRT and bus routes, timed itineraries, and AI-powered suggestions.
-            </p>
+            <h2 className="font-display font-bold text-2xl text-slate-900">{t('noTripsTitle')}</h2>
+            <p className="text-slate-500 mt-2 max-w-sm">{t('noTripsDesc')}</p>
             <button
               onClick={() => navigate('/plan')}
               className="mt-6 inline-flex items-center gap-2 h-11 px-8 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[14px] shadow-pop hover:opacity-90 transition focus-ring"
             >
-              <Plus size={15} strokeWidth={2.5} /> Start Planning
+              <Plus size={15} strokeWidth={2.5} /> {t('startPlanning')}
             </button>
           </div>
         ) : (
           <>
             {filtered.length === 0 && (
               <div className="text-center py-16 text-slate-400 text-[14px]">
-                No trips in this category yet.
+                {t('noTripsCategory')}
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map((t) => (
+              {filtered.map((trip) => (
                 <TripCard
-                  key={t.id}
-                  trip={t}
-                  onOpen={() => navigate(`/trip/${t.id}`)}
-                  onStart={() => setModalTrip(t)}
+                  key={trip.id}
+                  trip={trip}
+                  onOpen={() => navigate(`/trip/${trip.id}`)}
+                  onStart={() => setModalTrip(trip)}
                 />
               ))}
 
@@ -349,9 +369,9 @@ export default function Home() {
                     <Plus size={18} strokeWidth={2.5} />
                   </div>
                   <div className="font-display font-bold text-[15px] text-slate-700 group-hover:text-indigo-700">
-                    Plan a new trip
+                    {t('planNewTrip')}
                   </div>
-                  <div className="text-[12px] text-slate-500 mt-0.5">Start a fresh itinerary</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">{t('freshItinerary')}</div>
                 </div>
               </button>
             </div>

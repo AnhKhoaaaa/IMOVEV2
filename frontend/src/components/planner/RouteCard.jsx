@@ -12,17 +12,19 @@ const MODE_LABEL = { MRT: 'MRT', LRT: 'LRT', BUS: 'Bus', WALK: 'Walk', DRIVE: 'D
 
 export default function RouteCard({ leg, tripId, onUpdated }) {
   const [editOpen, setEditOpen] = useState(false)
+  const [confirmedMode, setConfirmedMode] = useState(leg.transport_mode)
   const [newMode, setNewMode] = useState(leg.transport_mode)
   const [updating, setUpdating] = useState(false)
   const [updateError, setUpdateError] = useState(null)
 
-  const openEdit = () => { setNewMode(leg.transport_mode); setUpdateError(null); setEditOpen(true) }
+  const openEdit = () => { setNewMode(confirmedMode); setUpdateError(null); setEditOpen(true) }
 
   const handleUpdate = async () => {
     setUpdating(true)
     setUpdateError(null)
     try {
       await api.updateLeg(tripId, leg.id, { transport_mode: newMode })
+      setConfirmedMode(newMode)
       setEditOpen(false)
       if (onUpdated) await onUpdated()
     } catch (e) {
@@ -35,7 +37,7 @@ export default function RouteCard({ leg, tripId, onUpdated }) {
   return (
     <>
       <CitymapperTransitCard
-        leg={leg}
+        leg={{ ...leg, transport_mode: confirmedMode }}
         onEdit={tripId ? openEdit : undefined}
       />
 

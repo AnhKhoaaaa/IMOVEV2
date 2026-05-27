@@ -44,7 +44,7 @@ const DayPill = ({ active, onClick, children, kind, pulse }) => (
 /* ── Skeleton ────────────────────────────────────────────────────── */
 function PanelSkeleton() {
   return (
-    <div className="space-y-3" aria-busy="true">
+    <div className="space-y-3" aria-label="Loading trip" aria-busy="true">
       <Skeleton className="h-20 w-full rounded-2xl" />
       <Skeleton className="h-20 w-full rounded-2xl" />
       <Skeleton className="h-16 w-3/4 rounded-2xl" />
@@ -242,7 +242,7 @@ export default function Trip() {
                 <button
                   onClick={() => setDismissedWarnings(true)}
                   className="absolute right-3 top-3 opacity-60 hover:opacity-100"
-                  aria-label="Dismiss"
+                  aria-label="Dismiss warnings"
                 >
                   <X className="h-4 w-4" />
                 </button>

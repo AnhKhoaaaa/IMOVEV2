@@ -12,6 +12,9 @@ vi.mock('../../hooks/useTrip')
 vi.mock('../../hooks/useAlerts', () => ({
   useAlerts: () => ({ alerts: [], dismiss: vi.fn() }),
 }))
+vi.mock('../../hooks/useGeolocation', () => ({
+  useGeolocation: () => ({ position: null, error: null }),
+}))
 vi.mock('../../components/planner/DayPlan', () => ({
   default: ({ day, legs, tripId }) => (
     <div data-testid={`day-${day}`} data-trip-id={tripId}>{legs.length} legs</div>
@@ -40,7 +43,7 @@ describe('Trip page', () => {
   it('shows loading skeleton', () => {
     useTrip.mockReturnValue({ trip: null, loading: true, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByLabelText('Đang tải hành trình')).toBeInTheDocument()
+    expect(screen.getByLabelText('Loading trip')).toBeInTheDocument()
   })
 
   it('shows error message', () => {
@@ -52,12 +55,14 @@ describe('Trip page', () => {
   it('renders trip days when loaded', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: 'Day 1' }))
     expect(screen.getByTestId('day-1')).toBeInTheDocument()
   })
 
   it('passes tripId to DayPlan', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: 'Day 1' }))
     expect(screen.getByTestId('day-1')).toHaveAttribute('data-trip-id', 'trip-123')
   })
 
