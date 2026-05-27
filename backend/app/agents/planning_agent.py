@@ -112,6 +112,23 @@ def _fmt_hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
+async def _resolve_via_gemini(name: str) -> str | None:
+    """Resolve an ambiguous place name to a curated ID via Gemini. Returns None on any failure."""
+    try:
+        from app.services import gemini  # lazy import — avoids circular issues and test noise
+        candidates = await gemini.parse_places_input(name)
+        if not candidates:
+            return None
+        first = candidates[0].lower().strip()
+        for pid, place in _PLACES.items():
+            place_lower = place["name"].lower()
+            if first in place_lower or place_lower in first:
+                return pid
+        return None
+    except Exception:
+        return None  # never block planning on Gemini failure
+
+
 async def plan_trip(
     trip_id: str,
     place_ids: list[str],
@@ -122,10 +139,18 @@ async def plan_trip(
 ) -> TripPlan:
     prefs = preferences or {}
 
-    # [CODE] 1. Validate all place_ids exist in curated dataset
+    # [CODE] 1. Validate place_ids; try Gemini resolution for unrecognized entries
+    resolved: list[str] = []
     for pid in place_ids:
-        if pid not in _PLACES:
-            raise PlaceDataMissingError(pid)
+        if pid in _PLACES:
+            resolved.append(pid)
+        else:
+            # [LLM] Gemini fallback: treat as a free-text name, resolve to curated ID
+            resolved_id = await _resolve_via_gemini(pid)
+            if resolved_id is None:
+                raise PlaceDataMissingError(pid)
+            resolved.append(resolved_id)
+    place_ids = resolved
 
     places = [_PLACES[pid] for pid in place_ids]
 
@@ -170,6 +195,8 @@ async def plan_trip(
                     transport_mode = _primary_mode(route.get("legs", []))
                     duration = route["duration_minutes"]
                     cost = route["fare_sgd"]
+                    geometry = route.get("geometry")
+                    instructions = route.get("instructions", [])
                     is_estimated = False
                 except NoRouteError:
                     # Hard failure — no route exists → bubble up to router → HTTP 422
@@ -193,6 +220,8 @@ async def plan_trip(
                     duration_minutes=duration,
                     cost_sgd=cost,
                     is_estimated=is_estimated,
+                    instructions=instructions,
+                    geometry=geometry,
                 ))
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))

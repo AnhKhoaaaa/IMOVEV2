@@ -177,6 +177,53 @@ async def test_best_time_no_warning_when_arrival_in_window():
 
 
 @pytest.mark.asyncio
+async def test_plan_trip_populates_leg_geometry():
+    ids = VALID_IDS[:2]
+    route_with_geo = {**_mock_route(), "geometry": "encoded_abc", "instructions": ["Walk to station", "Board NS"]}
+    with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=route_with_geo):
+        result = await plan_trip("t-geo", ids, 1, 999.0, False, None)
+    assert result.days[0].legs[0].geometry == "encoded_abc"
+    assert result.days[0].legs[0].instructions == ["Walk to station", "Board NS"]
+
+
+@pytest.mark.asyncio
+async def test_plan_trip_geometry_none_when_not_in_route():
+    ids = VALID_IDS[:2]
+    with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=_mock_route()):
+        result = await plan_trip("t-nogeo", ids, 1, 999.0, False, None)
+    assert result.days[0].legs[0].geometry is None
+    assert result.days[0].legs[0].instructions == []
+
+
+# ── Gemini fallback for ambiguous place names ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_gemini_resolves_ambiguous_name_to_curated_id():
+    """An unrecognized string that Gemini resolves to a real place name → plan succeeds."""
+    known_id = VALID_IDS[0]
+    with patch("app.services.gemini.parse_places_input", new_callable=AsyncMock, return_value=["Marina Bay Sands"]):
+        with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=_mock_route()):
+            result = await plan_trip("t-gem1", [known_id, "marina bay sands hotel"], 1, 999.0, False, None)
+    # "marina bay sands hotel" should have been resolved to "marina-bay-sands"
+    place_ids = {p.id for p in result.places}
+    assert "marina-bay-sands" in place_ids
+
+
+@pytest.mark.asyncio
+async def test_gemini_returns_empty_list_raises_place_missing():
+    with patch("app.services.gemini.parse_places_input", new_callable=AsyncMock, return_value=[]):
+        with pytest.raises(PlaceDataMissingError):
+            await plan_trip("t-gem2", [VALID_IDS[0], "unknownxyz"], 1, 999.0, False, None)
+
+
+@pytest.mark.asyncio
+async def test_gemini_exception_falls_back_to_place_missing():
+    with patch("app.services.gemini.parse_places_input", new_callable=AsyncMock, side_effect=ValueError("rate limit")):
+        with pytest.raises(PlaceDataMissingError):
+            await plan_trip("t-gem3", [VALID_IDS[0], "unknownxyz"], 1, 999.0, False, None)
+
+
+@pytest.mark.asyncio
 async def test_best_time_warning_triggered():
     # merlion-park best_time 07:00–10:00. If we visit after a long dwell elsewhere it'll warn.
     # Start 09:00 at gardens (dwell 180 → depart 12:00), travel 10 min → arrive merlion 12:10

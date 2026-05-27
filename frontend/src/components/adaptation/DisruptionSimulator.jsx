@@ -7,6 +7,8 @@ export default function DisruptionSimulator({
   onTransitDisrupt,
   onResetTrip,
 }) {
+  if (!import.meta.env.DEV) return null
+
   const [collapsed, setCollapsed] = useState(false)
 
   if (collapsed) {

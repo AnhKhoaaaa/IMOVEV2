@@ -1,4 +1,5 @@
 import L from 'leaflet'
+import polylineCodec from '@mapbox/polyline'
 import { useEffect, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
@@ -91,10 +92,19 @@ export default function TripMap({ places, legs, userPosition }) {
           const to = byId[leg.to_place_id]
           if (!from || !to) return null
           const style = MODE_STYLE[leg.transport_mode] ?? MODE_STYLE.DRIVE
+          // Decode real polyline when available; fall back to straight line
+          let positions
+          try {
+            positions = leg.geometry
+              ? polylineCodec.decode(leg.geometry)
+              : [[from.lat, from.lng], [to.lat, to.lng]]
+          } catch {
+            positions = [[from.lat, from.lng], [to.lat, to.lng]]
+          }
           return (
             <Polyline
               key={leg.id}
-              positions={[[from.lat, from.lng], [to.lat, to.lng]]}
+              positions={positions}
               color={style.color}
               dashArray={style.dashArray}
               weight={3}

@@ -282,3 +282,51 @@ def test_adapt_trip_with_valid_session_id():
     assert "adapted" in data
     assert "changes" in data
     assert "updated_trip" in data
+
+
+# ── POST /trips/{id}/accept-swap ──────────────────────────────────────────────
+
+def test_accept_swap_no_pending_returns_404():
+    resp = client.post("/trips/no-pending-trip/accept-swap", json={"alert_id": "alert-1"})
+    assert resp.status_code == 404
+    assert "pending" in resp.json()["detail"].lower()
+
+
+def test_accept_swap_wrong_alert_id_returns_409():
+    import app.routers.trips as _trips_module
+    trip_id = "trip-conflict"
+    mock_plan = _make_plan(trip_id)
+    _trips_module._pending_swaps[trip_id] = {"alert_id": "correct-alert", "updated_trip": mock_plan}
+    _trips_module._trip_meta[trip_id] = {"num_days": 1, "budget_sgd": 999.0, "session_id": "session-conflict-1"}
+    try:
+        resp = client.post(f"/trips/{trip_id}/accept-swap", json={
+            "alert_id": "wrong-alert",
+            "session_id": "session-conflict-1",
+        })
+        assert resp.status_code == 409
+        assert "alert_id" in resp.json()["detail"].lower()
+    finally:
+        _trips_module._pending_swaps.pop(trip_id, None)
+        _trips_module._trip_meta.pop(trip_id, None)
+
+
+def test_accept_swap_success_commits_and_clears_pending():
+    import app.routers.trips as _trips_module
+    trip_id = "trip-accept-ok"
+    mock_plan = _make_plan(trip_id)
+    _trips_module._pending_swaps[trip_id] = {"alert_id": "alert-ok", "updated_trip": mock_plan}
+    _trips_module._trip_meta[trip_id] = {"num_days": 1, "budget_sgd": 999.0, "session_id": "session-accept-ok"}
+    try:
+        with patch("app.routers.trips.adaptation_agent.commit_adaptation", new_callable=AsyncMock):
+            resp = client.post(f"/trips/{trip_id}/accept-swap", json={
+                "alert_id": "alert-ok",
+                "session_id": "session-accept-ok",
+            })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == trip_id
+        # Pending swap must be cleared after acceptance
+        assert trip_id not in _trips_module._pending_swaps
+    finally:
+        _trips_module._pending_swaps.pop(trip_id, None)
+        _trips_module._trip_meta.pop(trip_id, None)

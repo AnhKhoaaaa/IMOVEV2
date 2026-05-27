@@ -16,6 +16,39 @@ _TOKEN_CACHE: dict = {"token": None, "expires_at": 0.0}
 _TOKEN_LOCK = asyncio.Lock()
 
 _AUTH_URL = "https://www.onemap.gov.sg/api/auth/post/getToken"
+
+
+def _extract_pt_geometry(legs: list[dict]) -> str | None:
+    """Return encoded polyline from the first transit (non-WALK) leg; fall back to first leg."""
+    for leg in legs:
+        if leg.get("mode", "").upper() not in ("WALK", ""):
+            return leg.get("legGeometry", {}).get("points")
+    return legs[0].get("legGeometry", {}).get("points") if legs else None
+
+
+def _build_pt_instructions(legs: list[dict]) -> list[str]:
+    """Build a concise list of human-readable steps from OTP-format itinerary legs."""
+    steps: list[str] = []
+    for leg in legs:
+        mode = leg.get("mode", "").upper()
+        duration_min = round(leg.get("duration", 0) / 60)
+        from_name = leg.get("from", {}).get("name", "")
+        to_name = leg.get("to", {}).get("name", "")
+        route = leg.get("route", "")
+
+        if mode == "WALK":
+            if to_name:
+                steps.append(f"Walk to {to_name} ({duration_min} min)")
+            elif duration_min:
+                steps.append(f"Walk ({duration_min} min)")
+        else:
+            if route and from_name:
+                steps.append(f"Board {route} line at {from_name}")
+            elif from_name:
+                steps.append(f"Board at {from_name}")
+            if to_name:
+                steps.append(f"Alight at {to_name} ({duration_min} min)")
+    return steps
 _SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search"
 _ROUTE_URL = "https://www.onemap.gov.sg/api/public/routingsvc/route"
 
@@ -116,18 +149,21 @@ async def get_route(
                 f"No PT route from ({from_lat},{from_lng}) to ({to_lat},{to_lng})"
             )
         itin = itineraries[0]
+        itin_legs = itin.get("legs", [])
         legs = [
             {
                 "mode": leg["mode"],
                 "duration_minutes": round(leg["duration"] / 60),
                 "instruction": leg.get("route", ""),
             }
-            for leg in itin.get("legs", [])
+            for leg in itin_legs
         ]
         return {
             "duration_minutes": round(itin["duration"] / 60),
             "fare_sgd": float(itin.get("fare", 0.0)),
             "legs": legs,
+            "geometry": _extract_pt_geometry(itin_legs),
+            "instructions": _build_pt_instructions(itin_legs),
         }
     else:
         summary = data.get("route_summary", {})
@@ -145,4 +181,6 @@ async def get_route(
                     "instruction": "",
                 }
             ],
+            "geometry": data.get("route_geometry"),
+            "instructions": [],
         }

@@ -55,6 +55,34 @@ _ROUTE_JSON = {
     }
 }
 
+_ROUTE_JSON_WITH_GEOMETRY = {
+    "plan": {
+        "itineraries": [
+            {
+                "duration": 1800,
+                "fare": 1.50,
+                "legs": [
+                    {
+                        "mode": "WALK", "duration": 300, "route": "",
+                        "legGeometry": {"points": "walk_poly"},
+                        "from": {"name": "Origin"}, "to": {"name": "Bayfront Station"},
+                    },
+                    {
+                        "mode": "SUBWAY", "duration": 1200, "route": "EW",
+                        "legGeometry": {"points": "mrt_poly"},
+                        "from": {"name": "Bayfront"}, "to": {"name": "City Hall"},
+                    },
+                    {
+                        "mode": "WALK", "duration": 300, "route": "",
+                        "legGeometry": {"points": "walk2_poly"},
+                        "from": {"name": "City Hall Station"}, "to": {"name": "Destination"},
+                    },
+                ],
+            }
+        ]
+    }
+}
+
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -147,3 +175,48 @@ async def test_get_route_token_cached():
 
     assert client.post.call_count == 1
     assert client.get.call_count == 2
+
+
+# ── geometry + instructions extraction ───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_route_pt_returns_transit_leg_geometry():
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON_WITH_GEOMETRY)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+    # geometry should come from the transit (SUBWAY) leg, not the leading WALK leg
+    assert result["geometry"] == "mrt_poly"
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_returns_instructions():
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON_WITH_GEOMETRY)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+    instructions = result["instructions"]
+    assert isinstance(instructions, list)
+    assert any("Bayfront Station" in i for i in instructions)
+    assert any("EW" in i for i in instructions)
+    assert any("City Hall" in i for i in instructions)
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_geometry_none_when_no_leggeometry():
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+    # No legGeometry in _ROUTE_JSON → geometry must be None
+    assert result["geometry"] is None
+    # Instructions list is always returned (may be empty or not depending on leg content)
+    assert isinstance(result["instructions"], list)
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_existing_fields_unaffected():
+    """Existing callers that only use duration/fare/legs still work."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON_WITH_GEOMETRY)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+    assert result["duration_minutes"] == 30
+    assert result["fare_sgd"] == 1.50
+    assert len(result["legs"]) == 3
