@@ -50,7 +50,7 @@
 
 ---
 
-## Phase 1 — Authentication & User Flow ← TIẾP THEO
+## Phase 1 — Authentication & User Flow ✅ HOÀN THÀNH (2026-05-27)
 **Thời gian:** Tuần 2
 **Mục tiêu:** JWT auth đầy đủ, Memory Agent hoạt động (unblock 501 endpoint)
 
@@ -59,13 +59,13 @@ Hiện tại `GET /alerts/preferences` trả 501 vì chưa có JWT middleware. `
 
 ### Checklist
 
-- [ ] Backend: dependency function `get_current_user(token: str = Depends(oauth2_scheme))` → extract `user_id` từ Supabase JWT
-- [ ] `POST /alerts/feedback`: bỏ `user_id` từ request body, dùng JWT `user_id`
-- [ ] `GET /alerts/preferences`: remove 501, implement với JWT auth → trả preferences của user đang đăng nhập
-- [ ] `PATCH /trips/{id}/legs/{leg_id}`: đã verify bằng `session_id` (giữ nguyên) + log implicit feedback (đã có)
-- [ ] Frontend `AuthModal`: verify Google OAuth + email/password + Magic Link chạy được với Supabase project thật
-- [ ] Frontend: auth state persist sau page reload (Supabase `onAuthStateChange` đã có trong `lib/supabase.js`, verify)
-- [ ] Frontend: header hiển thị đúng tên user / avatar sau login
+- [x] Backend: dependency function `get_current_user(token: str = Depends(oauth2_scheme))` → extract `user_id` từ Supabase JWT
+- [x] `POST /alerts/feedback`: bỏ `user_id` từ request body, dùng JWT `user_id`
+- [x] `GET /alerts/preferences`: remove 501, implement với JWT auth → trả preferences của user đang đăng nhập
+- [x] `PATCH /trips/{id}/legs/{leg_id}`: đã verify bằng `session_id` (giữ nguyên) + log implicit feedback (đã có)
+- [x] Frontend `AuthModal`: email/password + Magic Link (signInWithOtp) + Google OAuth (signInWithOAuth) hoạt động
+- [x] Frontend: auth state persist sau page reload (Supabase `onAuthStateChange` đã có trong `lib/supabase.js`, verified)
+- [x] Frontend: header hiển thị đúng tên user / avatar sau login (verified, đã hoạt động)
 
 ---
 
@@ -211,7 +211,7 @@ Nếu không biết bắt đầu từ đâu, theo thứ tự này:
 
 1. ~~**Luồng E2E thông không?** → Phase 0~~ ✅ **Xong**
 2. **Smoke test thật với OneMap** → Chạy backend + frontend, tạo 1 trip thật trước demo
-3. **Auth hoạt động không?** → Phase 1 (JWT wiring + unblock 501)
+3. ~~**Auth hoạt động không?** → Phase 1 (JWT wiring + unblock 501)~~ ✅ **Xong**
 4. **3 agent chạy thật không?** → Phase 2
 5. **Deploy được chưa?** → Phase 4 (có thể làm trước Phase 3 nếu cần demo sớm)
 6. **Tests xanh không?** → Phase 3
