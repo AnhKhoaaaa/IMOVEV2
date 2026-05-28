@@ -23,6 +23,17 @@ class TripPlanRequest(BaseModel):
     preferences: Optional[dict] = None
 
 
+class PTSubLeg(BaseModel):
+    mode: str
+    route: str = ""
+    from_name: str = ""
+    to_name: str = ""
+    from_stop_code: str = ""
+    to_stop_code: str = ""
+    duration_minutes: int = 0
+    num_stops: int = 0
+
+
 class LegResponse(BaseModel):
     id: str
     from_place_id: str
@@ -34,6 +45,7 @@ class LegResponse(BaseModel):
     instructions: list[str] = []
     geometry: str | None = None
     distance_km: float | None = None
+    sub_legs: list[PTSubLeg] = []
 
 
 class DayPlan(BaseModel):

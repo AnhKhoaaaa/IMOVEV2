@@ -18,6 +18,27 @@ _TOKEN_LOCK = asyncio.Lock()
 _AUTH_URL = "https://www.onemap.gov.sg/api/auth/post/getToken"
 
 
+_MODE_REMAP = {"SUBWAY": "MRT", "TRAM": "LRT", "BUS": "BUS", "WALK": "WALK"}
+
+
+def _extract_sub_legs(legs: list[dict]) -> list[dict]:
+    """Convert raw OneMap OTP legs into PTSubLeg-shaped dicts."""
+    result = []
+    for leg in legs:
+        raw_mode = leg.get("mode", "WALK").upper()
+        result.append({
+            "mode": _MODE_REMAP.get(raw_mode, raw_mode),
+            "route": leg.get("route", ""),
+            "from_name": leg.get("from", {}).get("name", ""),
+            "to_name": leg.get("to", {}).get("name", ""),
+            "from_stop_code": leg.get("from", {}).get("stopCode", ""),
+            "to_stop_code": leg.get("to", {}).get("stopCode", ""),
+            "duration_minutes": round(leg.get("duration", 0) / 60),
+            "num_stops": leg.get("numStops", 0),
+        })
+    return result
+
+
 def _extract_pt_geometry(legs: list[dict]) -> str | None:
     """Return encoded polyline from the first transit (non-WALK) leg; fall back to first leg."""
     for leg in legs:
@@ -171,6 +192,7 @@ async def get_route(
             "geometry": _extract_pt_geometry(itin_legs),
             "instructions": _build_pt_instructions(itin_legs),
             "distance_km": round(total_distance_m / 1000, 2),
+            "sub_legs": _extract_sub_legs(itin_legs),
         }
     else:
         summary = data.get("route_summary", {})

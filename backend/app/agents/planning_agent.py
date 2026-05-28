@@ -403,6 +403,7 @@ async def plan_trip(
                     instructions=instructions,
                     geometry=geometry,
                     distance_km=distance_km,
+                    sub_legs=route.get("sub_legs", []),
                 ))
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))

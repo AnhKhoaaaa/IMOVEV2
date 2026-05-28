@@ -314,6 +314,38 @@ async def test_plan_trip_geometry_none_when_not_in_route():
     assert result.days[0].legs[0].instructions == []
 
 
+@pytest.mark.asyncio
+async def test_plan_trip_populates_sub_legs():
+    """sub_legs from route dict must be passed through to LegResponse."""
+    ids = VALID_IDS[:2]
+    route_with_sub_legs = {
+        **_mock_route(),
+        "sub_legs": [
+            {"mode": "WALK", "route": "", "from_name": "Start", "to_name": "Station",
+             "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0},
+            {"mode": "MRT", "route": "EW", "from_name": "Bayfront", "to_name": "City Hall",
+             "from_stop_code": "EW24", "to_stop_code": "EW13", "duration_minutes": 10, "num_stops": 3},
+        ],
+    }
+    with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=route_with_sub_legs):
+        result = await plan_trip("t-sub", ids, 1, 999.0, False, None)
+    leg = result.days[0].legs[0]
+    assert len(leg.sub_legs) == 2
+    mrt = next(s for s in leg.sub_legs if s.mode == "MRT")
+    assert mrt.route == "EW"
+    assert mrt.from_stop_code == "EW24"
+    assert mrt.num_stops == 3
+
+
+@pytest.mark.asyncio
+async def test_plan_trip_sub_legs_empty_when_route_has_none():
+    """When route dict has no sub_legs key, LegResponse.sub_legs must be empty list."""
+    ids = VALID_IDS[:2]
+    with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=_mock_route()):
+        result = await plan_trip("t-sub-empty", ids, 1, 999.0, False, None)
+    assert result.days[0].legs[0].sub_legs == []
+
+
 # ── P4-C: LLM schedule warning ───────────────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import app.services.onemap as _onemap
-from app.services.onemap import geocode, get_route, NoRouteError, GeocodingError
+from app.services.onemap import geocode, get_route, NoRouteError, GeocodingError, _extract_sub_legs
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -70,12 +70,41 @@ _ROUTE_JSON_WITH_GEOMETRY = {
                     {
                         "mode": "SUBWAY", "duration": 1200, "route": "EW",
                         "legGeometry": {"points": "mrt_poly"},
-                        "from": {"name": "Bayfront"}, "to": {"name": "City Hall"},
+                        "from": {"name": "Bayfront", "stopCode": "EW24/NS1"},
+                        "to": {"name": "City Hall", "stopCode": "EW13/NS25"},
+                        "numStops": 10,
                     },
                     {
                         "mode": "WALK", "duration": 300, "route": "",
                         "legGeometry": {"points": "walk2_poly"},
                         "from": {"name": "City Hall Station"}, "to": {"name": "Destination"},
+                    },
+                ],
+            }
+        ]
+    }
+}
+
+_ROUTE_JSON_WITH_BUS = {
+    "plan": {
+        "itineraries": [
+            {
+                "duration": 1500,
+                "fare": 1.20,
+                "legs": [
+                    {
+                        "mode": "WALK", "duration": 300, "route": "",
+                        "from": {"name": "Start"}, "to": {"name": "Bus Stop 22009"},
+                    },
+                    {
+                        "mode": "BUS", "duration": 900, "route": "7",
+                        "numStops": 5,
+                        "from": {"name": "Bus Stop 22009", "stopCode": "22009"},
+                        "to": {"name": "Bus Stop 11009", "stopCode": "11009"},
+                    },
+                    {
+                        "mode": "WALK", "duration": 300, "route": "",
+                        "from": {"name": "Bus Stop 11009"}, "to": {"name": "End"},
                     },
                 ],
             }
@@ -241,3 +270,94 @@ async def test_get_route_fare_info_unavailable_returns_zero():
         result = await get_route(1.2816, 103.8636, 1.2530, 103.8198, "pt")
     assert result["fare_sgd"] == 0.0
     assert result["duration_minutes"] == 15
+
+
+# ── _extract_sub_legs ─────────────────────────────────────────────────────────
+
+def test_extract_sub_legs_maps_subway_to_mrt():
+    legs = [{"mode": "SUBWAY", "duration": 600, "route": "EW",
+             "from": {"name": "Bayfront", "stopCode": "EW24"},
+             "to": {"name": "City Hall", "stopCode": "EW13"},
+             "numStops": 3}]
+    result = _extract_sub_legs(legs)
+    assert result[0]["mode"] == "MRT"
+    assert result[0]["route"] == "EW"
+    assert result[0]["from_name"] == "Bayfront"
+    assert result[0]["to_name"] == "City Hall"
+    assert result[0]["from_stop_code"] == "EW24"
+    assert result[0]["to_stop_code"] == "EW13"
+    assert result[0]["num_stops"] == 3
+    assert result[0]["duration_minutes"] == 10
+
+
+def test_extract_sub_legs_maps_tram_to_lrt():
+    legs = [{"mode": "TRAM", "duration": 300, "route": "BP",
+             "from": {"name": "Bukit Panjang"}, "to": {"name": "Petir"}, "numStops": 2}]
+    result = _extract_sub_legs(legs)
+    assert result[0]["mode"] == "LRT"
+    assert result[0]["route"] == "BP"
+
+
+def test_extract_sub_legs_walk_has_no_stop_code():
+    legs = [{"mode": "WALK", "duration": 180, "route": "",
+             "from": {"name": "Origin"}, "to": {"name": "Station"}}]
+    result = _extract_sub_legs(legs)
+    assert result[0]["mode"] == "WALK"
+    assert result[0]["from_stop_code"] == ""
+    assert result[0]["to_stop_code"] == ""
+    assert result[0]["num_stops"] == 0
+
+
+def test_extract_sub_legs_bus_preserves_stop_codes():
+    legs = [{"mode": "BUS", "duration": 600, "route": "7",
+             "from": {"name": "Bus Stop 22009", "stopCode": "22009"},
+             "to": {"name": "Bus Stop 11009", "stopCode": "11009"},
+             "numStops": 5}]
+    result = _extract_sub_legs(legs)
+    assert result[0]["mode"] == "BUS"
+    assert result[0]["route"] == "7"
+    assert result[0]["from_stop_code"] == "22009"
+    assert result[0]["to_stop_code"] == "11009"
+    assert result[0]["num_stops"] == 5
+
+
+def test_extract_sub_legs_empty_returns_empty():
+    assert _extract_sub_legs([]) == []
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_returns_sub_legs():
+    """get_route PT branch must return 'sub_legs' key with structured per-leg data."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON_WITH_GEOMETRY)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+    assert "sub_legs" in result
+    sub_legs = result["sub_legs"]
+    assert len(sub_legs) == 3
+    # MRT sub-leg has route and stop codes
+    mrt = next(s for s in sub_legs if s["mode"] == "MRT")
+    assert mrt["route"] == "EW"
+    assert mrt["from_stop_code"] == "EW24/NS1"
+    assert mrt["num_stops"] == 10
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_sub_legs_bus_stop_codes():
+    """Bus legs must carry from_stop_code / to_stop_code from OneMap data."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON_WITH_BUS)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.28, 103.85, 1.30, 103.82, "pt")
+    bus = next(s for s in result["sub_legs"] if s["mode"] == "BUS")
+    assert bus["route"] == "7"
+    assert bus["from_stop_code"] == "22009"
+    assert bus["to_stop_code"] == "11009"
+
+
+@pytest.mark.asyncio
+async def test_get_route_walk_mode_has_no_sub_legs():
+    """Non-PT modes (walk, drive, cycle) must NOT include sub_legs key."""
+    walk_json = {"route_summary": {"total_time": 600, "total_distance": 800}}
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=walk_json)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.28, 103.85, 1.30, 103.82, "walk")
+    assert "sub_legs" not in result

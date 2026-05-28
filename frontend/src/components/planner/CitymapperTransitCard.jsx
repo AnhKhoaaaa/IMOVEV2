@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { Train, Bus, Footprints, Car, Bike, ChevronDown, AlertTriangle, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
+const SUB_LEG_ICONS = { MRT: Train, LRT: Train, BUS: Bus, WALK: Footprints }
+
+function getLineBadge(leg) {
+  const transit = (leg.sub_legs ?? []).find(s => s.mode !== 'WALK' && s.route)
+  return transit?.route ?? null
+}
+
 const MODE_CONFIG = {
   MRT: {
     label: 'MRT',
@@ -13,8 +20,7 @@ const MODE_CONFIG = {
     crowding: 'Low',
     crowdingColor: 'bg-emerald-500',
     crowdingText: 'text-emerald-700',
-    lineBadge: 'EW',
-    lineBadgeColor: 'bg-indigo-600',
+    badgeBg: '#4f46e5',
   },
   LRT: {
     label: 'LRT',
@@ -26,8 +32,7 @@ const MODE_CONFIG = {
     crowding: 'Low',
     crowdingColor: 'bg-emerald-500',
     crowdingText: 'text-emerald-700',
-    lineBadge: 'BP',
-    lineBadgeColor: 'bg-violet-600',
+    badgeBg: '#7c3aed',
   },
   BUS: {
     label: 'Bus',
@@ -39,8 +44,7 @@ const MODE_CONFIG = {
     crowding: 'Moderate',
     crowdingColor: 'bg-amber-500',
     crowdingText: 'text-amber-700',
-    lineBadge: '7',
-    lineBadgeColor: 'bg-rose-600',
+    badgeBg: '#e11d48',
   },
   WALK: {
     label: 'Walk',
@@ -69,6 +73,40 @@ const MODE_CONFIG = {
     accentText: 'text-teal-700',
     crowding: null,
   },
+}
+
+/* ── Sub-leg row (structured board/alight data from backend) ───── */
+function SubLegRow({ sub, isLast, accentColor }) {
+  const Icon = SUB_LEG_ICONS[sub.mode] ?? Footprints
+  let text
+  if (sub.mode === 'WALK') {
+    text = sub.to_name
+      ? `Walk to ${sub.to_name}${sub.duration_minutes ? ` (${sub.duration_minutes} min)` : ''}`
+      : `Walk${sub.duration_minutes ? ` (${sub.duration_minutes} min)` : ''}`
+  } else {
+    const stopInfo = sub.num_stops ? `, ${sub.num_stops} stops` : ''
+    const dur = sub.duration_minutes ? ` (${sub.duration_minutes} min${stopInfo})` : ''
+    const line = sub.route ? `[${sub.route}] ` : ''
+    const board = sub.from_name ? `Board at ${sub.from_name}` : 'Board'
+    const alight = sub.to_name ? ` → Alight at ${sub.to_name}` : ''
+    text = `${line}${board}${alight}${dur}`
+  }
+  return (
+    <div className="flex gap-3">
+      <div className="flex flex-col items-center">
+        <div
+          className="grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 bg-white"
+          style={{ borderColor: accentColor }}
+        >
+          <Icon size={10} style={{ color: accentColor }} />
+        </div>
+        {!isLast && <div className="mt-1 w-px flex-1 bg-slate-100" style={{ minHeight: 16 }} />}
+      </div>
+      <div className="pb-3 pt-0.5 min-w-0">
+        <p className="text-sm font-medium leading-tight text-slate-900">{text}</p>
+      </div>
+    </div>
+  )
 }
 
 /* ── Instruction row (Phase 2: real step-by-step from backend) ──── */
@@ -152,6 +190,7 @@ export default function CitymapperTransitCard({
   onSwitchToBus,
   onDismissTransit,
 }) {
+  const hasSubLegs = Array.isArray(leg.sub_legs) && leg.sub_legs.length > 0
   const hasInstructions = Array.isArray(leg.instructions) && leg.instructions.length > 0
   const [open, setOpen] = useState(isActive)
 
@@ -163,12 +202,14 @@ export default function CitymapperTransitCard({
   const { label, Icon, color, bg, border, crowding, crowdingColor, crowdingText } = config
   const cost = leg.cost_sgd != null ? `S$${leg.cost_sgd.toFixed(2)}` : null
 
+  const lineBadge = getLineBadge(leg)
+  const badgeBg = config.badgeBg ?? color
+
   const alertMode = !!transitAlert && isActive
   const showAlternativeBus =
     alertMode && transitVariant === 'mrt' && (effectiveMode === 'MRT' || effectiveMode === 'LRT')
 
-  // Expanded content is only available when there are instructions or active alerts
-  const canExpand = hasInstructions || alertMode || showAlternativeBus
+  const canExpand = hasSubLegs || hasInstructions || alertMode || showAlternativeBus
 
   const toggleOpen = () => {
     if (!isActive && hasInstructions) setOpen((o) => !o)
@@ -204,12 +245,12 @@ export default function CitymapperTransitCard({
                 DISRUPTED
               </span>
             )}
-            {config.lineBadge && isActive && (
+            {lineBadge && (
               <span
                 className="inline-flex items-center px-1.5 h-4 rounded text-white text-[10px] font-bold"
-                style={{ background: config.lineBadgeColor }}
+                style={{ background: badgeBg }}
               >
-                {config.lineBadge}
+                {lineBadge}
               </span>
             )}
           </p>
@@ -246,7 +287,23 @@ export default function CitymapperTransitCard({
       {/* Expanded content */}
       {(open || isActive) && canExpand && (
         <div className="border-t border-slate-50 px-4 pb-3 pt-4 animate-fade-up">
-          {hasInstructions && (
+          {hasSubLegs ? (
+            <>
+              {leg.sub_legs.map((sub, i) => (
+                <SubLegRow
+                  key={i}
+                  sub={sub}
+                  isLast={i === leg.sub_legs.length - 1}
+                  accentColor={alertMode ? '#ef4444' : color}
+                />
+              ))}
+              {leg.is_estimated && (
+                <p className="mt-1 text-xs text-amber-600">
+                  ~ Times are estimated based on typical route durations
+                </p>
+              )}
+            </>
+          ) : hasInstructions ? (
             <>
               {leg.instructions.map((instruction, i) => (
                 <InstructionRow
@@ -262,7 +319,7 @@ export default function CitymapperTransitCard({
                 </p>
               )}
             </>
-          )}
+          ) : null}
 
           {/* Transit disruption alert strip */}
           {alertMode && (

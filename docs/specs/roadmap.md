@@ -1,10 +1,8 @@
 # Roadmap — IMOVEV2
 
-> **Đọc trước khi bắt đầu Phase nào:** Theo CLAUDE.md, mọi thay đổi symbol phải chạy `gitnexus_impact()` trước, và chạy `gitnexus_detect_changes()` trước khi commit.
-
 ---
 
-## Trạng thái hiện tại (snapshot 2026-05-28, sau Phase 6 full fix)
+## Trạng thái hiện tại (snapshot 2026-05-28, sau Phase 6 — Phase 7+8 đang triển khai)
 
 - Luồng E2E thông: `POST /trips` → `POST /trips/{id}/plan` → `GET /trips/{id}` → UI render ✅
 - JWT auth đầy đủ; Memory Agent hoạt động; 3 agents (Planning, Adaptation, Memory) chạy thật ✅
@@ -53,14 +51,6 @@ Planner navigate thẳng vào Trip page sau plan (`pendingSave` qua `sessionStor
 
 `POST /trips/{id}/optimize` re-run greedy sort + distribute. Add/delete place per day (`POST /places`, `DELETE /places/{id}`). Drag-and-drop reorder với `@dnd-kit` → `PATCH /reorder`. Frontend: Trash2 button, "Add place +" modal, SortableContext.
 
-### Bugs đã sửa (commit 96283a2)
-- **[P5-BUG-1]** ✅ `_verify_user_ownership()` thêm vào cả 4 endpoints mới.
-- **[P5-BUG-2]** ✅ `_ordered_place_ids` trả `[]` khi `legs=[]` (không crash, không dump all places); single-place days được bảo toàn qua `plan.places` fallback loop trong `add_place` và `reorder_places`.
-- **[P5-BUG-3]** ✅ `add_place` trả 422 khi `body.day > num_days` thay vì silent clamp.
-- **[P5-BUG-4]** ✅ `PATCH /reorder` validate `provided_ids == current_day_ids` trước khi ghi.
-- **[P5-BUG-5]** ✅ Bare `except Exception` đổi thành `except (PlaceDataMissingError, NoRouteError, BudgetExceededError)` trên cả 4 endpoints.
-- **[P5-BUG-6]** ✅ 23 tests mới cho 4 endpoints Phase 5 (ownership, validation, happy paths).
-
 ### Suggestions chưa làm
 - **[P5-SUG-1]** `ReorderRequest.place_ids` nên `min_length=2`.
 - **[P5-SUG-2]** Delete/drag catch errors nhưng không có user feedback khi fail.
@@ -71,18 +61,56 @@ Planner navigate thẳng vào Trip page sau plan (`pendingSave` qua `sessionStor
 ## Phase 6 — Account Data Isolation ✅ (2026-05-27)
 
 `tripsKey(userId)` → `'imove_trips_{userId}'` hoặc `'imove_trips_guest'`. Tương tự `tripDataKey(userId)`. `useSavedTrips(userId)` nhận userId prop. `onAuthStateChange` → reload đúng bucket. Logout → guest key; login → user key.
+---
 
-### Bugs đã sửa (commit f09a1f1)
-- **[P6-BUG-1]** ✅ `handleSaveSetup` dùng `saveTrip` hook alias (mang `authUserId`) thay vì `api.saveTrip` trực tiếp.
-- **[P6-BUG-2]** ✅ `useTrip(tripId, userId)` — `useRef` theo dõi userId mới nhất; cache I/O luôn dùng đúng bucket mà không gây re-fetch thừa.
-- **[P6-BUG-3]** ✅ `lib/migrate.js` → `migrateLocalStorage()` chạy once trong `App.jsx` startup; merge `'imove_trips'` → guest bucket + `'imove_trip_data'` → guest cache.
-- **[P6-BUG-4]** ✅ `useSavedTrips` dùng lazy `useState(() => enrich(...))` để load localStorage đồng bộ — không còn flash empty.
-- **[P6-BUG-5]** ✅ `AuthContext.jsx` extract subscription dùng chung; `Home.jsx` và `Trip.jsx` dùng `useAuth()`; `App.jsx` bọc `<AuthProvider>`.
-- **[P6-BUG-6]** ✅ `savedMeta` trong Trip.jsx dùng `useMemo` từ `savedTrips` — loại bỏ double `getSavedTrips` call và flicker tên trip.
+## Phase 7 — PT Sub-leg Detail
+**Mục tiêu:** Surface dữ liệu board/alight/line thật từ OneMap qua đến UI — nền tảng cho mọi tính năng transit sau này
+
+### Bối cảnh
+OneMap trả về structured PT legs (tên ga lên/xuống, tên tuyến, stop code), nhưng `onemap.py` hiện tại flatten hết thành `instructions[]` văn bản thuần. `CitymapperTransitCard` đang hard-code `lineBadge: 'EW'` và `lineBadge: '7'` thay vì dùng dữ liệu thật.
+
+### Checklist
+
+**Backend:**
+- [ ] `backend/app/models/trip.py`: thêm `PTSubLeg` model (`mode, route, from_name, to_name, from_stop_code, to_stop_code, duration_minutes, num_stops`)
+- [ ] `backend/app/models/trip.py`: thêm `sub_legs: list[PTSubLeg] = []` vào `LegResponse`
+- [ ] `backend/app/services/onemap.py`: thêm `_extract_sub_legs(legs)` — map `SUBWAY→MRT`, `TRAM→LRT`, extract `stopCode`
+- [ ] `backend/app/services/onemap.py`: thêm `"sub_legs": _extract_sub_legs(itin_legs)` vào return dict của `get_route()` PT branch
+- [ ] `backend/app/agents/planning_agent.py`: pass `sub_legs=route.get("sub_legs", [])` khi tạo `LegResponse`
+
+**Frontend:**
+- [ ] `CitymapperTransitCard.jsx`: derive `lineBadge` động từ `leg.sub_legs[first non-WALK].route` thay vì hard-code
+- [ ] `CitymapperTransitCard.jsx`: render structured sub-leg rows khi `sub_legs` non-empty (WALK / MRT+line badge / BUS+line badge)
+- [ ] Backward compat: fallback về `instructions[]` khi `sub_legs` rỗng (estimated legs)
 
 ---
 
-## Phase 7 — Testing & Quality
+## Phase 8 — Bus Arrivals + Route Comparison
+**Mục tiêu:** Expose LTA bus arrivals realtime; so sánh PT/Walk/Cycle thật từ OneMap; thêm nút Taxi qua Grab deep link (placeholder, backend đầy đủ ở Phase 12)
+
+### Bối cảnh
+- `lta.get_bus_arrival()` đã implement xong nhưng chưa có endpoint API
+- `TransitSegment.jsx` dropdown hiện tại dùng `duration * 0.4` fake để estimate drive time
+- Drive mode bị thay bởi Taxi/Grab: frontend-only deep link, không cần backend duration
+
+### Checklist
+
+**Backend:**
+- [ ] `backend/app/models/trip.py`: thêm `ModeResult` và `RouteComparison` models (pt, walk, cycle — không có drive)
+- [ ] `backend/app/services/onemap.py`: thêm `get_all_routes()` — `asyncio.gather` 3 modes song song, `NoRouteError` → `available=False`
+- [ ] `backend/app/routers/transit.py` (file mới): `GET /transit/bus-arrivals/{stop_code}` + `GET /transit/compare?from_lat=&from_lng=&to_lat=&to_lng=`
+- [ ] `backend/app/main.py`: register `transit` router
+
+**Frontend:**
+- [ ] `frontend/src/services/api.js`: thêm `getBusArrivals(stopCode)` và `compareRoutes(fromLat, fromLng, toLat, toLng)`
+- [ ] `frontend/src/components/transit/BusArrivalPanel.jsx` (file mới): hiển thị bus arrivals realtime, auto-refresh 30s, load indicator SEA/SDA/LSD
+- [ ] `CitymapperTransitCard.jsx`: BUS sub-legs có `from_stop_code` → thêm nút "Live arrivals" mở `BusArrivalPanel`
+- [ ] `frontend/src/components/planner/DayPlan.jsx`: pass `fromPlace` và `toPlace` props vào `TransitSegment`
+- [ ] `TransitSegment.jsx`: khi mở dropdown → fetch `compareRoutes()` thật; show real durations + fares; thêm hàng "Taxi · Grab" với deep link `grab://open?...`; fallback về fake estimates nếu API fail
+
+---
+
+## Phase 9 — Testing & Quality
 **Thời gian:** Tuần 5–6
 **Mục tiêu:** Coverage đủ để tự tin deploy, PWA hoạt động
 
@@ -91,7 +119,7 @@ Planner navigate thẳng vào Trip page sau plan (`pendingSave` qua `sessionStor
 **Backend tests (pytest):**
 - [ ] `tests/test_agents/test_planning_agent.py`: cover `_sort_places_greedy()`, `_distribute_days()` (với transit-aware signature mới), opening-hours validation, budget check, `NoRouteError`
 - [ ] `tests/test_agents/test_adaptation_agent.py`: cover `_apply_weather_swap()`, `_reroute_mrt_legs()`, dedup logic
-- [ ] `tests/test_services/test_onemap.py`: mock HTTP, cover success + `NoRouteError`
+- [ ] `tests/test_services/test_onemap.py`: mock HTTP, cover success + `NoRouteError` + `sub_legs` extraction
 - [ ] Target: ≥70% coverage cho `agents/` và `services/`
 
 **Frontend tests (Vitest):**
@@ -115,7 +143,7 @@ Planner navigate thẳng vào Trip page sau plan (`pendingSave` qua `sessionStor
 
 ---
 
-## Phase 8 — Production Deployment
+## Phase 10 — Production Deployment
 **Thời gian:** Tuần 6
 **Mục tiêu:** App chạy production, CI/CD tự động
 
@@ -150,7 +178,7 @@ Planner navigate thẳng vào Trip page sau plan (`pendingSave` qua `sessionStor
 
 ---
 
-## Phase 9 — Polish & Documentation
+## Phase 11 — Polish & Documentation
 **Thời gian:** Tuần 6+
 **Mục tiêu:** Production-grade quality, tài liệu đầy đủ cho giáo viên
 
@@ -164,15 +192,18 @@ Planner navigate thẳng vào Trip page sau plan (`pendingSave` qua `sessionStor
 
 ---
 
-## Phase 10 — Future: Grab Deep Linking
-**Thời gian:** Sau khi Phase 0–8 hoàn thành
-**Mục tiêu:** Taxi/rideshare integration qua Grab Deep Link — không cần Grab API key
+## Phase 12 — Grab Deep Linking (Taxi Integration)
+**Thời gian:** Sau khi Phase 0–10 hoàn thành
+**Mục tiêu:** Taxi/rideshare integration đầy đủ qua Grab Deep Link — không cần Grab API key
+
+### Bối cảnh
+Phase 8 đã thêm nút "Taxi · Grab" trong `TransitSegment` như một placeholder deep link (không có backend duration estimate). Phase 12 hoàn thiện tích hợp: thêm OneMap drive mode để estimate thời gian + chi phí taxi, và di chuyển Grab helper vào `lib/`.
 
 ### Luồng hoạt động
 
 1. Planning Agent trả về leg với `transport_mode = "TAXI"` (khi không có public transit khả dụng)
 2. Backend response leg bao gồm: `pickup_lat`, `pickup_lng`, `dropoff_lat`, `dropoff_lng`
-3. Frontend `RouteCard.jsx`: hiển thị nút "Đặt xe qua Grab" khi `mode = TAXI`
+3. Frontend `TransitSegment`: hiển thị nút "Đặt xe qua Grab" với ETA từ OneMap drive mode
 4. Click → mở deep link trên mobile / fallback web trên desktop
 
 ### Deep Link format
@@ -182,12 +213,12 @@ grab://open?pickup[latitude]={lat}&pickup[longitude]={lng}&pickup[address]={name
 
 ### Checklist
 
-- [ ] Backend: `route_legs` schema thêm `pickup_lat`, `pickup_lng`, `dropoff_lat`, `dropoff_lng` (nullable, chỉ populated khi mode=TAXI)
-- [ ] Frontend: `frontend/src/lib/grabDeepLink.js` — helper build URL từ coordinates
-- [ ] Frontend `RouteCard.jsx`: `GrabButton` component (conditional render khi `mode = TAXI`)
+- [ ] Backend: thêm OneMap `drive` mode vào `get_all_routes()` → ETA + distance cho Taxi row
+- [ ] Backend: `route_legs` schema thêm `pickup_lat`, `pickup_lng`, `dropoff_lat`, `dropoff_lng` (nullable)
+- [ ] Frontend: tách `buildGrabDeepLink()` từ `TransitSegment` ra `frontend/src/lib/grabDeepLink.js`
+- [ ] Frontend `TransitSegment`: hiển thị ETA thật (từ OneMap drive) cạnh nút Grab
 - [ ] PWA: test deep link trên Chrome Android → Grab app mở với tọa độ pre-filled
 - [ ] Fallback: nếu Grab chưa cài → `window.open("https://grab.com/sg/", "_blank")`
-- [ ] Backend: không gọi Grab API — stateless, chỉ trả coordinates
 
 ---
 
@@ -203,9 +234,11 @@ Nếu không biết bắt đầu từ đâu, theo thứ tự này:
 6. ~~**Itinerary editing?** → Phase 5~~ ✅ **Xong**
 7. ~~**Account isolation?** → Phase 6~~ ✅ **Xong**
 8. ~~**Sửa P5-BUG-1..6 và P6-BUG-1..6?**~~ ✅ **Xong**
-9. **Deploy được chưa?** → Phase 8 (có thể làm trước Phase 7 nếu cần demo sớm)
-10. **Tests xanh không?** → Phase 7
-11. **Chất lượng tốt không?** → Phase 9
+9. **PT sub-leg detail + line badges thật?** → Phase 7
+10. **Bus arrivals realtime + so sánh tuyến?** → Phase 8
+11. **Deploy được chưa?** → Phase 10 (có thể làm trước Phase 9 nếu cần demo sớm)
+12. **Tests xanh không?** → Phase 9
+13. **Chất lượng tốt không?** → Phase 11
 
 ---
 
