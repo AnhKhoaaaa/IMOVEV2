@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   MapPin, Sparkles, AlertCircle, Loader2, Navigation2, Calendar, Clock,
-  ChevronDown, Plus, X, Footprints, Bus, Train, ChevronLeft, Pencil,
+  ChevronDown, Plus, X, ChevronLeft, Pencil,
 } from 'lucide-react'
 import { api } from '../services/api'
 import { useT } from '../contexts/LanguageContext'
@@ -31,13 +31,6 @@ const PACES = [
   { id: 'relaxed',   emoji: '🌴', budget: 100, walk: 30 },
 ]
 
-const TRANSPORT_META = {
-  walk: { icon: Footprints, cls: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' },
-  bus:  { icon: Bus,        cls: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' },
-  mrt:  { icon: Train,      cls: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100' },
-}
-const TRANSPORT_CYCLE = ['walk', 'bus', 'mrt']
-
 /* ── Helpers ─────────────────────────────────────────────────────── */
 const generateId = () =>
   typeof crypto?.randomUUID === 'function'
@@ -51,18 +44,6 @@ function haversineKm(a, b) {
   const dLng = (b.lng - a.lng) * Math.PI / 180
   const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))
-}
-
-function recommendTransport(from, to) {
-  const d = haversineKm(from, to)
-  if (d < 0.6) return 'walk'
-  if (d < 3.0) return 'bus'
-  return 'mrt'
-}
-
-function cycleMode(current) {
-  const i = TRANSPORT_CYCLE.indexOf(current)
-  return TRANSPORT_CYCLE[(i + 1) % TRANSPORT_CYCLE.length]
 }
 
 function dist(a, b) {
@@ -111,32 +92,6 @@ const Chip = ({ active, onClick, children }) => (
   </button>
 )
 
-function TransportChip({ mode, onCycle }) {
-  const { t } = useT()
-  const meta = TRANSPORT_META[mode] ?? TRANSPORT_META.mrt
-  const Icon = meta.icon
-  return (
-    <div className="flex items-center justify-center py-0.5">
-      <div className="flex items-center gap-1.5">
-        <div className="h-px w-6 bg-slate-200" />
-        <button
-          type="button"
-          onClick={onCycle}
-          title={t('clickToChange')}
-          className={cn(
-            'inline-flex items-center gap-1 rounded-full border px-2 h-5 text-[11px] font-semibold transition active:scale-95',
-            meta.cls
-          )}
-        >
-          <Icon size={9} />
-          {t(`transport_${mode}`)}
-        </button>
-        <div className="h-px w-6 bg-slate-200" />
-      </div>
-    </div>
-  )
-}
-
 function PlaceRow({ place, index, onRemove }) {
   const { t } = useT()
   return (
@@ -175,46 +130,16 @@ export default function Planner() {
   const [manFlexible, setManFlexible]       = useState(true)
   const [manStartDate, setManStartDate]     = useState('')
   const [manNumDays, setManNumDays]         = useState(3)
-  const [builder, setBuilder]   = useState({ places: [], transports: [] })
+  const [builder, setBuilder]   = useState({ places: [] })
   const [showSearch, setShowSearch] = useState(false)
 
   const addPlace = (place) => {
     if (builder.places.some(p => p.id === place.id)) return
-    setBuilder(prev => {
-      const places = [...prev.places, place]
-      const transports = [...prev.transports]
-      if (prev.places.length > 0) {
-        transports.push(recommendTransport(prev.places[prev.places.length - 1], place))
-      }
-      return { places, transports }
-    })
+    setBuilder(prev => ({ places: [...prev.places, place] }))
   }
 
   const removePlace = (idx) => {
-    setBuilder(prev => {
-      if (prev.places.length === 0) return prev
-      const places = prev.places.filter((_, i) => i !== idx)
-      let transports = [...prev.transports]
-      if (prev.places.length === 1) {
-        transports = []
-      } else if (idx === 0) {
-        transports.splice(0, 1)
-      } else if (idx === prev.places.length - 1) {
-        transports.splice(transports.length - 1, 1)
-      } else {
-        const suggested = recommendTransport(prev.places[idx - 1], prev.places[idx + 1])
-        transports.splice(idx - 1, 2, suggested)
-      }
-      return { places, transports }
-    })
-  }
-
-  const cycleTransportAt = (i) => {
-    setBuilder(prev => {
-      const transports = [...prev.transports]
-      transports[i] = cycleMode(transports[i])
-      return { ...prev, transports }
-    })
+    setBuilder(prev => ({ places: prev.places.filter((_, i) => i !== idx) }))
   }
 
   const submitManual = async () => {
@@ -224,15 +149,12 @@ export default function Planner() {
       const sessionId = localStorage.getItem('session_id') ?? generateId()
       localStorage.setItem('session_id', sessionId)
 
-      const mrtCount = builder.transports.filter(tr => tr === 'mrt').length
-      const preferMRT = mrtCount >= builder.transports.length / 2
-
       const trip = await api.createTrip({ session_id: sessionId, num_days: manNumDays, budget_sgd: 60 })
       await api.planTrip(trip.trip_id, {
         place_ids: builder.places.map(p => p.id),
         optimize_order: false,
         preferences: {
-          prefer_mrt: preferMRT,
+          prefer_mrt: true,
           max_walk_minutes: 20,
           travel_styles: [],
           group_type: 'solo',
@@ -501,19 +423,12 @@ export default function Planner() {
                   ) : (
                     <div className="space-y-0">
                       {builder.places.map((place, i) => (
-                        <div key={place.id}>
-                          <PlaceRow
-                            place={place}
-                            index={i}
-                            onRemove={() => removePlace(i)}
-                          />
-                          {i < builder.transports.length && (
-                            <TransportChip
-                              mode={builder.transports[i]}
-                              onCycle={() => cycleTransportAt(i)}
-                            />
-                          )}
-                        </div>
+                        <PlaceRow
+                          key={place.id}
+                          place={place}
+                          index={i}
+                          onRemove={() => removePlace(i)}
+                        />
                       ))}
                     </div>
                   )}
