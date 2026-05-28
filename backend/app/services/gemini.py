@@ -12,6 +12,23 @@ _last_call_at: float = 0
 _MIN_INTERVAL = 4  # seconds — enforces max 15 RPM
 _RATE_LIMIT_LOCK = asyncio.Lock()
 
+
+async def _rate_limit() -> None:
+    """Enforce ≥4-second gap between Gemini calls.
+
+    The lock is held only briefly to read and update _last_call_at (slot reservation).
+    Sleep happens OUTSIDE the lock so concurrent callers can reserve their own slots
+    without blocking on each other — prevents N-caller delay stacking.
+    """
+    global _last_call_at
+    async with _RATE_LIMIT_LOCK:
+        now = time.monotonic()
+        elapsed = now - _last_call_at
+        wait = max(0.0, _MIN_INTERVAL - elapsed)
+        _last_call_at = now + wait  # reserve this call's slot
+    if wait > 0:
+        await asyncio.sleep(wait)
+
 _PROMPT_TEMPLATE = (
     "Extract all Singapore tourist place names from the text below.\n"
     "Return ONLY a JSON array of strings. No explanation, no code block.\n"
@@ -37,12 +54,7 @@ async def generate_schedule_warning(days_summary: list[dict], issue_type: str) -
     Enforces the 4-second rate-limit guard shared with parse_places_input.
     Returns the warning string, or a plain fallback string on any error.
     """
-    global _last_call_at
-    async with _RATE_LIMIT_LOCK:
-        elapsed = time.monotonic() - _last_call_at
-        if elapsed < _MIN_INTERVAL:
-            await asyncio.sleep(_MIN_INTERVAL - elapsed)
-        _last_call_at = time.monotonic()
+    await _rate_limit()
 
     summary_str = ", ".join(f"Day {d['day']}: {d['occupied_minutes']} min" for d in days_summary)
     prompt = _SCHEDULE_WARNING_TEMPLATE.format(issue_type=issue_type, days_summary=summary_str)
@@ -80,12 +92,7 @@ async def parse_places_input(raw_text: str) -> list[str]:
     The lock serialises concurrent callers so the rate limit holds even under load.
     Raises ValueError if Gemini returns non-JSON output.
     """
-    global _last_call_at
-    async with _RATE_LIMIT_LOCK:
-        elapsed = time.monotonic() - _last_call_at
-        if elapsed < _MIN_INTERVAL:
-            await asyncio.sleep(_MIN_INTERVAL - elapsed)
-        _last_call_at = time.monotonic()
+    await _rate_limit()
 
     prompt = _PROMPT_TEMPLATE.format(text=raw_text)
     response = await _client.aio.models.generate_content(

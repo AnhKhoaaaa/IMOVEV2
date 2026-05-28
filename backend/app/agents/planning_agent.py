@@ -138,8 +138,8 @@ def _distribute_days(
 
             arrival = clock[day_idx] + travel
 
-            # Opening-hours check
-            in_hours = oh_open <= arrival <= oh_close
+            # Opening-hours check: entire visit (arrival → arrival+dwell) must be within hours
+            in_hours = oh_open <= arrival and (arrival + dwell) <= oh_close
             # Day-end check
             fits_day = arrival + dwell <= END_MIN
 
@@ -150,14 +150,12 @@ def _distribute_days(
                 break
 
         if not placed:
-            # Best-effort: put it in the day with the most remaining capacity
+            # Best-effort: put it in the day with the most remaining capacity.
+            # Compute prev_id BEFORE appending so [-1] is the last existing place, not the new one.
             best_day = min(range(num_days), key=lambda i: clock[i])
+            prev_id = days[best_day][-1]["id"] if days[best_day] else None
+            travel = route_durations.get((prev_id, place["id"]), 15) if prev_id else 0
             days[best_day].append(place)
-            if days[best_day]:
-                prev_id = days[best_day][-2]["id"] if len(days[best_day]) > 1 else None
-                travel = route_durations.get((prev_id, place["id"]), 15) if prev_id else 0
-            else:
-                travel = 0
             clock[best_day] += travel + dwell
 
     return [d for d in days if d]  # drop empty trailing days
@@ -193,7 +191,9 @@ def _check_schedule_fit(
     caller can forward it to Gemini.
     """
     START_MIN = 540
-    END_MIN_HARD = 1050  # 17:30 — leeway beyond 17:00
+    # 30-min grace period beyond the 17:00 hard cutoff in _distribute_days: flags only
+    # genuinely over-packed days while letting schedules that slip slightly still pass.
+    END_MIN_HARD = 1050  # 17:30
 
     days_summary = []
     has_overfull = False
@@ -294,6 +294,25 @@ async def plan_trip(
 
     # [CODE] 4. Distribute across days — clock-simulated 09:00–17:00 window
     day_groups = _distribute_days(places, num_days, route_durations)
+
+    # [CODE] 4b. Best-effort fallback in _distribute_days may create adjacent pairs that
+    # weren't pre-fetched (only consecutive pairs from the sorted order were fetched above).
+    # Fetch any missing pairs now so _check_schedule_fit gets accurate transit durations.
+    for day_places in day_groups:
+        for i in range(len(day_places) - 1):
+            from_p, to_p = day_places[i], day_places[i + 1]
+            key = (from_p["id"], to_p["id"])
+            if key not in route_cache:
+                try:
+                    route = await onemap.get_route(
+                        from_p["lat"], from_p["lng"],
+                        to_p["lat"], to_p["lng"],
+                        mode="pt",
+                    )
+                    route_cache[key] = route
+                    route_durations[key] = route["duration_minutes"]
+                except Exception:
+                    pass  # keep the 15-min fallback if the on-demand fetch fails
 
     # [LLM] 5. Check over/under-fill — call Gemini once if issue detected
     issue_type, days_summary = _check_schedule_fit(day_groups, route_durations)

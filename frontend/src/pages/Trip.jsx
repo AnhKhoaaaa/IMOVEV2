@@ -77,7 +77,18 @@ export default function Trip() {
   }, [])
 
   // ── Pending save (navigated from Planner before saving) ───────
-  const [pendingSave, setPendingSave] = useState(navState?.pendingSave ?? null)
+  // Persisted in sessionStorage so a page refresh doesn't orphan the trip.
+  const pendingKey = `imove_pending_${id}`
+  const [pendingSave, setPendingSave] = useState(() => {
+    if (navState?.pendingSave) {
+      try { sessionStorage.setItem(pendingKey, JSON.stringify(navState.pendingSave)) } catch {}
+      return navState.pendingSave
+    }
+    try {
+      const stored = sessionStorage.getItem(pendingKey)
+      return stored ? JSON.parse(stored) : null
+    } catch { return null }
+  })
 
   // ── Navigation state ──────────────────────────────────────────
   const [tab, setTab] = useState(navState?.pendingSave ? 'd1' : (navState?.autoStart ? 'd1' : 'overview'))
@@ -371,25 +382,39 @@ export default function Trip() {
 
               {(trip?.days ?? []).map((d) =>
                 tab === `d${d.day}` ? (
-                  <DayPlan
-                    key={d.day}
-                    day={d.day}
-                    legs={d.legs}
-                    placesById={placesById}
-                    tripId={id}
-                    onLegUpdated={refresh}
-                    isActiveDay={tripStarted && d.day === activeDayNum}
-                    activeLegIndex={activeLegIndex}
-                    position={position}
-                    onArrive={handleArrive}
-                    weatherAlert={weatherAlert}
-                    transitAlert={transitAlert}
-                    transitVariant={transitVariant}
-                    onSwitchToBus={handleSwitchToBus}
-                    onApproveSwap={handleApproveSwap}
-                    onDismissWeather={() => setWeatherAlert(null)}
-                    onDismissTransit={() => setTransitAlert(null)}
-                  />
+                  <div key={d.day}>
+                    {pendingSave && (
+                      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                        <p className="text-[12px] font-medium text-emerald-700">
+                          Review your days, then save from Summary
+                        </p>
+                        <button
+                          onClick={() => setTab('summary')}
+                          className="shrink-0 text-[12px] font-bold text-emerald-700 hover:text-emerald-900 transition"
+                        >
+                          Save →
+                        </button>
+                      </div>
+                    )}
+                    <DayPlan
+                      day={d.day}
+                      legs={d.legs}
+                      placesById={placesById}
+                      tripId={id}
+                      onLegUpdated={refresh}
+                      isActiveDay={tripStarted && d.day === activeDayNum}
+                      activeLegIndex={activeLegIndex}
+                      position={position}
+                      onArrive={handleArrive}
+                      weatherAlert={weatherAlert}
+                      transitAlert={transitAlert}
+                      transitVariant={transitVariant}
+                      onSwitchToBus={handleSwitchToBus}
+                      onApproveSwap={handleApproveSwap}
+                      onDismissWeather={() => setWeatherAlert(null)}
+                      onDismissTransit={() => setTransitAlert(null)}
+                    />
+                  </div>
                 ) : null
               )}
 
@@ -403,6 +428,7 @@ export default function Trip() {
                     saveTrip(id, meta)
                     setSavedMeta(meta)
                     setPendingSave(null)
+                    try { sessionStorage.removeItem(pendingKey) } catch {}
                   }}
                 />
               )}

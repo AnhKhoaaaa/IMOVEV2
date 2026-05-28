@@ -340,6 +340,96 @@ async def test_gemini_exception_falls_back_to_place_missing():
             await plan_trip("t-gem3", [VALID_IDS[0], "unknownxyz"], 1, 999.0, False, None)
 
 
+# ── P4-BUG-2: opening-hours check must include dwell time ────────────────────
+
+def test_opening_hours_check_includes_dwell_time():
+    """Place whose visit would extend past oh_close should not be placed normally.
+
+    Scenario: place_b has opening_hours="14:00-15:00" (window=60 min) with dwell=90 min.
+    No arrival time satisfies arrival>=14:00 AND arrival+90<=15:00, so in_hours must
+    always be False and b must go to best-effort (a different day than a).
+
+    With the BUG (arrival-only check): arrival=14:00 → 14:00<=14:00<=15:00 → True
+    → b placed on same day as a, violating the opening-hours constraint.
+    """
+    places = [
+        {"id": "a", "dwell_minutes": 300},  # day 1 clock: 09:00→14:00
+        {"id": "b", "dwell_minutes": 90, "opening_hours": "14:00-15:00"},
+    ]
+    route_durations = {("a", "b"): 0}
+    days = _distribute_days(places, num_days=2, route_durations=route_durations)
+    b_day = next(i for i, d in enumerate(days) if any(p["id"] == "b" for p in d))
+    a_day = next(i for i, d in enumerate(days) if any(p["id"] == "a" for p in d))
+    assert b_day != a_day, (
+        "place_b's visit (14:00→15:30) exceeds oh_close (15:00); "
+        "it should be placed on a different day via best-effort"
+    )
+
+
+def test_opening_hours_exact_fit_still_passes():
+    """A place where arrival + dwell == oh_close should still be scheduled normally."""
+    # arrival=09:00 (540), dwell=60 → ends exactly at 10:00 (600) = oh_close
+    places = [{"id": "x", "dwell_minutes": 60, "opening_hours": "09:00-10:00"}]
+    days = _distribute_days(places, num_days=1, route_durations={})
+    assert len(days) == 1
+    assert days[0][0]["id"] == "x"
+
+
+# ── P4-BUG-3: best-effort fallback — compute prev_id before appending ─────────
+
+def test_best_effort_fallback_travel_uses_existing_last_place():
+    """When best-effort appends to a non-empty day, travel is computed from the
+    last place already there, not from anything added after the append."""
+    # a fits day 1 normally. b cannot fit any day normally (opening window < dwell).
+    # Best-effort puts b on day 2 (lower clock).
+    # c also cannot fit normally and goes to day 1 via best-effort after b.
+    # travel(a→c) should be used for c's clock advancement on day 1.
+    places = [
+        {"id": "a", "dwell_minutes": 60},   # day 1, clock=600 after
+        {"id": "b", "dwell_minutes": 90, "opening_hours": "14:00-15:00"},  # best-effort day 2
+        {"id": "c", "dwell_minutes": 60},   # normal fit day 1 (540+60+travel_a_c)
+    ]
+    route_durations = {
+        ("a", "b"): 30,
+        ("a", "c"): 10,
+        ("b", "c"): 5,
+    }
+    days = _distribute_days(places, num_days=2, route_durations=route_durations)
+    # All 3 places must be placed
+    all_placed = [p["id"] for day in days for p in day]
+    assert "a" in all_placed
+    assert "b" in all_placed
+    assert "c" in all_placed
+
+
+# ── P4-BUG-5: _check_schedule_fit boundary zone ──────────────────────────────
+
+def test_check_schedule_fit_at_exactly_1730():
+    """Clock ending at exactly 17:30 (1050 min) is NOT overfull."""
+    # start=540, dwell=510 → clock_end=1050=17:30 → not overfull
+    places = [{"id": "x", "dwell_minutes": 510}]
+    issue, summary = _check_schedule_fit([places], {})
+    assert issue != "overfull"
+    assert summary[0]["occupied_minutes"] == 510
+
+
+def test_check_schedule_fit_past_1730_is_overfull():
+    """Clock ending past 17:30 (1050 min) IS overfull."""
+    # start=540, dwell=511 → clock_end=1051>1050 → overfull
+    places = [{"id": "y", "dwell_minutes": 511}]
+    issue, summary = _check_schedule_fit([places], {})
+    assert issue == "overfull"
+    assert summary[0]["occupied_minutes"] == 511
+
+
+def test_check_schedule_fit_at_exactly_1700_not_overfull():
+    """Clock ending at 17:00 (1020 min) — the distribute_days hard cutoff — is NOT overfull."""
+    # start=540, dwell=480 → clock_end=1020=17:00 → within leeway
+    places = [{"id": "z", "dwell_minutes": 480}]
+    issue, _ = _check_schedule_fit([places], {})
+    assert issue != "overfull"
+
+
 @pytest.mark.asyncio
 async def test_best_time_warning_triggered():
     # merlion-park best_time 07:00–10:00. If we visit after a long dwell elsewhere it'll warn.
