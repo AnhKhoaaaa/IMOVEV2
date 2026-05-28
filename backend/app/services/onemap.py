@@ -159,9 +159,14 @@ async def get_route(
             for leg in itin_legs
         ]
         total_distance_m = sum(leg.get("distance", 0) for leg in itin_legs)
+        raw_fare = itin.get("fare", 0.0)
+        try:
+            fare_sgd = float(raw_fare)
+        except (ValueError, TypeError):
+            fare_sgd = 0.0  # OneMap returns "info unavailable" for some routes
         return {
             "duration_minutes": round(itin["duration"] / 60),
-            "fare_sgd": float(itin.get("fare", 0.0)),
+            "fare_sgd": fare_sgd,
             "legs": legs,
             "geometry": _extract_pt_geometry(itin_legs),
             "instructions": _build_pt_instructions(itin_legs),

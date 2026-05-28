@@ -220,3 +220,24 @@ async def test_get_route_pt_existing_fields_unaffected():
     assert result["duration_minutes"] == 30
     assert result["fare_sgd"] == 1.50
     assert len(result["legs"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_get_route_fare_info_unavailable_returns_zero():
+    """OneMap returns 'info unavailable' for some routes — must not crash."""
+    route_json = {
+        "plan": {
+            "itineraries": [
+                {
+                    "duration": 900,
+                    "fare": "info unavailable",
+                    "legs": [{"mode": "WALK", "duration": 900, "route": ""}],
+                }
+            ]
+        }
+    }
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=route_json)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2816, 103.8636, 1.2530, 103.8198, "pt")
+    assert result["fare_sgd"] == 0.0
+    assert result["duration_minutes"] == 15
