@@ -200,11 +200,11 @@ def test_check_schedule_fit_overfull():
 
 
 def test_check_schedule_fit_underfull():
-    # Single day with only 60 min total < 240
+    # Underfull is no longer flagged — sparse days are intentional (greedy handles distribution)
     places = [{"id": "a", "dwell_minutes": 60}]
     days = [places]
     issue, summary = _check_schedule_fit(days, {})
-    assert issue == "underfull"
+    assert issue is None
     assert summary[0]["occupied_minutes"] == 60
 
 

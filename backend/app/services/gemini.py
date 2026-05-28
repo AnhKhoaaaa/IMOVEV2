@@ -38,28 +38,26 @@ _PROMPT_TEMPLATE = (
 
 
 _SCHEDULE_WARNING_TEMPLATE = (
-    "You are a Singapore travel planner. A tourist's itinerary has a scheduling issue.\n"
-    "Issue type: {issue_type}\n"
+    "You are a Singapore travel planner. A tourist's itinerary looks too packed.\n"
     "Schedule summary: {days_summary}\n\n"
-    "Write a single, friendly suggestion in English. "
-    "If overfull: suggest adding more days or removing some places. "
-    "If underfull: suggest adding more places to fill the trip. "
+    "Write a single, friendly suggestion in English: "
+    "suggest adding more days or removing some places to make the trip more comfortable. "
     "Do NOT mention specific day numbers or minute counts. No bullet points. Under 60 words."
 )
 
 
-async def generate_schedule_warning(days_summary: list[dict], issue_type: str) -> str:
+async def generate_schedule_warning(days_summary: list[dict], issue_type: str = "overfull") -> str:
     """Generate a concise natural-language schedule warning via Gemini.
 
     days_summary: list of {"day": int, "occupied_minutes": int}
-    issue_type: "overfull" | "underfull"
+    issue_type: always "overfull" (underfull no longer triggers this)
     Enforces the 4-second rate-limit guard shared with parse_places_input.
     Returns the warning string, or a plain fallback string on any error.
     """
     await _rate_limit()
 
     summary_str = ", ".join(f"Day {d['day']}: {d['occupied_minutes']} min" for d in days_summary)
-    prompt = _SCHEDULE_WARNING_TEMPLATE.format(issue_type=issue_type, days_summary=summary_str)
+    prompt = _SCHEDULE_WARNING_TEMPLATE.format(days_summary=summary_str)
 
     try:
         response = await _client.aio.models.generate_content(
@@ -72,13 +70,9 @@ async def generate_schedule_warning(days_summary: list[dict], issue_type: str) -
 
 
 def _fallback_warning(issue_type: str, days_summary: list[dict]) -> str:
-    if issue_type == "overfull":
-        return (
-            "Your schedule looks too packed. Consider spreading activities across more days "
-            "or removing a place to make your trip more comfortable."
-        )
     return (
-        "You have free time in your schedule. Consider adding more places to fill your days."
+        "Your schedule looks too packed. Consider spreading activities across more days "
+        "or removing a place to make your trip more comfortable."
     )
 
 

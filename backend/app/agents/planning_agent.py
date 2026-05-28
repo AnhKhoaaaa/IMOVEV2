@@ -297,20 +297,17 @@ def _check_schedule_fit(
     day_groups: list[list[dict]],
     route_durations: dict[tuple, int] | None,
 ) -> tuple[str | None, list[dict]]:
-    """Detect overfull/underfull days.
+    """Detect overfull days only.
 
-    Returns (issue_type, days_summary) where issue_type is "overfull",
-    "underfull", or None.  days_summary is always the full list so the
-    caller can forward it to Gemini.
+    Returns ("overfull", days_summary) when any day's clock exceeds 17:30,
+    otherwise (None, days_summary). Underfull is not flagged — the bucketed
+    greedy already distributes places correctly, so sparse days are intentional.
     """
     START_MIN = 540
-    # 30-min grace period beyond the 17:00 hard cutoff in _distribute_days: flags only
-    # genuinely over-packed days while letting schedules that slip slightly still pass.
-    END_MIN_HARD = 1050  # 17:30
+    END_MIN_HARD = 1050  # 17:30 — 30-min grace beyond the 17:00 greedy cutoff
 
     days_summary = []
     has_overfull = False
-    has_underfull = False
 
     for day_idx, places in enumerate(day_groups):
         clock = START_MIN
@@ -327,13 +324,9 @@ def _check_schedule_fit(
         days_summary.append({"day": day_idx + 1, "occupied_minutes": total_occupied})
         if clock > END_MIN_HARD:
             has_overfull = True
-        if total_occupied < 240 and len(places) > 0:
-            has_underfull = True
 
     if has_overfull:
         return "overfull", days_summary
-    if has_underfull:
-        return "underfull", days_summary
     return None, days_summary
 
 
