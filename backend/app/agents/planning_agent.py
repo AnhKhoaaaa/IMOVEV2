@@ -159,7 +159,13 @@ def _day_bucketed_greedy(
                     candidates.append(p)
 
             if not candidates:
-                candidates = pool   # distance-only fallback
+                # Relax best_time window; still enforce day-end constraint
+                for p in pool:
+                    t_est = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN
+                    if clock + t_est + p.get("dwell_minutes", 60) <= END_MIN:
+                        candidates.append(p)
+                if not candidates:
+                    break  # nothing fits today → remaining places flow to next day
 
             pick = min(candidates, key=lambda p: _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]))
             travel_est = _haversine_km(last_pos["lat"], last_pos["lng"], pick["lat"], pick["lng"]) / _TRAVEL_SPEED_KM_MIN
