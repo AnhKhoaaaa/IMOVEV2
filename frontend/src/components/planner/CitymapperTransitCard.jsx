@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Train, Bus, Footprints, Car, Bike, ChevronDown, AlertTriangle, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import BusArrivalPanel from '../transit/BusArrivalPanel'
 
 const SUB_LEG_ICONS = { MRT: Train, LRT: Train, BUS: Bus, WALK: Footprints }
 
@@ -78,6 +79,9 @@ const MODE_CONFIG = {
 /* ── Sub-leg row (structured board/alight data from backend) ───── */
 function SubLegRow({ sub, isLast, accentColor }) {
   const Icon = SUB_LEG_ICONS[sub.mode] ?? Footprints
+  const [showArrivals, setShowArrivals] = useState(false)
+  const canShowArrivals = sub.mode === 'BUS' && !!sub.from_stop_code
+
   let text
   if (sub.mode === 'WALK') {
     text = sub.to_name
@@ -102,8 +106,21 @@ function SubLegRow({ sub, isLast, accentColor }) {
         </div>
         {!isLast && <div className="mt-1 w-px flex-1 bg-slate-100" style={{ minHeight: 16 }} />}
       </div>
-      <div className="pb-3 pt-0.5 min-w-0">
-        <p className="text-sm font-medium leading-tight text-slate-900">{text}</p>
+      <div className="pb-3 pt-0.5 min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-medium leading-tight text-slate-900">{text}</p>
+          {canShowArrivals && (
+            <button
+              onClick={() => setShowArrivals((v) => !v)}
+              className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 h-5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 transition"
+            >
+              {showArrivals ? 'Hide' : 'Live arrivals'}
+            </button>
+          )}
+        </div>
+        {showArrivals && (
+          <BusArrivalPanel stopCode={sub.from_stop_code} serviceFilter={sub.route || undefined} />
+        )}
       </div>
     </div>
   )
