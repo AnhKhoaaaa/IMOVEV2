@@ -3,7 +3,9 @@ from unittest.mock import AsyncMock, patch
 
 from app.agents.planning_agent import (
     plan_trip,
-    _sort_places_greedy,
+    _classify_place,
+    _pre_assign_evening_places,
+    _day_bucketed_greedy,
     _distribute_days,
     _parse_opening_hours,
     _check_schedule_fit,
@@ -39,20 +41,49 @@ def test_haversine_known_distance():
     assert 0.2 < d < 0.5
 
 
-def test_sort_places_greedy_single():
-    places = [{"id": "a", "lat": 1.0, "lng": 103.0}]
-    assert _sort_places_greedy(places) == places
+def test_classify_place_evening():
+    assert _classify_place({"best_time_start": "17:00", "best_time_end": "23:00"}) == "evening"
+    assert _classify_place({"best_time_start": "19:00", "best_time_end": "22:00"}) == "evening"
 
 
-def test_sort_places_greedy_closer_first():
-    # A is at origin, B is 1 km away, C is 10 km away from A but 1 km from B
-    a = {"id": "A", "lat": 1.0000, "lng": 103.0000, "dwell_minutes": 60}
-    b = {"id": "B", "lat": 1.0090, "lng": 103.0000, "dwell_minutes": 60}  # ~1km N
-    c = {"id": "C", "lat": 1.0090, "lng": 103.0100, "dwell_minutes": 60}  # ~1km E of B
-    result = _sort_places_greedy([a, c, b])  # start with a, then should pick b (closer)
-    assert result[0]["id"] == "A"
-    assert result[1]["id"] == "B"
-    assert result[2]["id"] == "C"
+def test_classify_place_day():
+    assert _classify_place({"best_time_start": "08:00", "best_time_end": "17:00"}) == "day"
+    assert _classify_place({"best_time_start": "09:00", "best_time_end": "12:00"}) == "day"
+
+
+def test_classify_place_overlap():
+    assert _classify_place({"best_time_start": "14:00", "best_time_end": "20:00"}) == "overlap"
+
+
+def test_classify_place_missing_fields():
+    assert _classify_place({}) == "day"
+    assert _classify_place({"best_time_start": "10:00"}) == "day"
+
+
+def test_day_bucketed_greedy_all_places_placed():
+    places = [
+        {"id": "a", "lat": 1.28, "lng": 103.85, "dwell_minutes": 60,
+         "best_time_start": "09:00", "best_time_end": "17:00"},
+        {"id": "b", "lat": 1.29, "lng": 103.86, "dwell_minutes": 60,
+         "best_time_start": "09:00", "best_time_end": "17:00"},
+        {"id": "c", "lat": 1.30, "lng": 103.87, "dwell_minutes": 60,
+         "best_time_start": "09:00", "best_time_end": "17:00"},
+    ]
+    day_groups, warnings = _day_bucketed_greedy(places, {}, num_days=1)
+    all_ids = [p["id"] for d in day_groups for p in d]
+    assert set(all_ids) == {"a", "b", "c"}
+    assert warnings == []
+
+
+def test_day_bucketed_greedy_evening_appended_after_day():
+    day_place = {"id": "d", "lat": 1.28, "lng": 103.85, "dwell_minutes": 60,
+                 "best_time_start": "09:00", "best_time_end": "17:00"}
+    evening_place = {"id": "e", "lat": 1.29, "lng": 103.86, "dwell_minutes": 90,
+                     "best_time_start": "19:00", "best_time_end": "23:00"}
+    day_groups, _ = _day_bucketed_greedy([day_place], {0: [evening_place]}, num_days=1)
+    assert len(day_groups) == 1
+    ids = [p["id"] for p in day_groups[0]]
+    assert ids.index("d") < ids.index("e")  # day place comes before evening place
 
 
 def test_distribute_days_single_day():

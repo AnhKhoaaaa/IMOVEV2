@@ -53,11 +53,20 @@ class DayPlan(BaseModel):
     legs: list[LegResponse]
 
 
+class GapNotification(BaseModel):
+    day_index: int
+    gap_start: str    # "HH:MM"
+    gap_end: str      # "HH:MM"
+    gap_minutes: int
+    message: str
+
+
 class TripPlan(BaseModel):
     id: str
     days: list[DayPlan]
     places: list[Place]
     warnings: list[str]
+    gap_notifications: list[GapNotification] = []
 
 
 class ModeResult(BaseModel):

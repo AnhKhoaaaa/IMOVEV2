@@ -3,6 +3,7 @@ Planning Agent — 75% code, 25% LLM.
 LLM (Gemini) is called ONLY for edge cases not covered by rule-based logic.
 """
 
+import asyncio
 import json
 import math
 import uuid
@@ -11,7 +12,7 @@ from pathlib import Path
 from app.services import onemap
 from app.services.onemap import NoRouteError
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
-from app.models.trip import TripPlan, DayPlan, LegResponse
+from app.models.trip import TripPlan, DayPlan, LegResponse, GapNotification
 from app.models.place import Place
 
 _PLACES_PATH = Path(__file__).parent.parent / "data" / "places.json"
@@ -62,21 +63,128 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def _sort_places_greedy(places: list[dict]) -> list[dict]:
-    """Greedy nearest-neighbor sort — O(n²), acceptable for n≤50."""
-    if len(places) <= 1:
-        return list(places)
-    result = [places[0]]
-    remaining = list(places[1:])
-    while remaining:
-        last = result[-1]
-        nearest = min(
-            remaining,
-            key=lambda p: _haversine_km(last["lat"], last["lng"], p["lat"], p["lng"]),
+_TRAVEL_SPEED_KM_MIN = 0.3   # used only inside greedy for eligibility — never stored
+_SG_CENTER = {"lat": 1.3521, "lng": 103.8198}
+
+
+def _classify_place(place: dict) -> str:
+    """Classify a place by its best-visit time window.
+
+    evening : best_time_start >= 17:00
+    day     : best_time_end <= 17:00 OR no constraint
+    overlap : window straddles 17:00
+    """
+    start = place.get("best_time_start")
+    end   = place.get("best_time_end")
+    if not start or not end:
+        return "day"
+    s, e = _parse_hhmm(start), _parse_hhmm(end)
+    if s >= 17 * 60:
+        return "evening"
+    if e <= 17 * 60:
+        return "day"
+    return "overlap"
+
+
+def _pre_assign_evening_places(
+    evening: list[dict],
+    num_days: int,
+    seed_groups: list[list[dict]],
+) -> dict[int, list[dict]]:
+    """Distribute evening places evenly across days, tie-broken by centroid proximity."""
+    result: dict[int, list[dict]] = {i: [] for i in range(num_days)}
+    if not evening:
+        return result
+
+    def centroid(places: list[dict]) -> tuple[float, float]:
+        if not places:
+            return (_SG_CENTER["lat"], _SG_CENTER["lng"])
+        return (
+            sum(p["lat"] for p in places) / len(places),
+            sum(p["lng"] for p in places) / len(places),
         )
-        result.append(nearest)
-        remaining.remove(nearest)
+
+    centroids = [centroid(seed_groups[i] if i < len(seed_groups) else []) for i in range(num_days)]
+    cap = math.ceil(len(evening) / num_days)
+
+    for ep in evening:
+        sorted_days = sorted(
+            range(num_days),
+            key=lambda i: _haversine_km(ep["lat"], ep["lng"], centroids[i][0], centroids[i][1]),
+        )
+        for day_idx in sorted_days:
+            if len(result[day_idx]) < cap:
+                result[day_idx].append(ep)
+                break
+        else:
+            least_full = min(range(num_days), key=lambda i: len(result[i]))
+            result[least_full].append(ep)
+
     return result
+
+
+def _day_bucketed_greedy(
+    day_overlap: list[dict],
+    evening_by_day: dict[int, list[dict]],
+    num_days: int,
+) -> tuple[list[list[dict]], list[str]]:
+    """Assign and order places across days in a single time-window-aware greedy pass.
+
+    Replaces both _sort_places_greedy and _distribute_days on the optimize path.
+    Travel-time estimates (haversine / 0.3 km/min) are used only for eligibility
+    checks — they are never stored or returned.
+    """
+    START_MIN = 540   # 09:00
+    END_MIN   = 1020  # 17:00
+
+    day_groups: list[list[dict]] = [[] for _ in range(num_days)]
+    pool = list(day_overlap)
+    extra_warnings: list[str] = []
+
+    anchor = day_overlap[0] if day_overlap else _SG_CENTER
+
+    for day_idx in range(num_days):
+        clock = START_MIN
+        last_pos = day_groups[day_idx - 1][-1] if day_idx > 0 and day_groups[day_idx - 1] else anchor
+
+        while clock < END_MIN and pool:
+            candidates = []
+            for p in pool:
+                travel_est = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN
+                arrival    = clock + travel_est
+                dwell      = p.get("dwell_minutes", 60)
+                bt_start   = _parse_hhmm(p.get("best_time_start", "00:00"))
+                bt_end     = _parse_hhmm(p.get("best_time_end", "23:59"))
+                if bt_start <= arrival <= bt_end and arrival + dwell <= END_MIN:
+                    candidates.append(p)
+
+            if not candidates:
+                candidates = pool   # distance-only fallback
+
+            pick = min(candidates, key=lambda p: _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]))
+            travel_est = _haversine_km(last_pos["lat"], last_pos["lng"], pick["lat"], pick["lng"]) / _TRAVEL_SPEED_KM_MIN
+            clock += travel_est + pick.get("dwell_minutes", 60)
+            day_groups[day_idx].append(pick)
+            pool.remove(pick)
+            last_pos = pick
+
+        # Evening places: second distance-only greedy pass (17:00–22:00 slot)
+        ev = list(evening_by_day.get(day_idx, []))
+        while ev:
+            pick = min(ev, key=lambda p: _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]))
+            day_groups[day_idx].append(pick)
+            ev.remove(pick)
+            last_pos = pick
+
+    # Overflow: places that didn't fit any day's daytime window
+    for p in pool:
+        lightest = min(range(num_days), key=lambda i: len(day_groups[i]))
+        day_groups[lightest].append(p)
+        extra_warnings.append(
+            f"{p['name']}: could not fit in scheduled time window, appended to day {lightest + 1}"
+        )
+
+    return [d for d in day_groups if d], extra_warnings
 
 
 def _parse_opening_hours(s: str) -> tuple[int, int]:
@@ -301,36 +409,38 @@ async def plan_trip(
 
     places = [_PLACES[pid] for pid in place_ids]
 
-    # [CODE] 2. Greedy nearest-neighbor sort if requested
+    # [CODE] 2+4. Day-bucketed greedy with time-window constraints
+    # Replaces _sort_places_greedy (step 2) and _distribute_days (step 4) on the optimize path.
+    greedy_warnings: list[str] = []
     if optimize_order:
-        places = _sort_places_greedy(places)
+        classified     = {p["id"]: _classify_place(p) for p in places}
+        day_overlap    = [p for p in places if classified[p["id"]] != "evening"]
+        evening        = [p for p in places if classified[p["id"]] == "evening"]
+        seed_groups    = [day_overlap[i::num_days] for i in range(num_days)]
+        evening_by_day = _pre_assign_evening_places(evening, num_days, seed_groups)
+        day_groups, greedy_warnings = _day_bucketed_greedy(day_overlap, evening_by_day, num_days)
+    else:
+        day_groups = _distribute_days(places, num_days)
 
-    # [CODE] 3. Fetch routes for all consecutive pairs (needed for smart distribution)
-    route_cache: dict[tuple, dict] = {}
-    for i in range(len(places) - 1):
-        from_p, to_p = places[i], places[i + 1]
-        key = (from_p["id"], to_p["id"])
-        route_cache[key] = await _get_route_with_fallback(from_p, to_p)
-
-    route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
-
-    # [CODE] 4. Distribute across days — clock-simulated 09:00–17:00 window
-    day_groups = _distribute_days(places, num_days, route_durations)
-
-    # [CODE] 4b. Best-effort fallback in _distribute_days may create adjacent pairs that
-    # weren't pre-fetched (only consecutive pairs from the sorted order were fetched above).
-    # Fetch any missing pairs now so _check_schedule_fit gets accurate transit durations.
+    # [CODE] 3. Parallel OneMap fetch — all unique consecutive pairs across all days
+    seen: set[tuple] = set()
+    unique_pairs: list[tuple[dict, dict]] = []
     for day_places in day_groups:
         for i in range(len(day_places) - 1):
-            from_p, to_p = day_places[i], day_places[i + 1]
-            key = (from_p["id"], to_p["id"])
-            if key not in route_cache:
-                try:
-                    route = await _get_route_with_fallback(from_p, to_p)
-                    route_cache[key] = route
-                    route_durations[key] = route["duration_minutes"]
-                except NoRouteError:
-                    pass  # keep the 15-min fallback if routing is truly unavailable
+            key = (day_places[i]["id"], day_places[i + 1]["id"])
+            if key not in seen:
+                seen.add(key)
+                unique_pairs.append((day_places[i], day_places[i + 1]))
+
+    fetch_results = await asyncio.gather(
+        *[_get_route_with_fallback(a, b) for a, b in unique_pairs],
+        return_exceptions=True,
+    )
+    route_cache: dict[tuple, dict] = {}
+    for (a, b), result in zip(unique_pairs, fetch_results):
+        if not isinstance(result, Exception):
+            route_cache[(a["id"], b["id"])] = result
+    route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
 
     # [LLM] 5. Check over/under-fill — call Gemini once if issue detected
     issue_type, days_summary = _check_schedule_fit(day_groups, route_durations)
@@ -342,18 +452,45 @@ async def plan_trip(
         except Exception:
             pass  # never block planning on Gemini failure
 
-    # [CODE] 6. Build legs from pre-fetched routes + check opening-hours warnings
+    # [CODE] 6. Build legs from pre-fetched routes + track estimated timing + opening-hours warnings
     days: list[DayPlan] = []
     total_cost = 0.0
-    warnings: list[str] = []
+    warnings: list[str] = list(greedy_warnings)
     if schedule_warning:
         warnings.append(schedule_warning)
+
+    place_timing: dict[str, dict] = {}   # place_id → {arrival, departure, day_index, name}
+    gap_events: list[dict] = []
 
     for day_idx, day_places in enumerate(day_groups):
         legs: list[LegResponse] = []
         current_time = 540  # tour starts at 09:00 (minutes since midnight)
 
         for i, place in enumerate(day_places):
+            arrival_time = current_time
+            dwell = place.get("dwell_minutes", 60)
+
+            place_timing[place["id"]] = {
+                "arrival":   arrival_time,
+                "departure": arrival_time + dwell,
+                "day_index": day_idx,
+                "name":      place["name"],
+            }
+
+            # Gap detection: transit time from previous place in the same day
+            if i > 0:
+                prev = day_places[i - 1]
+                gap = arrival_time - place_timing[prev["id"]]["departure"]
+                if gap >= 30:
+                    gap_events.append({
+                        "day_index":    day_idx,
+                        "gap_start":    _fmt_hhmm(place_timing[prev["id"]]["departure"]),
+                        "gap_end":      _fmt_hhmm(arrival_time),
+                        "gap_minutes":  gap,
+                        "place_before": prev["name"],
+                        "place_after":  place["name"],
+                    })
+
             # Check best_time for this place
             best_start = _parse_hhmm(place["best_time_start"])
             best_end = _parse_hhmm(place["best_time_end"])
@@ -364,7 +501,7 @@ async def plan_trip(
                 )
 
             # Advance clock by dwell at this place
-            current_time += place.get("dwell_minutes", 60)
+            current_time += dwell
 
             if i < len(day_places) - 1:
                 from_p = place
@@ -373,7 +510,6 @@ async def plan_trip(
                 if route_key in route_cache:
                     route = route_cache[route_key]
                 else:
-                    # Cross-day pair not pre-fetched — fetch now
                     route = await _get_route_with_fallback(from_p, to_p)
                     route_cache[route_key] = route
 
@@ -407,6 +543,26 @@ async def plan_trip(
                 ))
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))
+
+    # [CODE+LLM] 6b. Batch Gemini call for all gap notifications
+    gap_notifications: list[GapNotification] = []
+    if gap_events:
+        try:
+            from app.services import gemini as _gemini
+            messages = await _gemini.generate_gap_notifications(gap_events)
+        except Exception:
+            messages = [
+                f"You have {e['gap_minutes']} minutes free between {e['place_before']} and {e['place_after']}."
+                for e in gap_events
+            ]
+        for e, msg in zip(gap_events, messages):
+            gap_notifications.append(GapNotification(
+                day_index=e["day_index"],
+                gap_start=e["gap_start"],
+                gap_end=e["gap_end"],
+                gap_minutes=e["gap_minutes"],
+                message=msg,
+            ))
 
     # [CODE] 7. Budget check — warn instead of raising so planning still completes
     if total_cost > budget_sgd:
@@ -443,4 +599,10 @@ async def plan_trip(
         for p in places
     ]
 
-    return TripPlan(id=trip_id, days=days, places=response_places, warnings=warnings)
+    return TripPlan(
+        id=trip_id,
+        days=days,
+        places=response_places,
+        warnings=warnings,
+        gap_notifications=gap_notifications,
+    )
