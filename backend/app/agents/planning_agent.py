@@ -224,6 +224,41 @@ def _check_schedule_fit(
     return None, days_summary
 
 
+async def _get_route_with_fallback(from_p: dict, to_p: dict) -> dict:
+    """Distance-based routing: < 1.5km → walk API; ≥ 1.5km → PT API.
+    NoRouteError falls back to haversine walking estimate (is_estimated=True).
+    Generic network exceptions re-raise as NoRouteError (not estimated).
+    """
+    dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
+    mode = "walk" if dist_km < 1.5 else "pt"
+    try:
+        route = await onemap.get_route(
+            from_p["lat"], from_p["lng"],
+            to_p["lat"], to_p["lng"],
+            mode=mode,
+        )
+        route["is_estimated"] = False
+        return route
+    except NoRouteError:
+        pass  # fall through to haversine estimate
+    except Exception as exc:
+        raise NoRouteError(
+            f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
+        ) from exc
+
+    # Haversine walking estimate — only reached when API returns no itinerary
+    duration_min = max(1, round(dist_km / 5.0 * 60))
+    return {
+        "duration_minutes": duration_min,
+        "fare_sgd": 0.0,
+        "legs": [{"mode": "WALK", "duration_minutes": duration_min, "instruction": ""}],
+        "geometry": None,
+        "instructions": [],
+        "distance_km": round(dist_km, 2),
+        "is_estimated": True,
+    }
+
+
 async def _resolve_via_gemini(name: str) -> str | None:
     """Resolve an ambiguous place name to a curated ID via Gemini. Returns None on any failure."""
     try:
@@ -275,20 +310,7 @@ async def plan_trip(
     for i in range(len(places) - 1):
         from_p, to_p = places[i], places[i + 1]
         key = (from_p["id"], to_p["id"])
-        try:
-            route_cache[key] = await onemap.get_route(
-                from_p["lat"], from_p["lng"],
-                to_p["lat"], to_p["lng"],
-                mode="pt",
-            )
-        except NoRouteError:
-            raise NoRouteError(
-                f"No route available from '{from_p['id']}' to '{to_p['id']}'"
-            )
-        except Exception as exc:
-            raise NoRouteError(
-                f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
-            ) from exc
+        route_cache[key] = await _get_route_with_fallback(from_p, to_p)
 
     route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
 
@@ -304,15 +326,11 @@ async def plan_trip(
             key = (from_p["id"], to_p["id"])
             if key not in route_cache:
                 try:
-                    route = await onemap.get_route(
-                        from_p["lat"], from_p["lng"],
-                        to_p["lat"], to_p["lng"],
-                        mode="pt",
-                    )
+                    route = await _get_route_with_fallback(from_p, to_p)
                     route_cache[key] = route
                     route_durations[key] = route["duration_minutes"]
-                except Exception:
-                    pass  # keep the 15-min fallback if the on-demand fetch fails
+                except NoRouteError:
+                    pass  # keep the 15-min fallback if routing is truly unavailable
 
     # [LLM] 5. Check over/under-fill — call Gemini once if issue detected
     issue_type, days_summary = _check_schedule_fit(day_groups, route_durations)
@@ -356,21 +374,8 @@ async def plan_trip(
                     route = route_cache[route_key]
                 else:
                     # Cross-day pair not pre-fetched — fetch now
-                    try:
-                        route = await onemap.get_route(
-                            from_p["lat"], from_p["lng"],
-                            to_p["lat"], to_p["lng"],
-                            mode="pt",
-                        )
-                        route_cache[route_key] = route
-                    except NoRouteError:
-                        raise NoRouteError(
-                            f"No route available from '{from_p['id']}' to '{to_p['id']}'"
-                        )
-                    except Exception as exc:
-                        raise NoRouteError(
-                            f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
-                        ) from exc
+                    route = await _get_route_with_fallback(from_p, to_p)
+                    route_cache[route_key] = route
 
                 transport_mode = _primary_mode(route.get("legs", []))
                 duration = route["duration_minutes"]
@@ -378,7 +383,7 @@ async def plan_trip(
                 geometry = route.get("geometry")
                 instructions = route.get("instructions", [])
                 distance_km = route.get("distance_km")
-                is_estimated = False
+                is_estimated = route.get("is_estimated", False)
                 # Apply user preferences (rule-based, no LLM)
                 if prefs.get("prefer_mrt") is False and transport_mode == "MRT":
                     transport_mode = "BUS"

@@ -232,7 +232,7 @@ async def test_budget_exceeded_adds_warning():
 
 @pytest.mark.asyncio
 async def test_onemap_network_failure_raises_no_route():
-    # Network errors must raise NoRouteError — fabricating duration/cost is not allowed
+    # Network errors (generic Exception) must still raise NoRouteError — not fall back.
     ids = VALID_IDS[:2]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
@@ -244,15 +244,39 @@ async def test_onemap_network_failure_raises_no_route():
 
 
 @pytest.mark.asyncio
-async def test_no_route_error_propagates():
+async def test_no_route_error_falls_back_to_haversine():
+    # NoRouteError (API returns no itinerary) → haversine estimate; plan must succeed.
     ids = VALID_IDS[:2]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
         side_effect=NoRouteError("no route"),
     ):
-        with pytest.raises(NoRouteError):
-            await plan_trip("t5", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+        result = await plan_trip("t5", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+    assert len(result.days) >= 1
+    assert result.days[0].legs[0].is_estimated is True
+
+
+@pytest.mark.asyncio
+async def test_short_distance_uses_walk_mode():
+    """clarke-quay → boat-quay ≈ 530m < 1.5km → must call onemap with mode='walk'."""
+    ids = ["clarke-quay", "boat-quay"]
+    mock = AsyncMock(return_value=_mock_route())
+    with patch("app.agents.planning_agent.onemap.get_route", mock):
+        await plan_trip("t-walk", ids, 1, 999.0, False, None)
+    first_mode = mock.call_args_list[0].kwargs.get("mode") or mock.call_args_list[0].args[-1]
+    assert first_mode == "walk"
+
+
+@pytest.mark.asyncio
+async def test_long_distance_uses_pt_mode():
+    """gardens-by-the-bay → sentosa-universal-studios ≈ 5km > 1.5km → must use mode='pt'."""
+    ids = ["gardens-by-the-bay", "sentosa-universal-studios"]
+    mock = AsyncMock(return_value=_mock_route())
+    with patch("app.agents.planning_agent.onemap.get_route", mock):
+        await plan_trip("t-pt", ids, 1, 999.0, False, None)
+    first_mode = mock.call_args_list[0].kwargs.get("mode") or mock.call_args_list[0].args[-1]
+    assert first_mode == "pt"
 
 
 @pytest.mark.asyncio
