@@ -4,14 +4,14 @@
 
 ---
 
-## Trạng thái hiện tại (snapshot 2026-05-27, sau Phase 6)
+## Trạng thái hiện tại (snapshot 2026-05-28, sau Phase 6 full fix)
 
 - Luồng E2E thông: `POST /trips` → `POST /trips/{id}/plan` → `GET /trips/{id}` → UI render ✅
 - JWT auth đầy đủ; Memory Agent hoạt động; 3 agents (Planning, Adaptation, Memory) chạy thật ✅
 - Smart day distribution 09:00–17:00 với transit time + opening hours ✅
 - Interactive editing: optimize, add/delete place, drag-and-drop reorder ✅
-- Per-user localStorage isolation ✅
-- **Còn tồn tại:** bugs P5-BUG-1..6 và P6-BUG-1..6 chưa sửa (xem Phase 5 & 6)
+- Per-user localStorage isolation đầy đủ — AuthContext, useTrip userId, migration, no flash ✅
+- **Tất cả P5-BUG-1..6 và P6-BUG-1..6 đã sửa** ✅
 
 ---
 
@@ -72,13 +72,13 @@ Planner navigate thẳng vào Trip page sau plan (`pendingSave` qua `sessionStor
 
 `tripsKey(userId)` → `'imove_trips_{userId}'` hoặc `'imove_trips_guest'`. Tương tự `tripDataKey(userId)`. `useSavedTrips(userId)` nhận userId prop. `onAuthStateChange` → reload đúng bucket. Logout → guest key; login → user key.
 
-### Bugs chưa sửa
-- **[P6-BUG-1] CRITICAL** — `handleSaveSetup` trong Trip.jsx gọi `api.saveTrip(id, merged)` thiếu `userId` → ghi vào guest bucket. Nên dùng `saveTrip` hook alias thay vì `api.saveTrip` trực tiếp.
-- **[P6-BUG-2] CRITICAL** — `useTrip.js` cache (`cacheTripData`, `getCachedTripData`) không có `userId` → full itinerary của mọi user ghi vào `'imove_trip_data_guest'`. Fix: `useTrip(tripId, userId)`.
-- **[P6-BUG-3] IMPORTANT** — Không có migration từ key cũ `'imove_trips'` → data loss cho existing users. Cần one-time migration trong App.jsx startup.
-- **[P6-BUG-4] IMPORTANT** — Flash of empty state: `useState([])` + `useEffect` → 1 frame render empty trước khi trips load.
-- **[P6-BUG-5]** Auth subscription duplicate trong Trip.jsx và Home.jsx. Nên extract `AuthContext`.
-- **[P6-BUG-6]** Double-call `getSavedTrips` khi auth resolves trên Trip.jsx → flicker `savedMeta?.name`.
+### Bugs đã sửa (commit f09a1f1)
+- **[P6-BUG-1]** ✅ `handleSaveSetup` dùng `saveTrip` hook alias (mang `authUserId`) thay vì `api.saveTrip` trực tiếp.
+- **[P6-BUG-2]** ✅ `useTrip(tripId, userId)` — `useRef` theo dõi userId mới nhất; cache I/O luôn dùng đúng bucket mà không gây re-fetch thừa.
+- **[P6-BUG-3]** ✅ `lib/migrate.js` → `migrateLocalStorage()` chạy once trong `App.jsx` startup; merge `'imove_trips'` → guest bucket + `'imove_trip_data'` → guest cache.
+- **[P6-BUG-4]** ✅ `useSavedTrips` dùng lazy `useState(() => enrich(...))` để load localStorage đồng bộ — không còn flash empty.
+- **[P6-BUG-5]** ✅ `AuthContext.jsx` extract subscription dùng chung; `Home.jsx` và `Trip.jsx` dùng `useAuth()`; `App.jsx` bọc `<AuthProvider>`.
+- **[P6-BUG-6]** ✅ `savedMeta` trong Trip.jsx dùng `useMemo` từ `savedTrips` — loại bỏ double `getSavedTrips` call và flicker tên trip.
 
 ---
 
@@ -202,7 +202,7 @@ Nếu không biết bắt đầu từ đâu, theo thứ tự này:
 5. ~~**Planning flow + smart scheduling?** → Phase 4~~ ✅ **Xong**
 6. ~~**Itinerary editing?** → Phase 5~~ ✅ **Xong**
 7. ~~**Account isolation?** → Phase 6~~ ✅ **Xong**
-8. ~~**Sửa P5-BUG-1..6?**~~ ✅ **Xong** — còn P6-BUG-1,2,3 (critical)
+8. ~~**Sửa P5-BUG-1..6 và P6-BUG-1..6?**~~ ✅ **Xong**
 9. **Deploy được chưa?** → Phase 8 (có thể làm trước Phase 7 nếu cần demo sớm)
 10. **Tests xanh không?** → Phase 7
 11. **Chất lượng tốt không?** → Phase 9
