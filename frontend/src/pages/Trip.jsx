@@ -372,8 +372,8 @@ export default function Trip() {
                         e.stopPropagation()
                         if (dayMutating) return
                         setDayMutating(true)
-                        try { await api.removeDay(id, d.day); await refresh() }
-                        catch (err) { console.error('removeDay failed:', err) }
+                        try { const r = await api.removeDay(id, d.day); await refresh(r?.days ? r : undefined) }
+                        catch (err) { console.error('removeDay failed:', err); await refresh() }
                         finally { setDayMutating(false) }
                       }}
                       className="ml-1 inline-grid h-4 w-4 place-items-center rounded-full hover:bg-red-100 hover:text-red-500 transition"
@@ -390,8 +390,8 @@ export default function Trip() {
                 onClick={async () => {
                   if (dayMutating) return
                   setDayMutating(true)
-                  try { await api.addDay(id); await refresh() }
-                  catch (err) { console.error('addDay failed:', err) }
+                  try { const r = await api.addDay(id); await refresh(r?.days ? r : undefined) }
+                  catch (err) { console.error('addDay failed:', err); await refresh() }
                   finally { setDayMutating(false) }
                 }}
                 disabled={dayMutating || tripStarted}
@@ -423,7 +423,7 @@ export default function Trip() {
                   trip={trip}
                   savedMeta={savedMeta}
                   onJumpDay={(dayNum) => setTab(`d${dayNum}`)}
-                  onOptimize={tripStarted ? undefined : async () => { await api.optimizeRoute(id); await refresh() }}
+                  onOptimize={tripStarted ? undefined : async () => { const r = await api.optimizeRoute(id); await refresh(r?.days ? r : undefined) }}
                 />
               )}
 

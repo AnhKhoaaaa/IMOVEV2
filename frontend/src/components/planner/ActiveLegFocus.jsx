@@ -261,12 +261,6 @@ export default function ActiveLegFocus({
       completedPlaces.push(placesById[leg.from_place_id])
     }
   }
-  if (clamped > 0) {
-    const prevLeg = legs[clamped - 1]
-    if (prevLeg && !completedSeen.has(prevLeg.to_place_id) && placesById[prevLeg.to_place_id]) {
-      completedPlaces.push(placesById[prevLeg.to_place_id])
-    }
-  }
 
   // Up-next places: unique places after current target
   const upNextPlaces = []

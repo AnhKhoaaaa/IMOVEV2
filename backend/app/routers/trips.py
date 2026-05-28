@@ -102,11 +102,21 @@ async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_curre
     if supabase:
         plan = _fetch_trip_from_db(trip_id)
         if plan:
-            trip_resp = supabase.table("trips").select("user_id").eq("id", trip_id).execute()
+            trip_resp = supabase.table("trips").select("*").eq("id", trip_id).execute()
             if trip_resp.data:
-                trip_user_id = trip_resp.data[0].get("user_id")
+                t = trip_resp.data[0]
+                trip_user_id = t.get("user_id")
                 if current_user and trip_user_id and trip_user_id != current_user:
                     raise HTTPException(status_code=403, detail="Access denied")
+                # Repopulate in-memory caches so subsequent mutations work after server restart
+                _trip_store[trip_id] = plan
+                if trip_id not in _trip_meta:
+                    _trip_meta[trip_id] = {
+                        "num_days": t.get("num_days", len(plan.days)),
+                        "budget_sgd": float(t.get("budget_sgd") or 999.0),
+                        "session_id": t.get("session_id"),
+                        "user_id": trip_user_id,
+                    }
             return plan
 
     raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
@@ -240,6 +250,91 @@ async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_
         except Exception as exc:
             log.warning("Supabase persist failed for trip %s optimize: %s", trip_id, exc)
 
+    return result
+
+
+@router.post("/{trip_id}/days", status_code=200)
+async def add_day(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
+    """Increment num_days by 1. Appends a new empty day to the plan."""
+    meta = _trip_meta.get(trip_id)
+    # Repopulate meta from DB if missing (e.g. after server restart)
+    if meta is None and supabase:
+        trip_resp = supabase.table("trips").select("*").eq("id", trip_id).execute()
+        if trip_resp.data:
+            t = trip_resp.data[0]
+            meta = {
+                "num_days": t["num_days"],
+                "budget_sgd": float(t.get("budget_sgd") or 999.0),
+                "session_id": t.get("session_id"),
+                "user_id": t.get("user_id"),
+            }
+            _trip_meta[trip_id] = meta
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+    _verify_user_ownership(trip_id, current_user)
+    meta["num_days"] += 1
+    if supabase:
+        try:
+            supabase.table("trips").update({"num_days": meta["num_days"]}).eq("id", trip_id).execute()
+        except Exception as exc:
+            log.warning("Supabase update num_days failed for %s: %s", trip_id, exc)
+
+    # Load plan and append the new empty day
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    from app.models.trip import DayPlan as DayPlanModel
+    new_day = DayPlanModel(day=meta["num_days"], legs=[])
+    updated_plan = plan.model_copy(update={"days": list(plan.days) + [new_day]})
+    _trip_store[trip_id] = updated_plan
+    return updated_plan
+
+
+@router.delete("/{trip_id}/days/{day_num}", status_code=200)
+async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = Depends(get_current_user)):
+    """Remove a day: re-plan with num_days-1, keeping all places."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+    _verify_user_ownership(trip_id, current_user)
+
+    meta = _trip_meta.get(trip_id, {})
+    current_num_days = meta.get("num_days", len(plan.days))
+    if current_num_days <= 1:
+        raise HTTPException(status_code=422, detail="Trip must have at least 1 day")
+
+    new_num_days = current_num_days - 1
+    meta["num_days"] = new_num_days
+    _trip_meta[trip_id] = meta
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=[p.id for p in plan.places],
+            num_days=new_num_days,
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            supabase.table("trips").update({"num_days": new_num_days}).eq("id", trip_id).execute()
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase update failed for %s remove_day: %s", trip_id, exc)
     return result
 
 

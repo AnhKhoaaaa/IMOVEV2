@@ -42,8 +42,14 @@ export function useTrip(tripId, userId = null) {
     return () => { ignore = true }
   }, [tripId])
 
-  const refresh = useCallback(() =>
-    api.getTrip(tripId)
+  const refresh = useCallback((preloaded) => {
+    if (preloaded && Array.isArray(preloaded.days)) {
+      setTrip(preloaded)
+      setIsOffline(false)
+      api.cacheTripData(tripId, preloaded, userIdRef.current)
+      return Promise.resolve(preloaded)
+    }
+    return api.getTrip(tripId)
       .then((data) => {
         setTrip(data)
         setIsOffline(false)
@@ -52,9 +58,8 @@ export function useTrip(tripId, userId = null) {
       .catch(() => {
         const cached = api.getCachedTripData(tripId, userIdRef.current)
         if (cached) { setTrip(cached); setIsOffline(true) }
-      }),
-    [tripId]
-  )
+      })
+  }, [tripId])
 
   return { trip, loading, error, refresh, isOffline }
 }
