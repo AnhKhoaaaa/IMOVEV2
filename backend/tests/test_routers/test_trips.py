@@ -1,14 +1,29 @@
 import pytest
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.dependencies import get_current_user
 from app.models.trip import TripPlan, DayPlan, LegResponse
 from app.models.place import Place
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
 from app.services.onemap import NoRouteError
+import app.routers.trips as _trips_module
 
 client = TestClient(app)
+
+
+@contextmanager
+def _auth_as(user_id: str | None):
+    """Override get_current_user for the duration of this context."""
+    async def _mock():
+        return user_id
+    app.dependency_overrides[get_current_user] = _mock
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -311,7 +326,6 @@ def test_accept_swap_wrong_alert_id_returns_409():
 
 
 def test_accept_swap_success_commits_and_clears_pending():
-    import app.routers.trips as _trips_module
     trip_id = "trip-accept-ok"
     mock_plan = _make_plan(trip_id)
     _trips_module._pending_swaps[trip_id] = {"alert_id": "alert-ok", "updated_trip": mock_plan}
@@ -330,3 +344,327 @@ def test_accept_swap_success_commits_and_clears_pending():
     finally:
         _trips_module._pending_swaps.pop(trip_id, None)
         _trips_module._trip_meta.pop(trip_id, None)
+
+
+# ── helpers for Phase 5 tests ─────────────────────────────────────────────────
+
+def _make_two_place_plan(trip_id: str = "trip-p5") -> TripPlan:
+    """Plan with 2 places and 1 connecting leg — baseline for Phase 5 tests."""
+    place_a = Place(
+        id="place-a", name="Place A", lat=1.28, lng=103.85,
+        dwell_minutes=120, best_time_start="09:00", best_time_end="17:00",
+        category="nature", is_outdoor=True, in_curated_dataset=True,
+    )
+    place_b = Place(
+        id="place-b", name="Place B", lat=1.29, lng=103.86,
+        dwell_minutes=90, best_time_start="09:00", best_time_end="17:00",
+        category="culture", is_outdoor=False, in_curated_dataset=True,
+    )
+    leg = LegResponse(
+        id="leg-ab", from_place_id="place-a", to_place_id="place-b",
+        transport_mode="MRT", duration_minutes=10, cost_sgd=1.50, is_estimated=False,
+    )
+    return TripPlan(id=trip_id, days=[DayPlan(day=1, legs=[leg])], places=[place_a, place_b], warnings=[])
+
+
+def _seed_trip(trip_id: str, plan: TripPlan, user_id: str | None = None) -> None:
+    """Seed trip into in-memory store and meta for router tests."""
+    _trips_module._trip_store[trip_id] = plan
+    _trips_module._trip_meta[trip_id] = {
+        "num_days": len(plan.days),
+        "budget_sgd": 999.0,
+        "session_id": "session-p5",
+        "user_id": user_id,
+    }
+
+
+def _cleanup(trip_id: str) -> None:
+    _trips_module._trip_store.pop(trip_id, None)
+    _trips_module._trip_meta.pop(trip_id, None)
+
+
+# ── P5-BUG-2: _ordered_place_ids crash fix ───────────────────────────────────
+
+def test_ordered_place_ids_empty_legs_and_places_no_crash():
+    """_ordered_place_ids([],[]) must return [] not raise IndexError."""
+    from app.routers.trips import _ordered_place_ids
+    result = _ordered_place_ids([], [])
+    assert result == []
+
+
+def test_ordered_place_ids_empty_legs_with_places_returns_empty():
+    """_ordered_place_ids with no legs should not return all plan places."""
+    from app.routers.trips import _ordered_place_ids
+    place = Place(
+        id="p1", name="P1", lat=1.0, lng=103.0,
+        dwell_minutes=60, best_time_start="09:00", best_time_end="17:00",
+        category="x", is_outdoor=False, in_curated_dataset=True,
+    )
+    result = _ordered_place_ids([], [place])
+    # Must NOT return all plan.places (the P5-BUG-2b corruption)
+    assert result == []
+
+
+def test_ordered_place_ids_with_legs_reconstructs_correctly():
+    """Normal case: leg-based reconstruction works."""
+    from app.routers.trips import _ordered_place_ids
+    leg = LegResponse(
+        id="l1", from_place_id="a", to_place_id="b",
+        transport_mode="MRT", duration_minutes=5, cost_sgd=1.0, is_estimated=False,
+    )
+    assert _ordered_place_ids([leg], []) == ["a", "b"]
+
+
+# ── P5-BUG-3: day out-of-range returns 422, not silent clamp ─────────────────
+
+def test_add_place_day_out_of_range_returns_422():
+    trip_id = "trip-day-range"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)  # num_days=1
+    try:
+        resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-a", "day": 5})
+        assert resp.status_code == 422
+        assert "day" in resp.json()["detail"].lower()
+    finally:
+        _cleanup(trip_id)
+
+
+def test_add_place_day_in_range_does_not_422():
+    trip_id = "trip-day-valid"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)  # num_days=1
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ), patch("app.routers.trips.planning_agent.get_curated_place", return_value={"id": "place-a"}):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-a", "day": 1})
+        assert resp.status_code != 422 or "day" not in resp.json().get("detail", "").lower()
+    finally:
+        _cleanup(trip_id)
+
+
+# ── P5-BUG-4: reorder validates place_ids match current day exactly ───────────
+
+def test_reorder_subset_ids_returns_422():
+    """Sending a subset of a day's place_ids must be rejected."""
+    trip_id = "trip-reorder-subset"
+    plan = _make_two_place_plan(trip_id)  # day 1 has [place-a, place-b]
+    _seed_trip(trip_id, plan)
+    try:
+        resp = client.patch(f"/trips/{trip_id}/reorder", json={"day": 1, "place_ids": ["place-a"]})
+        assert resp.status_code == 422
+    finally:
+        _cleanup(trip_id)
+
+
+def test_reorder_foreign_ids_returns_422():
+    """Sending IDs from a different day must be rejected."""
+    trip_id = "trip-reorder-foreign"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        resp = client.patch(f"/trips/{trip_id}/reorder", json={"day": 1, "place_ids": ["place-x", "place-y"]})
+        assert resp.status_code == 422
+    finally:
+        _cleanup(trip_id)
+
+
+def test_reorder_correct_ids_passes_validation():
+    """Sending the exact current day IDs in any order should NOT trigger 422."""
+    trip_id = "trip-reorder-ok"
+    plan = _make_two_place_plan(trip_id)  # day 1 has leg a→b, so [place-a, place-b]
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ):
+            resp = client.patch(f"/trips/{trip_id}/reorder", json={"day": 1, "place_ids": ["place-b", "place-a"]})
+        assert resp.status_code == 200
+    finally:
+        _cleanup(trip_id)
+
+
+# ── P5-BUG-1: ownership check on all 4 Phase 5 endpoints ─────────────────────
+
+def _owned_trip(trip_id: str, owner: str) -> TripPlan:
+    plan = _make_two_place_plan(trip_id)
+    _trips_module._trip_store[trip_id] = plan
+    _trips_module._trip_meta[trip_id] = {
+        "num_days": 1, "budget_sgd": 999.0, "session_id": "sess", "user_id": owner,
+    }
+    return plan
+
+
+def test_optimize_forbidden_for_other_user():
+    trip_id = "trip-opt-403"
+    _owned_trip(trip_id, "user-a")
+    try:
+        with _auth_as("user-b"):
+            resp = client.post(f"/trips/{trip_id}/optimize")
+        assert resp.status_code == 403
+    finally:
+        _cleanup(trip_id)
+
+
+def test_add_place_forbidden_for_other_user():
+    trip_id = "trip-add-403"
+    _owned_trip(trip_id, "user-a")
+    try:
+        with _auth_as("user-b"):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-a", "day": 1})
+        assert resp.status_code == 403
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_place_forbidden_for_other_user():
+    trip_id = "trip-rm-403"
+    _owned_trip(trip_id, "user-a")
+    try:
+        with _auth_as("user-b"):
+            resp = client.delete(f"/trips/{trip_id}/places/place-a")
+        assert resp.status_code == 403
+    finally:
+        _cleanup(trip_id)
+
+
+def test_reorder_forbidden_for_other_user():
+    trip_id = "trip-reorder-403"
+    _owned_trip(trip_id, "user-a")
+    try:
+        with _auth_as("user-b"):
+            resp = client.patch(f"/trips/{trip_id}/reorder", json={"day": 1, "place_ids": ["place-b", "place-a"]})
+        assert resp.status_code == 403
+    finally:
+        _cleanup(trip_id)
+
+
+def test_optimize_allowed_for_owner():
+    trip_id = "trip-opt-200"
+    _owned_trip(trip_id, "user-a")
+    try:
+        plan = _make_two_place_plan(trip_id)
+        with _auth_as("user-a"), patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ):
+            resp = client.post(f"/trips/{trip_id}/optimize")
+        assert resp.status_code == 200
+    finally:
+        _cleanup(trip_id)
+
+
+# ── P5-BUG-5: specific exceptions, not bare except ────────────────────────────
+
+def test_optimize_no_route_returns_422_not_500():
+    trip_id = "trip-opt-noroute"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            side_effect=NoRouteError("no route"),
+        ):
+            resp = client.post(f"/trips/{trip_id}/optimize")
+        assert resp.status_code == 422
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_place_no_route_returns_422_not_500():
+    trip_id = "trip-rm-noroute"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            side_effect=NoRouteError("no route"),
+        ):
+            resp = client.delete(f"/trips/{trip_id}/places/place-a")
+        assert resp.status_code == 422
+    finally:
+        _cleanup(trip_id)
+
+
+# ── P5-BUG-6: happy-path tests for all 4 Phase 5 endpoints ───────────────────
+
+def test_optimize_trip_returns_updated_plan():
+    trip_id = "trip-opt-happy"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ):
+            resp = client.post(f"/trips/{trip_id}/optimize")
+        assert resp.status_code == 200
+        assert resp.json()["id"] == trip_id
+        assert "days" in resp.json()
+    finally:
+        _cleanup(trip_id)
+
+
+def test_optimize_trip_not_found_returns_404():
+    resp = client.post("/trips/nonexistent-xyz/optimize")
+    assert resp.status_code == 404
+
+
+def test_remove_place_minimum_two_places_enforced():
+    """Removing a place when only 2 remain must return 422 (would leave 1)."""
+    trip_id = "trip-rm-min"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        resp = client.delete(f"/trips/{trip_id}/places/place-a")
+        assert resp.status_code == 422
+        assert "2" in resp.json()["detail"]
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_place_not_in_trip_returns_404():
+    trip_id = "trip-rm-404place"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        resp = client.delete(f"/trips/{trip_id}/places/no-such-place")
+        assert resp.status_code == 404
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_place_trip_not_found_returns_404():
+    resp = client.delete("/trips/nonexistent-xyz/places/place-a")
+    assert resp.status_code == 404
+
+
+def test_add_place_not_in_curated_returns_422():
+    trip_id = "trip-add-unknown"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch("app.routers.trips.planning_agent.get_curated_place", return_value=None):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "unknown-place", "day": 1})
+        assert resp.status_code == 422
+        assert "curated" in resp.json()["detail"].lower()
+    finally:
+        _cleanup(trip_id)
+
+
+def test_add_place_trip_not_found_returns_404():
+    resp = client.post("/trips/nonexistent-xyz/places", json={"place_id": "place-a", "day": 1})
+    assert resp.status_code == 404
+
+
+def test_reorder_trip_not_found_returns_404():
+    resp = client.patch("/trips/nonexistent-xyz/reorder", json={"day": 1, "place_ids": ["a", "b"]})
+    assert resp.status_code == 404

@@ -205,7 +205,7 @@ async def update_location(trip_id: str, body: LocationUpdate):
 
 
 @router.post("/{trip_id}/optimize")
-async def optimize_trip(trip_id: str):
+async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
     """Re-run greedy sort + smart distribution on the current place list."""
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
@@ -214,6 +214,8 @@ async def optimize_trip(trip_id: str):
             _trip_store[trip_id] = plan
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    _verify_user_ownership(trip_id, current_user)
 
     meta = _trip_meta.get(trip_id, {})
     num_days = meta.get("num_days", len(plan.days))
@@ -228,7 +230,7 @@ async def optimize_trip(trip_id: str):
             optimize_order=True,
             preferences=None,
         )
-    except Exception as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -242,7 +244,7 @@ async def optimize_trip(trip_id: str):
 
 
 @router.delete("/{trip_id}/places/{place_id}", status_code=204)
-async def remove_place(trip_id: str, place_id: str):
+async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] = Depends(get_current_user)):
     """Remove a place from the trip and re-fetch legs for affected days."""
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
@@ -251,6 +253,8 @@ async def remove_place(trip_id: str, place_id: str):
             _trip_store[trip_id] = plan
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    _verify_user_ownership(trip_id, current_user)
 
     if not any(p.id == place_id for p in plan.places):
         raise HTTPException(status_code=404, detail=f"Place '{place_id}' not in trip")
@@ -270,7 +274,7 @@ async def remove_place(trip_id: str, place_id: str):
             optimize_order=False,
             preferences=None,
         )
-    except Exception as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -282,7 +286,7 @@ async def remove_place(trip_id: str, place_id: str):
 
 
 @router.post("/{trip_id}/places")
-async def add_place(trip_id: str, body: AddPlaceRequest):
+async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[str] = Depends(get_current_user)):
     """Add a place to a specific day and re-fetch affected legs."""
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
@@ -292,31 +296,42 @@ async def add_place(trip_id: str, body: AddPlaceRequest):
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
+    _verify_user_ownership(trip_id, current_user)
+
+    meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
+
+    # P5-BUG-3: validate day is within trip range before any further checks
+    if body.day > num_days:
+        raise HTTPException(
+            status_code=422,
+            detail=f"day {body.day} out of range — trip has {num_days} day(s)",
+        )
+
     from app.agents.planning_agent import get_curated_place
     if not get_curated_place(body.place_id):
         raise HTTPException(status_code=422, detail=f"Place '{body.place_id}' not in curated dataset")
 
-    # Build per-day place lists, insert new place at end of target day
-    meta = _trip_meta.get(trip_id, {})
-    num_days = meta.get("num_days", len(plan.days))
-
-    # Map day number → ordered place ids
+    # Map day number → ordered place ids (legs-based reconstruction)
     days_map: dict[int, list[str]] = {}
     for d in plan.days:
-        ordered = _ordered_place_ids(d.legs, plan.places)
-        days_map[d.day] = ordered
+        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
 
-    target_day = min(body.day, num_days)
+    target_day = body.day
     if target_day not in days_map:
         days_map[target_day] = []
     days_map[target_day].append(body.place_id)
 
-    # Flatten back to full place list in day order
-    all_ids = []
+    # Flatten to ordered place list; preserve single-place days not captured by legs
+    all_ids: list[str] = []
     for day_num in sorted(days_map.keys()):
         for pid in days_map[day_num]:
             if pid not in all_ids:
                 all_ids.append(pid)
+    # P5-BUG-2b: add any places that were in single-place days (no legs → not in days_map)
+    for p in plan.places:
+        if p.id not in all_ids:
+            all_ids.append(p.id)
     if body.place_id not in all_ids:
         all_ids.append(body.place_id)
 
@@ -329,7 +344,7 @@ async def add_place(trip_id: str, body: AddPlaceRequest):
             optimize_order=False,
             preferences=None,
         )
-    except Exception as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -342,7 +357,7 @@ async def add_place(trip_id: str, body: AddPlaceRequest):
 
 
 @router.patch("/{trip_id}/reorder")
-async def reorder_places(trip_id: str, body: ReorderRequest):
+async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optional[str] = Depends(get_current_user)):
     """Reorder places within a day and re-fetch legs for that day."""
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
@@ -352,6 +367,8 @@ async def reorder_places(trip_id: str, body: ReorderRequest):
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
+    _verify_user_ownership(trip_id, current_user)
+
     meta = _trip_meta.get(trip_id, {})
     num_days = meta.get("num_days", len(plan.days))
 
@@ -359,13 +376,28 @@ async def reorder_places(trip_id: str, body: ReorderRequest):
     days_map: dict[int, list[str]] = {}
     for d in plan.days:
         days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+
+    # P5-BUG-4: validate provided place_ids exactly match the current day's places
+    current_day_ids = set(days_map.get(body.day, []))
+    provided_ids = set(body.place_ids)
+    if provided_ids != current_day_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=f"place_ids must exactly match the places in day {body.day} — "
+                   f"expected {sorted(current_day_ids)}, got {sorted(provided_ids)}",
+        )
+
     days_map[body.day] = list(body.place_ids)
 
-    all_ids = []
+    all_ids: list[str] = []
     for day_num in sorted(days_map.keys()):
         for pid in days_map[day_num]:
             if pid not in all_ids:
                 all_ids.append(pid)
+    # P5-BUG-2b: preserve single-place days not captured by legs
+    for p in plan.places:
+        if p.id not in all_ids:
+            all_ids.append(p.id)
 
     try:
         result = await planning_agent.plan_trip(
@@ -376,7 +408,7 @@ async def reorder_places(trip_id: str, body: ReorderRequest):
             optimize_order=False,
             preferences=None,
         )
-    except Exception as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -455,6 +487,24 @@ def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
     return 1, budget_override
 
 
+def _verify_user_ownership(trip_id: str, current_user: Optional[str]) -> None:
+    """Raise 403 if an authenticated user doesn't own this trip."""
+    if current_user is None:
+        return  # unauthenticated / guest — allow
+    meta = _trip_meta.get(trip_id)
+    if meta:
+        trip_user_id = meta.get("user_id")
+        if trip_user_id and trip_user_id != current_user:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return
+    if supabase:
+        resp = supabase.table("trips").select("user_id").eq("id", trip_id).execute()
+        if resp.data:
+            trip_user_id = resp.data[0].get("user_id")
+            if trip_user_id and trip_user_id != current_user:
+                raise HTTPException(status_code=403, detail="Access denied")
+
+
 def _verify_session_ownership(trip_id: str, session_id: str) -> None:
     """Raise 403 if session_id doesn't match the stored trip owner."""
     # Check in-process cache first (fast path)
@@ -513,14 +563,18 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
 
 
 def _ordered_place_ids(legs: list, places) -> list[str]:
-    """Reconstruct ordered place ids for a day from its legs."""
+    """Reconstruct ordered place ids for a day from its legs.
+
+    Returns [] when legs is empty — callers must preserve single-place days
+    separately using plan.places.
+    """
     if not legs:
-        return [p.id for p in places] if hasattr(places[0], 'id') else list(places)
+        return []
     ids: list[str] = []
     for leg in legs:
         if leg.from_place_id not in ids:
             ids.append(leg.from_place_id)
-    if legs and legs[-1].to_place_id not in ids:
+    if legs[-1].to_place_id not in ids:
         ids.append(legs[-1].to_place_id)
     return ids
 
