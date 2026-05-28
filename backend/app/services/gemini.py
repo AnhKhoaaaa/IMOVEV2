@@ -40,9 +40,11 @@ _PROMPT_TEMPLATE = (
 _SCHEDULE_WARNING_TEMPLATE = (
     "You are a Singapore travel planner. A tourist's itinerary has a scheduling issue.\n"
     "Issue type: {issue_type}\n"
-    "Schedule summary (day number → total occupied minutes): {days_summary}\n\n"
-    "Write a single, friendly, specific warning sentence in English. "
-    "Mention the affected day numbers. No bullet points. Under 80 words."
+    "Schedule summary: {days_summary}\n\n"
+    "Write a single, friendly suggestion in English. "
+    "If overfull: suggest adding more days or removing some places. "
+    "If underfull: suggest adding more places to fill the trip. "
+    "Do NOT mention specific day numbers or minute counts. No bullet points. Under 60 words."
 )
 
 
@@ -71,17 +73,12 @@ async def generate_schedule_warning(days_summary: list[dict], issue_type: str) -
 
 def _fallback_warning(issue_type: str, days_summary: list[dict]) -> str:
     if issue_type == "overfull":
-        overfull_days = [d["day"] for d in days_summary if d["occupied_minutes"] > 510]
-        days_str = ", ".join(f"Day {d}" for d in overfull_days) if overfull_days else "some days"
         return (
-            f"Your schedule may be too packed — {days_str} exceeds the 17:00 end time. "
-            "Consider removing a place or spreading across more days."
+            "Your schedule looks too packed. Consider spreading activities across more days "
+            "or removing a place to make your trip more comfortable."
         )
-    underfull_days = [d["day"] for d in days_summary if d["occupied_minutes"] < 240]
-    days_str = ", ".join(f"Day {d}" for d in underfull_days) if underfull_days else "some days"
     return (
-        f"You have free time left — {days_str} has fewer than 4 hours of activities. "
-        "Consider adding more places to fill your day."
+        "You have free time in your schedule. Consider adding more places to fill your days."
     )
 
 

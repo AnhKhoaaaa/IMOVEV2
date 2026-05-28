@@ -517,17 +517,3 @@ def test_check_schedule_fit_at_exactly_1700_not_overfull():
     assert issue != "overfull"
 
 
-@pytest.mark.asyncio
-async def test_best_time_warning_triggered():
-    # merlion-park best_time 07:00–10:00. If we visit after a long dwell elsewhere it'll warn.
-    # Start 09:00 at gardens (dwell 180 → depart 12:00), travel 10 min → arrive merlion 12:10
-    # merlion best_time 07:00–10:00 → 12:10 outside → warning expected
-    ids = ["gardens-by-the-bay", "merlion-park"]
-    with patch(
-        "app.agents.planning_agent.onemap.get_route",
-        new_callable=AsyncMock,
-        return_value=_mock_route(duration=10),
-    ):
-        result = await plan_trip("t7", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
-
-    assert any("merlion" in w.lower() or "Merlion" in w for w in result.warnings)

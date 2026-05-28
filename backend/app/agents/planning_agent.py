@@ -153,13 +153,12 @@ def _day_bucketed_greedy(
                 travel_est = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN
                 arrival    = clock + travel_est
                 dwell      = p.get("dwell_minutes", 60)
-                bt_start   = _parse_hhmm(p.get("best_time_start", "00:00"))
-                bt_end     = _parse_hhmm(p.get("best_time_end", "23:59"))
-                if bt_start <= arrival <= bt_end and arrival + dwell <= END_MIN:
+                oh_open, oh_close = _parse_opening_hours(p.get("opening_hours", "24h"))
+                if oh_open <= arrival and arrival + dwell <= min(oh_close, END_MIN):
                     candidates.append(p)
 
             if not candidates:
-                # Relax best_time window; still enforce day-end constraint
+                # Relax opening_hours; still enforce day-end constraint
                 for p in pool:
                     t_est = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN
                     if clock + t_est + p.get("dwell_minutes", 60) <= END_MIN:
@@ -496,15 +495,6 @@ async def plan_trip(
                         "place_before": prev["name"],
                         "place_after":  place["name"],
                     })
-
-            # Check best_time for this place
-            best_start = _parse_hhmm(place["best_time_start"])
-            best_end = _parse_hhmm(place["best_time_end"])
-            if not (best_start <= current_time <= best_end):
-                warnings.append(
-                    f"{place['name']}: best time {place['best_time_start']}–"
-                    f"{place['best_time_end']}, you arrive at {_fmt_hhmm(current_time)}"
-                )
 
             # Advance clock by dwell at this place
             current_time += dwell
