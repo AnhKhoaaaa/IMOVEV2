@@ -188,6 +188,8 @@ export default function DayPlan({
                 <TransitSegment
                   leg={item.data}
                   tripId={tripId}
+                  fromPlace={placesById[item.data.from_place_id]}
+                  toPlace={placesById[item.data.to_place_id]}
                   onUpdated={onLegUpdated}
                 />
               )}
