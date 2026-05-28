@@ -41,17 +41,22 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
 
   const metrics = useMemo(() => {
     const allLegs = days.flatMap((d) => d.legs ?? [])
-    const totalMin = allLegs.reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
-    const totalCost = allLegs.reduce((s, l) => s + (l.cost_sgd ?? 0), 0)
+    const transitMin = allLegs.reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+    const dwellMin = (trip?.places ?? []).reduce((s, p) => s + (p.dwell_minutes ?? 0), 0)
+    const totalMin = transitMin + dwellMin
+    const totalCost = allLegs
+      .filter((l) => (l.transport_mode ?? '').toUpperCase() !== 'WALK')
+      .reduce((s, l) => s + (l.cost_sgd ?? 0), 0)
     const walkLegs = allLegs.filter((l) => (l.transport_mode ?? '').toUpperCase() === 'WALK')
-    const walkM = walkLegs.reduce((s, l) => s + (l.duration_minutes ?? 0) * 80, 0)
+    const walkM = walkLegs.reduce((s, l) =>
+      s + (l.distance_km != null ? Math.round(l.distance_km * 1000) : (l.duration_minutes ?? 0) * 80), 0)
     return {
       time: fmtMin(totalMin),
       cost: `S$${totalCost.toFixed(2)}`,
       walk: walkM >= 1000 ? `${(walkM / 1000).toFixed(1)}km` : `${walkM}m`,
       stops: allPlaces.length,
     }
-  }, [days, allPlaces])
+  }, [days, allPlaces, trip])
 
   return (
     <div className="space-y-5 animate-fade-up">

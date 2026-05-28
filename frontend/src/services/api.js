@@ -33,6 +33,8 @@ export const api = {
   addPlaceToDay: (id, body) => request(`/trips/${id}/places`, { method: 'POST', body: JSON.stringify(body) }),
   removePlaceFromDay: (id, placeId) => request(`/trips/${id}/places/${placeId}`, { method: 'DELETE' }),
   reorderPlaces: (id, day, placeIds) => request(`/trips/${id}/reorder`, { method: 'PATCH', body: JSON.stringify({ day, place_ids: placeIds }) }),
+  addDay: (tripId) => request(`/trips/${tripId}/days`, { method: 'POST' }),
+  removeDay: (tripId, dayNum) => request(`/trips/${tripId}/days/${dayNum}`, { method: 'DELETE' }),
   getBusArrivals: (stopCode) => request(`/transit/bus-arrivals/${encodeURIComponent(stopCode)}`),
   compareRoutes: (fromLat, fromLng, toLat, toLng) =>
     request(`/transit/compare?from_lat=${fromLat}&from_lng=${fromLng}&to_lat=${toLat}&to_lng=${toLng}`),

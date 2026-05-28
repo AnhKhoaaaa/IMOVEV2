@@ -78,12 +78,14 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
   }
 
   const handleSelect = async (opt) => {
-    if (!opt.apiMode || opt.id === currentOptId || !tripId || !leg.id) { setOpen(false); return }
+    if (!opt.apiMode || opt.apiMode === leg.transport_mode || !tripId || !leg.id) { setOpen(false); return }
     setSaving(true)
     try {
       await api.updateLeg(tripId, leg.id, { transport_mode: opt.apiMode })
       if (onUpdated) await onUpdated()
-    } catch { /* ignore, refresh will revert */ }
+    } catch (err) {
+      console.error('updateLeg failed:', err)
+    }
     finally { setSaving(false); setOpen(false) }
   }
 
@@ -126,17 +128,16 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
             </div>
 
             {OPTS.map((opt) => {
-              const selected = opt.id === currentOptId
+              const selected = opt.apiMode === leg.transport_mode
               const detail = getDetail(opt)
               const unavailable = comparison && !comparison[opt.compareKey]?.available
+              if (unavailable) return null
               return (
                 <button
                   key={opt.id}
                   onClick={() => handleSelect(opt)}
-                  disabled={unavailable}
                   className={cn(
-                    'w-full flex items-center justify-between gap-3 px-3 py-2.5 transition focus-ring',
-                    unavailable ? 'opacity-40 cursor-not-allowed' : 'hover:bg-slate-50'
+                    'w-full flex items-center justify-between gap-3 px-3 py-2.5 transition focus-ring hover:bg-slate-50'
                   )}
                 >
                   <span className={cn('inline-flex items-center gap-2 text-[13.5px] font-semibold', selected ? 'text-indigo-700' : 'text-slate-800')}>
@@ -151,6 +152,11 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
                 </button>
               )
             })}
+            {comparison && OPTS.every((o) => !comparison[o.compareKey]?.available) && (
+              <div className="px-3 py-2.5 text-[12.5px] text-slate-400 italic">
+                No transit route available for this segment.
+              </div>
+            )}
 
             {/* Taxi / Grab deep-link row */}
             <div className="border-t border-slate-100">

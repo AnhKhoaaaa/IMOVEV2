@@ -49,10 +49,15 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
   const days = trip?.days ?? []
   const allLegs = useMemo(() => days.flatMap((d) => d.legs ?? []), [days])
 
-  const totalMin = allLegs.reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
-  const totalCost = allLegs.reduce((s, l) => s + (l.cost_sgd ?? 0), 0)
+  const transitMin = allLegs.reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+  const dwellMin = (trip?.places ?? []).reduce((s, p) => s + (p.dwell_minutes ?? 0), 0)
+  const totalMin = transitMin + dwellMin
+  const totalCost = allLegs
+    .filter((l) => (l.transport_mode ?? '').toUpperCase() !== 'WALK')
+    .reduce((s, l) => s + (l.cost_sgd ?? 0), 0)
   const walkLegs = allLegs.filter((l) => (l.transport_mode ?? '').toUpperCase() === 'WALK')
-  const walkM = walkLegs.reduce((s, l) => s + (l.duration_minutes ?? 0) * 80, 0)
+  const walkM = walkLegs.reduce((s, l) =>
+    s + (l.distance_km != null ? Math.round(l.distance_km * 1000) : (l.duration_minutes ?? 0) * 80), 0)
   const transfers = allLegs.filter((l) => !['WALK'].includes((l.transport_mode ?? '').toUpperCase())).length
   const totalPlaces = trip?.places?.length ?? 0
 
