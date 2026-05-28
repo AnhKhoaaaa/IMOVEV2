@@ -12,8 +12,12 @@ class WeatherUnavailableError(Exception):
     pass
 
 
-async def get_forecast(date_str: str) -> dict:
-    """Return weather forecast for Singapore on the given date (YYYY-MM-DD).
+async def get_forecast(
+    date_str: str,
+    lat: float = SINGAPORE_LAT,
+    lng: float = SINGAPORE_LNG,
+) -> dict:
+    """Return weather forecast for the given coordinates on the given date (YYYY-MM-DD).
 
     Uses OpenWeather Forecast 2.5 (free tier, 5-day / 3-hour intervals).
     Aggregates all 3-hour entries for the target day: max temp, min temp,
@@ -36,8 +40,8 @@ async def get_forecast(date_str: str) -> dict:
             resp = await client.get(
                 _BASE,
                 params={
-                    "lat": SINGAPORE_LAT,
-                    "lon": SINGAPORE_LNG,
+                    "lat": lat,
+                    "lon": lng,
                     "appid": settings.openweather_api_key,
                     "units": "metric",
                 },

@@ -1,94 +1,259 @@
-import { useState } from 'react'
-import { ChevronDown, ChevronRight, CalendarDays } from 'lucide-react'
-import RouteCard from './RouteCard'
+import { useState, Fragment } from 'react'
+import { MapPin, Trash2, Plus, X, Loader2, GripVertical } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { buildTimeline } from '../../lib/tripUtils'
+import { api } from '../../services/api'
+import PlaceCard from './PlaceCard'
+import PlaceSearch from './PlaceSearch'
+import TransitSegment from './TransitSegment'
+import ActiveLegFocus from './ActiveLegFocus'
 
-const SLOT_ORDER = ['morning', 'afternoon', 'evening']
-const SLOT_LABELS = {
-  morning: '🌅 Buổi sáng',
-  afternoon: '☀️ Buổi chiều',
-  evening: '🌙 Buổi tối',
+function SortablePlaceWrapper({ id, children, dragDisabled }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: dragDisabled })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative',
+  }
+  return (
+    <div ref={setNodeRef} style={style}>
+      {!dragDisabled && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute left-1 top-1/2 -translate-y-1/2 z-10 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-400 p-1 touch-none"
+          title="Drag to reorder"
+        >
+          <GripVertical size={14} />
+        </div>
+      )}
+      {children}
+    </div>
+  )
 }
 
-function groupBySlot(legs) {
-  return legs.reduce((acc, leg) => {
-    const slot = leg.time_slot ?? 'ungrouped'
-    if (!acc[slot]) acc[slot] = []
-    acc[slot].push(leg)
-    return acc
-  }, {})
+function formatDayLabel(legs) {
+  const placeCount = legs.length > 0 ? legs.length + 1 : 0
+  if (placeCount === 0) return 'No stops yet'
+  const cost = legs.reduce((s, l) => s + (l.cost_sgd ?? 0), 0)
+  return `${placeCount} stop${placeCount !== 1 ? 's' : ''}${cost > 0 ? ` · S$${cost.toFixed(2)}` : ''}`
 }
 
-export default function DayPlan({ day, legs, tripId, onLegUpdated }) {
-  const [open, setOpen] = useState(true)
-  const placeCount = legs.length === 0 ? 0 : legs.length + 1
+export default function DayPlan({
+  day,
+  legs,
+  tripId,
+  onLegUpdated,
+  placesById = {},
+  // Active leg props (tripStarted mode)
+  isActiveDay = false,
+  activeLegIndex = 0,
+  position = null,
+  onArrive,
+  weatherAlert,
+  transitAlert,
+  transitVariant = 'mrt',
+  onSwitchToBus,
+  onApproveSwap,
+  onDismissWeather,
+  onDismissTransit,
+  virtualStartLeg = null,
+  onVirtualArrive,
+}) {
+  const [expanded, setExpanded] = useState({ place: null })
+  const [notes, setNotes] = useState({})
+  const [dayNotes, setDayNotes] = useState('')
+  const [showAddSearch, setShowAddSearch] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
+  const [reordering, setReordering] = useState(false)
 
-  const hasSlots = legs.some((leg) => leg.time_slot != null)
-  const grouped = hasSlots ? groupBySlot(legs) : null
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
+  const timeline = buildTimeline(legs ?? [], placesById)
+  const dayLabel = formatDayLabel(legs ?? [])
+  const placeItems = timeline.filter(t => t.type === 'place').map(t => t.data.id)
+
+  const handleDragEnd = async (event) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = placeItems.indexOf(active.id)
+    const newIndex = placeItems.indexOf(over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    const newOrder = arrayMove(placeItems, oldIndex, newIndex)
+    setReordering(true)
+    try {
+      await api.reorderPlaces(tripId, day, newOrder)
+      await onLegUpdated()
+    } catch { /* revert on error — refresh will restore original */ }
+    finally { setReordering(false) }
+  }
+
+  const togglePlace = (id) =>
+    setExpanded((e) => ({ place: e.place === id ? null : id }))
 
   return (
-    <div className="mb-3 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      <button
-        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition-colors"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-100">
-            <CalendarDays className="h-4 w-4 text-sky-600" />
-          </div>
-          <p className="font-semibold text-slate-900 text-sm">
-            Ngày {day} — {placeCount} địa điểm
-          </p>
+    <div className="space-y-1 animate-fade-up">
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-baseline gap-2">
+          <h2 className="font-display font-extrabold text-[20px] text-slate-900">Day {day}</h2>
+          <span className="text-slate-300">·</span>
+          <span className="text-[14px] text-slate-600">{dayLabel}</span>
         </div>
-        {open ? (
-          <ChevronDown className="h-4 w-4 text-slate-400" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-slate-400" />
-        )}
-      </button>
+      </div>
 
-      {open && (
-        <div className="px-4 pb-4 pt-1 border-t border-slate-100">
-          {legs.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-4">Chưa có chặng nào</p>
-          ) : hasSlots ? (
-            <>
-              {SLOT_ORDER.filter((slot) => grouped[slot]?.length > 0).map((slot) => (
-                <div key={slot} className="mb-3 last:mb-0">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 mt-3 first:mt-1">
-                    {SLOT_LABELS[slot]}
-                  </p>
-                  {grouped[slot].map((leg) => (
-                    <RouteCard
-                      key={leg.id ?? `${leg.from_place_id}-${leg.to_place_id}`}
-                      leg={leg}
-                      tripId={tripId}
-                      onUpdated={onLegUpdated}
-                    />
-                  ))}
-                </div>
-              ))}
-              {grouped['ungrouped']?.length > 0 &&
-                grouped['ungrouped'].map((leg) => (
-                  <RouteCard
-                    key={leg.id ?? `${leg.from_place_id}-${leg.to_place_id}`}
-                    leg={leg}
-                    tripId={tripId}
-                    onUpdated={onLegUpdated}
-                  />
-                ))}
-            </>
-          ) : (
-            legs.map((leg) => (
-              <RouteCard
-                key={leg.id ?? `${leg.from_place_id}-${leg.to_place_id}`}
-                leg={leg}
-                tripId={tripId}
-                onUpdated={onLegUpdated}
-              />
-            ))
+      {/* Active leg view (tripStarted mode) */}
+      {isActiveDay ? (
+        <ActiveLegFocus
+          legs={legs ?? []}
+          placesById={placesById}
+          position={position}
+          activeLegIndex={activeLegIndex}
+          onArrive={onArrive}
+          weatherAlert={weatherAlert}
+          transitAlert={transitAlert}
+          transitVariant={transitVariant}
+          onSwitchToBus={onSwitchToBus}
+          onApproveSwap={onApproveSwap}
+          onDismissWeather={onDismissWeather}
+          onDismissTransit={onDismissTransit}
+          virtualStartLeg={virtualStartLeg}
+          onVirtualArrive={onVirtualArrive}
+        />
+      ) : (
+        <>
+          {/* Empty state */}
+          {timeline.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white/40 p-10 text-center">
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-slate-100 text-slate-400 mb-2">
+                <MapPin size={20} />
+              </div>
+              <div className="font-display font-bold text-[15px] text-slate-700">No places yet</div>
+              <div className="text-[12.5px] text-slate-500 mt-1">
+                Go back and add places to your itinerary.
+              </div>
+            </div>
           )}
-        </div>
+
+          {/* Timeline — drag-and-drop enabled when tripId present */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={placeItems} strategy={verticalListSortingStrategy}>
+          {timeline.map((item, i) => (
+            <Fragment key={`${item.type}-${i}`}>
+              {item.type === 'place' ? (
+                <SortablePlaceWrapper id={item.data.id} dragDisabled={!tripId || isActiveDay || reordering}>
+                <div className="relative group/place">
+                  <PlaceCard
+                    place={item.data}
+                    index={item.index}
+                    expanded={expanded.place === item.data.id}
+                    onToggle={() => togglePlace(item.data.id)}
+                    notes={notes[item.data.id]}
+                    onNotesChange={(v) => setNotes((n) => ({ ...n, [item.data.id]: v }))}
+                  />
+                  {/* Delete button — appears on hover */}
+                  {tripId && onLegUpdated && (
+                    <button
+                      onClick={async () => {
+                        if (deletingId) return
+                        setDeletingId(item.data.id)
+                        try {
+                          await api.removePlaceFromDay(tripId, item.data.id)
+                          await onLegUpdated()
+                        } catch { /* leave UI unchanged on error */ }
+                        finally { setDeletingId(null) }
+                      }}
+                      disabled={deletingId === item.data.id}
+                      className="absolute top-2 right-2 grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition opacity-0 group-hover/place:opacity-100"
+                      title="Remove place"
+                    >
+                      {deletingId === item.data.id
+                        ? <Loader2 size={11} className="animate-spin" />
+                        : <Trash2 size={11} />}
+                    </button>
+                  )}
+                </div>
+                </SortablePlaceWrapper>
+              ) : (
+                <TransitSegment
+                  leg={item.data}
+                  tripId={tripId}
+                  fromPlace={placesById[item.data.from_place_id]}
+                  toPlace={placesById[item.data.to_place_id]}
+                  onUpdated={onLegUpdated}
+                />
+              )}
+            </Fragment>
+          ))}
+            </SortableContext>
+          </DndContext>
+
+          {/* Add place button */}
+          {tripId && !isActiveDay && (
+            <div className="pl-12 mt-2">
+              {showAddSearch ? (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[12px] font-semibold text-indigo-700">Add place to Day {day}</span>
+                    <button
+                      onClick={() => setShowAddSearch(false)}
+                      className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:bg-slate-200"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <PlaceSearch
+                    addedIds={new Set((timeline.filter(t => t.type === 'place').map(t => t.data.id)))}
+                    onAdd={async (place) => {
+                      setShowAddSearch(false)
+                      try {
+                        await api.addPlaceToDay(tripId, { place_id: place.id, day })
+                        await onLegUpdated()
+                      } catch { /* ignore */ }
+                    }}
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAddSearch(true)}
+                  className="w-full h-9 rounded-xl border-2 border-dashed border-slate-300 text-[13px] font-semibold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition inline-flex items-center justify-center gap-2"
+                >
+                  <Plus size={13} /> Add place
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Day notes (only if there are places) */}
+          {timeline.length > 0 && (
+            <div className="relative pl-12 mt-5">
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
+                <label className="text-[12.5px] font-semibold text-slate-600 block mb-2">Day notes</label>
+                <textarea
+                  rows={2}
+                  value={dayNotes}
+                  onChange={(e) => setDayNotes(e.target.value)}
+                  placeholder="Pack a light jacket, ATM stops, dinner reservation at 8pm…"
+                  className="w-full rounded-md border border-slate-200 bg-slate-50/30 px-3 py-2 text-[13px] placeholder:text-slate-400 focus-ring focus:border-indigo-400 resize-none"
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

@@ -1,11 +1,16 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.dependencies import get_current_user
 
 from app.models.trip import (
     TripCreate, TripPlanRequest, TripPlan,
-    LegUpdateRequest, AdaptRequest, AdaptResponse,
+    LegUpdateRequest, AdaptRequest, AdaptResponse, TripStatus, LocationUpdate,
+    AddPlaceRequest, ReorderRequest,
 )
 from app.agents import planning_agent, adaptation_agent
 from app.agents.planning_agent import get_curated_place
@@ -21,17 +26,20 @@ router = APIRouter()
 _trip_store: dict[str, TripPlan] = {}
 # Cache trip metadata (num_days, budget_sgd, session_id) for no-DB scenarios
 _trip_meta: dict[str, dict] = {}
+# Tentative adaptation proposals awaiting user accept (§6 User Consent Flow)
+_pending_swaps: dict[str, dict] = {}  # trip_id → {alert_id, updated_trip}
 
 
 @router.post("")
 async def create_trip(body: TripCreate):
     trip_id = str(uuid.uuid4())
 
-    # Cache for no-DB fallback path (budget, num_days, session_id)
+    # Cache for no-DB fallback path (budget, num_days, session_id, user_id)
     _trip_meta[trip_id] = {
         "num_days": body.num_days,
         "budget_sgd": float(body.budget_sgd),
         "session_id": body.session_id,
+        "user_id": str(body.user_id) if body.user_id else None,
     }
 
     if supabase:
@@ -41,7 +49,9 @@ async def create_trip(body: TripCreate):
             "user_id": str(body.user_id) if body.user_id else None,
             "num_days": body.num_days,
             "budget_sgd": float(body.budget_sgd),
-            "status": "planning",
+            "status": "DRAFT",
+            "start_date": body.start_date.isoformat() if body.start_date else None,
+            "end_date": body.end_date.isoformat() if body.end_date else None,
         }).execute()
 
     return {"trip_id": trip_id}
@@ -80,15 +90,33 @@ async def plan_trip(trip_id: str, body: TripPlanRequest):
 
 
 @router.get("/{trip_id}")
-async def get_trip(trip_id: str):
+async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
     # Try in-memory cache first (covers session without Supabase)
     if trip_id in _trip_store:
+        meta = _trip_meta.get(trip_id, {})
+        trip_user_id = meta.get("user_id")
+        if current_user and trip_user_id and trip_user_id != current_user:
+            raise HTTPException(status_code=403, detail="Access denied")
         return _trip_store[trip_id]
 
     if supabase:
         plan = _fetch_trip_from_db(trip_id)
         if plan:
-            _trip_store[trip_id] = plan
+            trip_resp = supabase.table("trips").select("*").eq("id", trip_id).execute()
+            if trip_resp.data:
+                t = trip_resp.data[0]
+                trip_user_id = t.get("user_id")
+                if current_user and trip_user_id and trip_user_id != current_user:
+                    raise HTTPException(status_code=403, detail="Access denied")
+                # Repopulate in-memory caches so subsequent mutations work after server restart
+                _trip_store[trip_id] = plan
+                if trip_id not in _trip_meta:
+                    _trip_meta[trip_id] = {
+                        "num_days": t.get("num_days", len(plan.days)),
+                        "budget_sgd": float(t.get("budget_sgd") or 999.0),
+                        "session_id": t.get("session_id"),
+                        "user_id": trip_user_id,
+                    }
             return plan
 
     raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
@@ -134,6 +162,14 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
             {"transport_mode": body.transport_mode}
         ).eq("id", leg_id).execute()
 
+        # Log implicit feedback for Memory Agent
+        supabase.table("trip_feedback").insert({
+            "trip_id": trip_id,
+            "leg_id": leg_id,
+            "feedback_type": "implicit",
+            "comment": f"Mode changed: {old_mode} → {updated_leg.transport_mode}",
+        }).execute()
+
     return updated_leg
 
 
@@ -155,10 +191,362 @@ async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
 
     result = await adaptation_agent.adapt_trip(trip_id, body.alert_id, plan)
 
+    # Store proposal in memory — do NOT persist to DB until user calls /accept-swap (§6)
     if result.adapted:
-        _trip_store[trip_id] = result.updated_trip
+        _pending_swaps[trip_id] = {
+            "alert_id": body.alert_id,
+            "updated_trip": result.updated_trip,
+        }
 
     return result
+
+
+@router.post("/{trip_id}/location", status_code=204)
+async def update_location(trip_id: str, body: LocationUpdate):
+    if body.session_id:
+        _verify_session_ownership(trip_id, body.session_id)
+
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+
+    if plan:
+        await adaptation_agent.check_lta_proximity(trip_id, body.lat, body.lng, plan)
+
+
+@router.post("/{trip_id}/optimize")
+async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
+    """Re-run greedy sort + smart distribution on the current place list."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    _verify_user_ownership(trip_id, current_user)
+
+    meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
+    budget_sgd = meta.get("budget_sgd", 999.0)
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=[p.id for p in plan.places],
+            num_days=num_days,
+            budget_sgd=budget_sgd,
+            optimize_order=True,
+            preferences=None,
+        )
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s optimize: %s", trip_id, exc)
+
+    return result
+
+
+@router.post("/{trip_id}/days", status_code=200)
+async def add_day(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
+    """Increment num_days by 1. Appends a new empty day to the plan."""
+    meta = _trip_meta.get(trip_id)
+    # Repopulate meta from DB if missing (e.g. after server restart)
+    if meta is None and supabase:
+        trip_resp = supabase.table("trips").select("*").eq("id", trip_id).execute()
+        if trip_resp.data:
+            t = trip_resp.data[0]
+            meta = {
+                "num_days": t["num_days"],
+                "budget_sgd": float(t.get("budget_sgd") or 999.0),
+                "session_id": t.get("session_id"),
+                "user_id": t.get("user_id"),
+            }
+            _trip_meta[trip_id] = meta
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+    _verify_user_ownership(trip_id, current_user)
+    meta["num_days"] += 1
+    if supabase:
+        try:
+            supabase.table("trips").update({"num_days": meta["num_days"]}).eq("id", trip_id).execute()
+        except Exception as exc:
+            log.warning("Supabase update num_days failed for %s: %s", trip_id, exc)
+
+    # Load plan and append the new empty day
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    from app.models.trip import DayPlan as DayPlanModel
+    new_day = DayPlanModel(day=meta["num_days"], legs=[])
+    updated_plan = plan.model_copy(update={"days": list(plan.days) + [new_day]})
+    _trip_store[trip_id] = updated_plan
+    return updated_plan
+
+
+@router.delete("/{trip_id}/days/{day_num}", status_code=200)
+async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = Depends(get_current_user)):
+    """Remove a day: re-plan with num_days-1, keeping all places."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+    _verify_user_ownership(trip_id, current_user)
+
+    meta = _trip_meta.get(trip_id, {})
+    current_num_days = meta.get("num_days", len(plan.days))
+    if current_num_days <= 1:
+        raise HTTPException(status_code=422, detail="Trip must have at least 1 day")
+
+    new_num_days = current_num_days - 1
+    meta["num_days"] = new_num_days
+    _trip_meta[trip_id] = meta
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=[p.id for p in plan.places],
+            num_days=new_num_days,
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            supabase.table("trips").update({"num_days": new_num_days}).eq("id", trip_id).execute()
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase update failed for %s remove_day: %s", trip_id, exc)
+    return result
+
+
+@router.delete("/{trip_id}/places/{place_id}", status_code=204)
+async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] = Depends(get_current_user)):
+    """Remove a place from the trip and re-fetch legs for affected days."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    _verify_user_ownership(trip_id, current_user)
+
+    if not any(p.id == place_id for p in plan.places):
+        raise HTTPException(status_code=404, detail=f"Place '{place_id}' not in trip")
+
+    # Re-plan with place removed
+    remaining_ids = [p.id for p in plan.places if p.id != place_id]
+    if len(remaining_ids) < 2:
+        raise HTTPException(status_code=422, detail="Trip must have at least 2 places")
+
+    meta = _trip_meta.get(trip_id, {})
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=remaining_ids,
+            num_days=meta.get("num_days", len(plan.days)),
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s remove_place: %s", trip_id, exc)
+
+
+@router.post("/{trip_id}/places")
+async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[str] = Depends(get_current_user)):
+    """Add a place to a specific day and re-fetch affected legs."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    _verify_user_ownership(trip_id, current_user)
+
+    meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
+
+    # P5-BUG-3: validate day is within trip range before any further checks
+    if body.day > num_days:
+        raise HTTPException(
+            status_code=422,
+            detail=f"day {body.day} out of range — trip has {num_days} day(s)",
+        )
+
+    from app.agents.planning_agent import get_curated_place
+    if not get_curated_place(body.place_id):
+        raise HTTPException(status_code=422, detail=f"Place '{body.place_id}' not in curated dataset")
+
+    # Map day number → ordered place ids (legs-based reconstruction)
+    days_map: dict[int, list[str]] = {}
+    for d in plan.days:
+        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+
+    target_day = body.day
+    if target_day not in days_map:
+        days_map[target_day] = []
+    days_map[target_day].append(body.place_id)
+
+    # Flatten to ordered place list; preserve single-place days not captured by legs
+    all_ids: list[str] = []
+    for day_num in sorted(days_map.keys()):
+        for pid in days_map[day_num]:
+            if pid not in all_ids:
+                all_ids.append(pid)
+    # P5-BUG-2b: add any places that were in single-place days (no legs → not in days_map)
+    for p in plan.places:
+        if p.id not in all_ids:
+            all_ids.append(p.id)
+    if body.place_id not in all_ids:
+        all_ids.append(body.place_id)
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=all_ids,
+            num_days=num_days,
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s add_place: %s", trip_id, exc)
+    return result
+
+
+@router.patch("/{trip_id}/reorder")
+async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optional[str] = Depends(get_current_user)):
+    """Reorder places within a day and re-fetch legs for that day."""
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    _verify_user_ownership(trip_id, current_user)
+
+    meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
+
+    # Rebuild place list: replace target day's order, keep other days unchanged
+    days_map: dict[int, list[str]] = {}
+    for d in plan.days:
+        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+
+    # P5-BUG-4: validate provided place_ids exactly match the current day's places
+    current_day_ids = set(days_map.get(body.day, []))
+    provided_ids = set(body.place_ids)
+    if provided_ids != current_day_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=f"place_ids must exactly match the places in day {body.day} — "
+                   f"expected {sorted(current_day_ids)}, got {sorted(provided_ids)}",
+        )
+
+    days_map[body.day] = list(body.place_ids)
+
+    all_ids: list[str] = []
+    for day_num in sorted(days_map.keys()):
+        for pid in days_map[day_num]:
+            if pid not in all_ids:
+                all_ids.append(pid)
+    # P5-BUG-2b: preserve single-place days not captured by legs
+    for p in plan.places:
+        if p.id not in all_ids:
+            all_ids.append(p.id)
+
+    try:
+        result = await planning_agent.plan_trip(
+            trip_id=trip_id,
+            place_ids=all_ids,
+            num_days=num_days,
+            budget_sgd=meta.get("budget_sgd", 999.0),
+            optimize_order=False,
+            preferences=None,
+        )
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    _trip_store[trip_id] = result
+    if supabase:
+        try:
+            _persist_trip_plan(trip_id, result)
+        except Exception as exc:
+            log.warning("Supabase persist failed for trip %s reorder: %s", trip_id, exc)
+    return result
+
+
+@router.delete("/{trip_id}", status_code=204)
+async def delete_trip(trip_id: str):
+    _trip_store.pop(trip_id, None)
+    _trip_meta.pop(trip_id, None)
+    _pending_swaps.pop(trip_id, None)
+
+    if supabase:
+        try:
+            supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
+            supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
+            supabase.table("trips").delete().eq("id", trip_id).execute()
+        except Exception as exc:
+            log.warning("Supabase delete failed for trip %s: %s", trip_id, exc)
+
+
+@router.post("/{trip_id}/accept-swap")
+async def accept_swap(trip_id: str, body: AdaptRequest):
+    if body.session_id:
+        _verify_session_ownership(trip_id, body.session_id)
+
+    pending = _pending_swaps.get(trip_id)
+    if not pending:
+        raise HTTPException(status_code=404, detail="No pending adaptation found for this trip")
+    if pending["alert_id"] != body.alert_id:
+        raise HTTPException(status_code=409, detail="alert_id does not match pending adaptation")
+
+    updated_trip: TripPlan = pending["updated_trip"]
+    await adaptation_agent.commit_adaptation(trip_id, updated_trip, body.alert_id)
+    _trip_store[trip_id] = updated_trip
+    del _pending_swaps[trip_id]
+
+    return updated_trip
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +582,24 @@ def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
     return 1, budget_override
 
 
+def _verify_user_ownership(trip_id: str, current_user: Optional[str]) -> None:
+    """Raise 403 if an authenticated user doesn't own this trip."""
+    if current_user is None:
+        return  # unauthenticated / guest — allow
+    meta = _trip_meta.get(trip_id)
+    if meta:
+        trip_user_id = meta.get("user_id")
+        if trip_user_id and trip_user_id != current_user:
+            raise HTTPException(status_code=403, detail="Access denied")
+        return
+    if supabase:
+        resp = supabase.table("trips").select("user_id").eq("id", trip_id).execute()
+        if resp.data:
+            trip_user_id = resp.data[0].get("user_id")
+            if trip_user_id and trip_user_id != current_user:
+                raise HTTPException(status_code=403, detail="Access denied")
+
+
 def _verify_session_ownership(trip_id: str, session_id: str) -> None:
     """Raise 403 if session_id doesn't match the stored trip owner."""
     # Check in-process cache first (fast path)
@@ -214,96 +620,58 @@ def _verify_session_ownership(trip_id: str, session_id: str) -> None:
         raise HTTPException(status_code=403, detail="session_id does not match trip owner")
 
 
-def _row_day_number(row: dict) -> int:
-    """Read day index from aligned or legacy column names."""
-    if row.get("day_number") is not None:
-        return int(row["day_number"])
-    if row.get("day") is not None:
-        return int(row["day"])
-    return 1
-
-
-def _row_order_in_day(row: dict, default: int = 0) -> int:
-    if row.get("order_in_day") is not None:
-        return int(row["order_in_day"])
-    if row.get("position") is not None:
-        return int(row["position"])
-    return default
-
-
-def _trip_place_rows(trip_id: str, plan: TripPlan) -> list[dict]:
-    """Build trip_places rows with day_number and order_in_day from leg chains."""
-    place_by_id = {p.id: p for p in plan.places}
-    rows: list[dict] = []
-    assigned: set[str] = set()
-
-    for day in plan.days:
-        ordered_ids: list[str] = []
-        if day.legs:
-            ordered_ids.append(day.legs[0].from_place_id)
-            for leg in day.legs:
-                ordered_ids.append(leg.to_place_id)
-        for order, pid in enumerate(ordered_ids):
-            if pid in assigned or pid not in place_by_id:
-                continue
-            assigned.add(pid)
-            p = place_by_id[pid]
-            rows.append({
-                "trip_id": trip_id,
-                "place_id": p.id,
-                "place_name": p.name,
-                "lat": p.lat,
-                "lng": p.lng,
-                "dwell_minutes": p.dwell_minutes,
-                "day_number": day.day,
-                "order_in_day": order,
-            })
-
-    for p in plan.places:
-        if p.id not in assigned:
-            rows.append({
-                "trip_id": trip_id,
-                "place_id": p.id,
-                "place_name": p.name,
-                "lat": p.lat,
-                "lng": p.lng,
-                "dwell_minutes": p.dwell_minutes,
-                "day_number": plan.days[-1].day if plan.days else 1,
-                "order_in_day": 0,
-            })
-
-    return rows
-
-
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
-    """Batch-write trip_places and route_legs to Supabase."""
-    supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
-    supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
-
-    place_rows = _trip_place_rows(trip_id, plan)
+    """Batch-write trip_places and route_legs to Supabase (2 round-trips total)."""
+    place_rows = [
+        {
+            "trip_id": trip_id,
+            "place_id": p.id,
+            "place_name": p.name,
+            "lat": p.lat,
+            "lng": p.lng,
+            "dwell_minutes": p.dwell_minutes,
+        }
+        for p in plan.places
+    ]
     if place_rows:
-        supabase.table("trip_places").insert(place_rows).execute()
+        supabase.table("trip_places").upsert(place_rows).execute()
 
     leg_rows = [
         {
             "id": leg.id,
             "trip_id": trip_id,
             "day_number": day.day,
-            "order_in_day": pos,
             "from_place_id": leg.from_place_id,
             "to_place_id": leg.to_place_id,
             "transport_mode": leg.transport_mode,
             "duration_minutes": leg.duration_minutes,
             "cost_sgd": leg.cost_sgd,
             "is_estimated": leg.is_estimated,
+            "instructions": leg.instructions,
+            "geometry": leg.geometry,
         }
         for day in plan.days
-        for pos, leg in enumerate(day.legs)
+        for leg in day.legs
     ]
     if leg_rows:
-        supabase.table("route_legs").insert(leg_rows).execute()
+        supabase.table("route_legs").upsert(leg_rows).execute()
 
-    supabase.table("trips").update({"status": "active"}).eq("id", trip_id).execute()
+
+def _ordered_place_ids(legs: list, places) -> list[str]:
+    """Reconstruct ordered place ids for a day from its legs.
+
+    Returns [] when legs is empty — callers must preserve single-place days
+    separately using plan.places.
+    """
+    if not legs:
+        return []
+    ids: list[str] = []
+    for leg in legs:
+        if leg.from_place_id not in ids:
+            ids.append(leg.from_place_id)
+    if legs[-1].to_place_id not in ids:
+        ids.append(legs[-1].to_place_id)
+    return ids
 
 
 def _fetch_trip_from_db(trip_id: str):
@@ -336,25 +704,20 @@ def _fetch_trip_from_db(trip_id: str):
             in_curated_dataset=bool(curated),
         ))
 
-    days_map: dict[int, list[tuple[int, LegResponse]]] = {}
+    days_map: dict[int, list] = {}
     for leg in legs_resp.data:
-        d = _row_day_number(leg)
-        order = _row_order_in_day(leg)
-        days_map.setdefault(d, []).append((
-            order,
-            LegResponse(
-                id=leg["id"],
-                from_place_id=leg["from_place_id"],
-                to_place_id=leg["to_place_id"],
-                transport_mode=leg["transport_mode"],
-                duration_minutes=leg["duration_minutes"],
-                cost_sgd=float(leg["cost_sgd"]),
-                is_estimated=leg["is_estimated"],
-            ),
+        d = leg["day_number"]
+        days_map.setdefault(d, []).append(LegResponse(
+            id=leg["id"],
+            from_place_id=leg["from_place_id"],
+            to_place_id=leg["to_place_id"],
+            transport_mode=leg["transport_mode"],
+            duration_minutes=leg["duration_minutes"],
+            cost_sgd=float(leg["cost_sgd"]),
+            is_estimated=leg["is_estimated"],
+            instructions=leg.get("instructions") or [],
+            geometry=leg.get("geometry"),
         ))
 
-    days = [
-        DayPlan(day=d, legs=[lr for _, lr in sorted(entries, key=lambda x: x[0])])
-        for d, entries in sorted(days_map.items())
-    ]
+    days = [DayPlan(day=d, legs=legs) for d, legs in sorted(days_map.items())]
     return TripPlan(id=trip_id, days=days, places=places, warnings=[])

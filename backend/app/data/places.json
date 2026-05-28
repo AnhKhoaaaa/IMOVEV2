@@ -10,7 +10,8 @@
     "opening_hours": "05:00-02:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "data.gov.sg"
+    "source": "data.gov.sg",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Gardens_by_the_Bay_in_Singapore_-_20140301.jpg/480px-Gardens_by_the_Bay_in_Singapore_-_20140301.jpg"
   },
   {
     "id": "marina-bay-sands",
@@ -23,7 +24,8 @@
     "opening_hours": "24h",
     "category": "landmark",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Singapore_Panorama_v2.jpg/480px-Singapore_Panorama_v2.jpg"
   },
   {
     "id": "merlion-park",
@@ -36,7 +38,8 @@
     "opening_hours": "24h",
     "category": "landmark",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/Merlion%2C_Singapore%2C_Aug_06.jpg/480px-Merlion%2C_Singapore%2C_Aug_06.jpg"
   },
   {
     "id": "sentosa-universal-studios",
@@ -49,7 +52,8 @@
     "opening_hours": "10:00-18:00",
     "category": "attraction",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Universal_Studios_Singapore_2011.jpg/480px-Universal_Studios_Singapore_2011.jpg"
   },
   {
     "id": "national-museum",
@@ -62,7 +66,8 @@
     "opening_hours": "10:00-19:00",
     "category": "museum",
     "is_outdoor": false,
-    "source": "nhb.gov.sg"
+    "source": "nhb.gov.sg",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/National_Museum_Singapore.jpg/480px-National_Museum_Singapore.jpg"
   },
   {
     "id": "singapore-botanic-gardens",
@@ -75,7 +80,8 @@
     "opening_hours": "05:00-00:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/ba/Singapore_Botanic_Gardens_01.jpg/480px-Singapore_Botanic_Gardens_01.jpg"
   },
   {
     "id": "east-coast-park",
@@ -88,7 +94,8 @@
     "opening_hours": "24h",
     "category": "nature",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/East_Coast_Park_beach%2C_Singapore_-_20100812.jpg/480px-East_Coast_Park_beach%2C_Singapore_-_20100812.jpg"
   },
   {
     "id": "macritchie-reservoir-park",
@@ -101,7 +108,8 @@
     "opening_hours": "07:00-19:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/MacRitchie_Reservoir.jpg/480px-MacRitchie_Reservoir.jpg"
   },
   {
     "id": "bukit-timah-nature-reserve",
@@ -114,7 +122,8 @@
     "opening_hours": "07:00-19:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Bukit_timah_nature_reserve.jpg/480px-Bukit_timah_nature_reserve.jpg"
   },
   {
     "id": "henderson-waves",
@@ -127,7 +136,8 @@
     "opening_hours": "07:00-21:00",
     "category": "viewpoint",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/54/Henderson_Waves_bridge_in_Singapore_-_20100704.jpg/480px-Henderson_Waves_bridge_in_Singapore_-_20100704.jpg"
   },
   {
     "id": "mount-faber-park",
@@ -140,7 +150,8 @@
     "opening_hours": "07:00-22:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/View_from_Mt_Faber%2C_Singapore_-_20060218.jpg/480px-View_from_Mt_Faber%2C_Singapore_-_20060218.jpg"
   },
   {
     "id": "marina-barrage",
@@ -153,7 +164,8 @@
     "opening_hours": "09:00-21:00",
     "category": "viewpoint",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Marina_Barrage%2C_Singapore_-_20110306.jpg/480px-Marina_Barrage%2C_Singapore_-_20110306.jpg"
   },
   {
     "id": "fort-canning-park",
@@ -166,7 +178,8 @@
     "opening_hours": "07:00-22:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Fort_Canning_Park%2C_Singapore_-_20100704.jpg/480px-Fort_Canning_Park%2C_Singapore_-_20100704.jpg"
   },
   {
     "id": "artscience-museum",
@@ -179,7 +192,8 @@
     "opening_hours": "10:00-19:00",
     "category": "museum",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/ArtScience_Museum_2012.jpg/480px-ArtScience_Museum_2012.jpg"
   },
   {
     "id": "national-gallery-singapore",
@@ -192,7 +206,8 @@
     "opening_hours": "10:00-19:00",
     "category": "museum",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/National_Gallery_Singapore.jpg/480px-National_Gallery_Singapore.jpg"
   },
   {
     "id": "asian-civilisations-museum",
@@ -205,7 +220,8 @@
     "opening_hours": "10:00-19:00",
     "category": "museum",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Asian_Civilisations_Museum%2C_Singapore_-_20070630.jpg/480px-Asian_Civilisations_Museum%2C_Singapore_-_20070630.jpg"
   },
   {
     "id": "science-centre-singapore",
@@ -218,7 +234,8 @@
     "opening_hours": "10:00-18:00",
     "category": "museum",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Science_Centre_Singapore.jpg/480px-Science_Centre_Singapore.jpg"
   },
   {
     "id": "singapore-flyer",
@@ -231,7 +248,8 @@
     "opening_hours": "08:30-22:00",
     "category": "viewpoint",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/Singapore_Flyer_day.jpg/480px-Singapore_Flyer_day.jpg"
   },
   {
     "id": "pinnacle-at-duxton",
@@ -244,7 +262,8 @@
     "opening_hours": "09:00-21:00",
     "category": "viewpoint",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Pinnacle%40Duxton.jpg/480px-Pinnacle%40Duxton.jpg"
   },
   {
     "id": "chinatown",
@@ -257,7 +276,8 @@
     "opening_hours": "24h",
     "category": "heritage",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Chinatown%2C_Singapore.jpg/480px-Chinatown%2C_Singapore.jpg"
   },
   {
     "id": "little-india",
@@ -270,7 +290,8 @@
     "opening_hours": "24h",
     "category": "heritage",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Little_India_Singapore.jpg/480px-Little_India_Singapore.jpg"
   },
   {
     "id": "kampong-glam",
@@ -283,7 +304,8 @@
     "opening_hours": "24h",
     "category": "heritage",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Kampong_Glam_Arab_Quarter_Singapore.jpg/480px-Kampong_Glam_Arab_Quarter_Singapore.jpg"
   },
   {
     "id": "haji-lane",
@@ -296,7 +318,8 @@
     "opening_hours": "11:00-22:00",
     "category": "shopping",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/Haji_Lane%2C_Singapore.jpg/480px-Haji_Lane%2C_Singapore.jpg"
   },
   {
     "id": "clarke-quay",
@@ -309,7 +332,8 @@
     "opening_hours": "17:00-01:00",
     "category": "entertainment",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Clarke_Quay_-_Singapore_%282010%29.jpg/480px-Clarke_Quay_-_Singapore_%282010%29.jpg"
   },
   {
     "id": "boat-quay",
@@ -322,7 +346,8 @@
     "opening_hours": "11:00-23:00",
     "category": "heritage",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/BoatQuay-Singapore.jpg/480px-BoatQuay-Singapore.jpg"
   },
   {
     "id": "orchard-road",
@@ -335,7 +360,8 @@
     "opening_hours": "10:00-22:00",
     "category": "shopping",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Orchard_Road_Singapore_2014.jpg/480px-Orchard_Road_Singapore_2014.jpg"
   },
   {
     "id": "ion-orchard",
@@ -348,7 +374,8 @@
     "opening_hours": "10:00-22:00",
     "category": "shopping",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/ION_Orchard_Singapore.jpg/480px-ION_Orchard_Singapore.jpg"
   },
   {
     "id": "vivo-city",
@@ -361,7 +388,8 @@
     "opening_hours": "10:00-22:00",
     "category": "shopping",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/VivoCity_Shopping_Mall%2C_Singapore.jpg/480px-VivoCity_Shopping_Mall%2C_Singapore.jpg"
   },
   {
     "id": "bugis-junction",
@@ -374,7 +402,8 @@
     "opening_hours": "10:00-22:00",
     "category": "shopping",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Bugis_Junction_Singapore.jpg/480px-Bugis_Junction_Singapore.jpg"
   },
   {
     "id": "jewel-changi-airport",
@@ -387,7 +416,8 @@
     "opening_hours": "24h",
     "category": "shopping",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Jewel_Changi_Airport_interior_2019.jpg/480px-Jewel_Changi_Airport_interior_2019.jpg"
   },
   {
     "id": "esplanade-theatres",
@@ -400,7 +430,8 @@
     "opening_hours": "10:00-22:00",
     "category": "entertainment",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Esplanade_-_Theatres_on_the_Bay%2C_Dec_05.jpg/480px-Esplanade_-_Theatres_on_the_Bay%2C_Dec_05.jpg"
   },
   {
     "id": "raffles-hotel",
@@ -413,7 +444,8 @@
     "opening_hours": "24h",
     "category": "landmark",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9b/Raffles_Hotel_Singapore.jpg/480px-Raffles_Hotel_Singapore.jpg"
   },
   {
     "id": "singapore-zoo",
@@ -426,7 +458,8 @@
     "opening_hours": "08:30-18:00",
     "category": "attraction",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Singapore_Zoo.jpg/480px-Singapore_Zoo.jpg"
   },
   {
     "id": "night-safari",
@@ -439,7 +472,8 @@
     "opening_hours": "19:00-00:00",
     "category": "attraction",
     "is_outdoor": true,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Night_Safari_Singapore.jpg/480px-Night_Safari_Singapore.jpg"
   },
   {
     "id": "river-wonders",
@@ -452,7 +486,8 @@
     "opening_hours": "10:00-18:00",
     "category": "attraction",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/River_Safari_Singapore_2014.jpg/480px-River_Safari_Singapore_2014.jpg"
   },
   {
     "id": "sentosa-palawan-beach",
@@ -465,7 +500,8 @@
     "opening_hours": "07:00-22:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/Palawan_Beach%2C_Sentosa%2C_Singapore.jpg/480px-Palawan_Beach%2C_Sentosa%2C_Singapore.jpg"
   },
   {
     "id": "sentosa-siloso-beach",
@@ -478,7 +514,8 @@
     "opening_hours": "07:00-22:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/Siloso_Beach%2C_Sentosa%2C_Singapore.jpg/480px-Siloso_Beach%2C_Sentosa%2C_Singapore.jpg"
   },
   {
     "id": "maxwell-food-centre",
@@ -491,7 +528,8 @@
     "opening_hours": "08:00-02:00",
     "category": "food",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/33/Maxwell_Food_Centre%2C_Singapore.jpg/480px-Maxwell_Food_Centre%2C_Singapore.jpg"
   },
   {
     "id": "lau-pa-sat",
@@ -504,7 +542,8 @@
     "opening_hours": "24h",
     "category": "food",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Lau_Pa_Sat_Festival_Market.jpg/480px-Lau_Pa_Sat_Festival_Market.jpg"
   },
   {
     "id": "tiong-bahru-market",
@@ -517,7 +556,8 @@
     "opening_hours": "06:00-21:00",
     "category": "food",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/44/Tiong_Bahru_Market.jpg/480px-Tiong_Bahru_Market.jpg"
   },
   {
     "id": "newton-food-centre",
@@ -530,7 +570,8 @@
     "opening_hours": "12:00-02:00",
     "category": "food",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Newton_Food_Centre_Singapore.jpg/480px-Newton_Food_Centre_Singapore.jpg"
   },
   {
     "id": "satay-by-the-bay",
@@ -543,7 +584,8 @@
     "opening_hours": "12:00-23:00",
     "category": "food",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Satay_by_the_Bay_Singapore.jpg/480px-Satay_by_the_Bay_Singapore.jpg"
   },
   {
     "id": "sultan-mosque",
@@ -556,7 +598,8 @@
     "opening_hours": "09:00-12:00 14:00-16:00",
     "category": "heritage",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Sultan_Mosque_Singapore.jpg/480px-Sultan_Mosque_Singapore.jpg"
   },
   {
     "id": "thian-hock-keng-temple",
@@ -569,7 +612,8 @@
     "opening_hours": "07:30-17:30",
     "category": "heritage",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Thian_Hock_Keng_Temple_Singapore.jpg/480px-Thian_Hock_Keng_Temple_Singapore.jpg"
   },
   {
     "id": "sri-veeramakaliamman-temple",
@@ -582,7 +626,8 @@
     "opening_hours": "06:00-12:00 17:30-21:00",
     "category": "heritage",
     "is_outdoor": false,
-    "source": "wikipedia.org"
+    "source": "wikipedia.org",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Sri_Veeramakaliamman_Temple_Singapore.jpg/480px-Sri_Veeramakaliamman_Temple_Singapore.jpg"
   },
   {
     "id": "raffles-place",
@@ -595,7 +640,8 @@
     "opening_hours": "24h",
     "category": "landmark",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Raffles_Place_Singapore.jpg/480px-Raffles_Place_Singapore.jpg"
   },
   {
     "id": "labrador-nature-reserve",
@@ -608,7 +654,8 @@
     "opening_hours": "07:00-19:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Labrador_Nature_Reserve_Singapore.jpg/480px-Labrador_Nature_Reserve_Singapore.jpg"
   },
   {
     "id": "pasir-ris-park",
@@ -621,7 +668,8 @@
     "opening_hours": "24h",
     "category": "nature",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Pasir_Ris_Park_Singapore.jpg/480px-Pasir_Ris_Park_Singapore.jpg"
   },
   {
     "id": "singapore-sports-hub",
@@ -634,7 +682,8 @@
     "opening_hours": "09:00-22:00",
     "category": "entertainment",
     "is_outdoor": false,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/Singapore_Sports_Hub.jpg/480px-Singapore_Sports_Hub.jpg"
   },
   {
     "id": "national-orchid-garden",
@@ -647,6 +696,7 @@
     "opening_hours": "08:30-19:00",
     "category": "nature",
     "is_outdoor": true,
-    "source": "visitsingapore.com"
+    "source": "visitsingapore.com",
+    "image_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/National_Orchid_Garden_Singapore.jpg/480px-National_Orchid_Garden_Singapore.jpg"
   }
 ]
