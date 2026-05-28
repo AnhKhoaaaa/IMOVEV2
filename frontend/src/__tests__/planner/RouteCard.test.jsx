@@ -24,37 +24,39 @@ describe('RouteCard', () => {
   it('renders transport mode and duration', () => {
     render(<RouteCard leg={baseLeg} />)
     expect(screen.getByText(/MRT/)).toBeInTheDocument()
-    expect(screen.getByText(/10 phút/)).toBeInTheDocument()
+    expect(screen.getByText(/10 min/)).toBeInTheDocument()
   })
 
   it('renders formatted cost', () => {
     render(<RouteCard leg={baseLeg} />)
-    expect(screen.getByText(/SGD 1\.50/)).toBeInTheDocument()
+    expect(screen.getByText(/S\$1\.50/)).toBeInTheDocument()
   })
 
-  it('shows "~ Ước tính" badge when is_estimated is true', () => {
+  it('shows estimated badge when is_estimated is true', () => {
     render(<RouteCard leg={{ ...baseLeg, is_estimated: true }} />)
-    expect(screen.getByText('~ Ước tính')).toBeInTheDocument()
+    expect(screen.getByText(/~Est\./)).toBeInTheDocument()
   })
 
   it('does not show badge when is_estimated is false', () => {
     render(<RouteCard leg={{ ...baseLeg, is_estimated: false }} />)
-    expect(screen.queryByText('~ Ước tính')).not.toBeInTheDocument()
+    expect(screen.queryByText(/~Est\./)).not.toBeInTheDocument()
   })
 
-  it('renders "SGD —" when cost_sgd is null', () => {
+  it('omits cost when cost_sgd is null', () => {
     render(<RouteCard leg={{ ...baseLeg, cost_sgd: null }} />)
-    expect(screen.getByText(/SGD —/)).toBeInTheDocument()
+    expect(screen.queryByText(/S\$/)).not.toBeInTheDocument()
   })
 
-  it('renders "SGD —" when cost_sgd is undefined', () => {
+  it('omits cost when cost_sgd is undefined', () => {
     render(<RouteCard leg={{ ...baseLeg, cost_sgd: undefined }} />)
-    expect(screen.getByText(/SGD —/)).toBeInTheDocument()
+    expect(screen.queryByText(/S\$/)).not.toBeInTheDocument()
   })
 
-  it('renders route direction', () => {
+  it('renders leg info with from/to place IDs without exposing raw IDs', () => {
     render(<RouteCard leg={baseLeg} />)
-    expect(screen.getByText('place-a → place-b')).toBeInTheDocument()
+    expect(screen.getByText(/MRT/)).toBeInTheDocument()
+    expect(screen.queryByText('place-a')).not.toBeInTheDocument()
+    expect(screen.queryByText('place-b')).not.toBeInTheDocument()
   })
 
   // ── Edit button ───────────────────────────────────────────────────────────
@@ -75,11 +77,11 @@ describe('RouteCard', () => {
     await waitFor(() => expect(screen.getByRole('combobox')).toBeInTheDocument())
   })
 
-  it('clicking Huỷ closes the edit dialog', async () => {
+  it('clicking Cancel closes the edit dialog', async () => {
     render(<RouteCard leg={baseLeg} tripId="trip-1" />)
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => screen.getByRole('combobox'))
-    fireEvent.click(screen.getByRole('button', { name: /huỷ/i }))
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
   })
 
@@ -90,7 +92,7 @@ describe('RouteCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => screen.getByRole('combobox'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'BUS' } })
-    fireEvent.click(screen.getByRole('button', { name: /xác nhận/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
 
     await waitFor(() =>
       expect(api.updateLeg).toHaveBeenCalledWith('trip-1', 'leg-1', { transport_mode: 'BUS' })
@@ -103,7 +105,7 @@ describe('RouteCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => screen.getByRole('combobox'))
-    fireEvent.click(screen.getByRole('button', { name: /xác nhận/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
 
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
   })
@@ -115,7 +117,7 @@ describe('RouteCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => screen.getByRole('combobox'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'BUS' } })
-    fireEvent.click(screen.getByRole('button', { name: /xác nhận/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
 
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
     expect(screen.getByText(/Bus/)).toBeInTheDocument()
@@ -128,7 +130,7 @@ describe('RouteCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => screen.getByRole('combobox'))
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'BUS' } })
-    fireEvent.click(screen.getByRole('button', { name: /xác nhận/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
@@ -142,11 +144,40 @@ describe('RouteCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /edit/i }))
     await waitFor(() => screen.getByRole('combobox'))
-    fireEvent.click(screen.getByRole('button', { name: /xác nhận/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent('Update failed')
     )
     expect(screen.getByRole('combobox')).toBeInTheDocument()
+  })
+
+  // ── instructions rendering ────────────────────────────────────────────────
+
+  it('renders correctly with geometry=null and no instructions', () => {
+    render(<RouteCard leg={{ ...baseLeg, geometry: null, instructions: [] }} />)
+    expect(screen.getByText(/MRT/)).toBeInTheDocument()
+    expect(screen.getByText(/10 min/)).toBeInTheDocument()
+  })
+
+  it('expands to show instructions when leg.instructions is non-empty', async () => {
+    const legWithInstructions = {
+      ...baseLeg,
+      geometry: null,
+      instructions: ['Walk to Bayfront Station (5 min)', 'Board EW line at Bayfront'],
+    }
+    render(<RouteCard leg={legWithInstructions} />)
+
+    // Initially collapsed — instructions not visible
+    expect(screen.queryByText('Walk to Bayfront Station (5 min)')).not.toBeInTheDocument()
+
+    // Click the card header button to expand
+    const buttons = screen.getAllByRole('button')
+    fireEvent.click(buttons[0])
+
+    await waitFor(() =>
+      expect(screen.getByText('Walk to Bayfront Station (5 min)')).toBeInTheDocument()
+    )
+    expect(screen.getByText('Board EW line at Bayfront')).toBeInTheDocument()
   })
 })

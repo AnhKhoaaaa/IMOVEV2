@@ -16,12 +16,14 @@ const makeLeg = (overrides = {}) => ({
 describe('DayPlan', () => {
   it('renders day header: 1 leg = 2 places', () => {
     render(<DayPlan day={1} legs={[makeLeg()]} />)
-    expect(screen.getByText('Ngày 1 — 2 địa điểm')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: /Day 1/i })).toBeInTheDocument()
+    expect(screen.getByText(/2 stops/)).toBeInTheDocument()
   })
 
-  it('renders "0 địa điểm" when legs is empty', () => {
+  it('renders "No stops yet" when legs is empty', () => {
     render(<DayPlan day={2} legs={[]} />)
-    expect(screen.getByText('Ngày 2 — 0 địa điểm')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: /Day 2/i })).toBeInTheDocument()
+    expect(screen.getByText('No stops yet')).toBeInTheDocument()
   })
 
   it('counts multiple legs correctly: 3 legs = 4 places', () => {
@@ -31,7 +33,8 @@ describe('DayPlan', () => {
       makeLeg({ id: 'l3', from_place_id: 'C', to_place_id: 'D' }),
     ]
     render(<DayPlan day={3} legs={legs} />)
-    expect(screen.getByText('Ngày 3 — 4 địa điểm')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: /Day 3/i })).toBeInTheDocument()
+    expect(screen.getByText(/4 stops/)).toBeInTheDocument()
   })
 
   it('renders all legs', () => {
@@ -40,18 +43,19 @@ describe('DayPlan', () => {
       makeLeg({ id: 'l2', transport_mode: 'WALK', from_place_id: 'B', to_place_id: 'C' }),
     ]
     render(<DayPlan day={1} legs={legs} />)
-    expect(screen.getByText(/MRT/)).toBeInTheDocument()
-    expect(screen.getByText(/Đi bộ/)).toBeInTheDocument()
+    // TransitSegment maps MRT → "Transit", WALK → "Walking"
+    expect(screen.getAllByText(/Transit/)[0]).toBeInTheDocument()
+    expect(screen.getAllByText(/Walking/)[0]).toBeInTheDocument()
   })
 
-  it('shows "~ Ước tính" badge for estimated leg', () => {
+  it('shows estimated badge for estimated leg', () => {
     render(<DayPlan day={1} legs={[makeLeg({ is_estimated: true })]} />)
-    expect(screen.getByText('~ Ước tính')).toBeInTheDocument()
+    expect(screen.getByText(/Est\./)).toBeInTheDocument()
   })
 
   it('does not show badge for non-estimated leg', () => {
     render(<DayPlan day={1} legs={[makeLeg({ is_estimated: false })]} />)
-    expect(screen.queryByText('~ Ước tính')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Est\./)).not.toBeInTheDocument()
   })
 
   it('renders badge only for estimated legs when mixed', () => {
@@ -60,7 +64,7 @@ describe('DayPlan', () => {
       makeLeg({ id: 'l2', is_estimated: false, from_place_id: 'B', to_place_id: 'C' }),
     ]
     render(<DayPlan day={1} legs={legs} />)
-    expect(screen.getAllByText('~ Ước tính')).toHaveLength(1)
+    expect(screen.getAllByText(/Est\./)).toHaveLength(1)
   })
 
   describe('time slot grouping', () => {

@@ -1,129 +1,168 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MapPin, Settings, Sparkles, X, AlertCircle, Check, Loader2 } from 'lucide-react'
-import PlaceBrowser from '../components/planner/PlaceBrowser'
+import {
+  MapPin, Sparkles, AlertCircle, Loader2, Navigation2, Calendar, Clock,
+  ChevronDown, Plus, X, ChevronLeft, Pencil,
+} from 'lucide-react'
 import { api } from '../services/api'
-import { Button } from '../components/ui/button'
-import { Input } from '../components/ui/input'
-import { Label } from '../components/ui/label'
-import { Checkbox } from '../components/ui/checkbox'
+import { useT } from '../contexts/LanguageContext'
+import { cn } from '../lib/utils'
 import { Alert, AlertDescription } from '../components/ui/alert'
+import PlaceSearch from '../components/planner/PlaceSearch'
 
-const STEPS = [
-  { id: 1, label: 'Điểm đến', icon: MapPin },
-  { id: 2, label: 'Địa điểm', icon: MapPin },
-  { id: 3, label: 'Tuỳ chỉnh', icon: Settings },
-  { id: 4, label: 'Xác nhận', icon: Sparkles },
+/* ── Constants ───────────────────────────────────────────────────── */
+const COMPANIONS = [
+  { id: 'solo',    emoji: '🚶' },
+  { id: 'family',  emoji: '👨‍👩‍👧‍👦' },
+  { id: 'couple',  emoji: '💑' },
+  { id: 'friends', emoji: '👬' },
+  { id: 'elderly', emoji: '👵' },
+]
+const STYLES = [
+  { id: 'cultural',   emoji: '🎭' },
+  { id: 'classic',    emoji: '🌟' },
+  { id: 'nature',     emoji: '🌿' },
+  { id: 'cityscape',  emoji: '🏙️' },
+  { id: 'historical', emoji: '🏛️' },
+]
+const PACES = [
+  { id: 'ambitious', emoji: '📅', budget: 35,  walk: 5  },
+  { id: 'moderate',  emoji: '⚖️', budget: 60,  walk: 15 },
+  { id: 'relaxed',   emoji: '🌴', budget: 100, walk: 30 },
 ]
 
-const TRAVEL_STYLES = [
-  { id: 'cultural',      label: 'Văn hoá & Di sản' },
-  { id: 'nature',        label: 'Thiên nhiên' },
-  { id: 'entertainment', label: 'Giải trí & Vui chơi' },
-  { id: 'food',          label: 'Ẩm thực địa phương' },
-  { id: 'shopping',      label: 'Mua sắm' },
-]
-
-const GROUP_TYPES = [
-  { id: 'solo',   label: 'Một mình' },
-  { id: 'couple', label: 'Cặp đôi' },
-  { id: 'group',  label: 'Nhóm bạn' },
-  { id: 'family', label: 'Gia đình' },
-]
-
+/* ── Helpers ─────────────────────────────────────────────────────── */
 const generateId = () =>
   typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
+function haversineKm(a, b) {
+  if (!a?.lat || !b?.lat) return 5
+  const R = 6371
+  const dLat = (b.lat - a.lat) * Math.PI / 180
+  const dLng = (b.lng - a.lng) * Math.PI / 180
+  const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))
+}
+
+function dist(a, b) {
+  const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLng = (b.lng - a.lng) * Math.PI / 180
+  const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))
+}
+
+function selectPlaces(allPlaces, styles, numDays, pace) {
+  const styleToCategory = {
+    cultural: ['museum', 'heritage'], classic: ['landmark'],
+    nature: ['nature'], cityscape: ['landmark', 'entertainment'], historical: ['heritage', 'museum'],
+  }
+  const preferredCats = [...new Set(styles.flatMap((s) => styleToCategory[s] ?? []))]
+  const maxPlaces = Math.min(6, Math.max(3, numDays * 2))
+  const MIN_KM = 1.0
+  const sorted = [...allPlaces].sort((a, b) => {
+    const aP = preferredCats.includes(a.category) ? 0 : 1
+    const bP = preferredCats.includes(b.category) ? 0 : 1
+    if (aP !== bP) return aP - bP
+    if (pace === 'relaxed') return (a.is_outdoor ? 1 : 0) - (b.is_outdoor ? 1 : 0)
+    return 0
+  })
+  const selected = []
+  for (const p of sorted) {
+    if (selected.length >= maxPlaces) break
+    if (!selected.some((s) => dist(p, s) < MIN_KM)) selected.push(p)
+  }
+  return selected.map((p) => p.id)
+}
+
+/* ── Sub-components ──────────────────────────────────────────────── */
+
+const Chip = ({ active, onClick, children }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      'inline-flex items-center gap-2 rounded-full border px-3.5 h-9 text-[13.5px] font-medium transition whitespace-nowrap',
+      active
+        ? 'border-indigo-300 bg-indigo-50 text-indigo-900 ring-1 ring-indigo-200'
+        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+    )}
+  >
+    {children}
+  </button>
+)
+
+function PlaceRow({ place, index, onRemove }) {
+  const { t } = useT()
+  return (
+    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 group">
+      <span className="text-[11px] font-bold text-slate-400 w-4 shrink-0 tabular-nums">{index + 1}</span>
+      <MapPin size={13} className="text-slate-400 shrink-0" />
+      <span className="flex-1 text-[13px] font-medium text-slate-800 truncate">{place.name}</span>
+      {place.category && (
+        <span className="text-[10.5px] text-slate-400 capitalize shrink-0 hidden sm:block">{place.category}</span>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="grid h-5 w-5 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 opacity-0 group-hover:opacity-100 transition shrink-0"
+        aria-label={t('noPlacesTitle')}
+      >
+        <X size={11} />
+      </button>
+    </div>
+  )
+}
+
+/* ── Main ────────────────────────────────────────────────────────── */
 export default function Planner() {
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
-  const [places, setPlaces] = useState([])
-  const [numDays, setNumDays] = useState(1)
-  const [budget, setBudget] = useState(50)
-  const [preferMrt, setPreferMrt] = useState(true)
-  const [maxWalkMinutes, setMaxWalkMinutes] = useState(15)
-  const [optimizeOrder, setOptimizeOrder] = useState(true)
-  const [travelStyles, setTravelStyles] = useState([])
-  const [groupType, setGroupType] = useState('solo')
-  const [placeMode, setPlaceMode] = useState('manual')
-  const [aiStage, setAiStage] = useState('idle')
-  const [aiError, setAiError] = useState(null)
-  const [thinkingIdx, setThinkingIdx] = useState(0)
-  const [loading, setLoading] = useState(false)
+  const { t } = useT()
+
+  const [planMode, setPlanMode] = useState(null)
+
+  /* ── Shared ────────────────────────── */
+  const [loading, setLoading]       = useState(false)
   const [submitError, setSubmitError] = useState(null)
 
-  useEffect(() => {
-    if (aiStage !== 'thinking') return
-    const id = setInterval(() => setThinkingIdx((prev) => Math.min(prev + 1, 2)), 900)
-    return () => clearInterval(id)
-  }, [aiStage])
+  /* ── Manual state ──────────────────── */
+  const [tripName, setTripName]             = useState('')
+  const [manFlexible, setManFlexible]       = useState(true)
+  const [manStartDate, setManStartDate]     = useState('')
+  const [manNumDays, setManNumDays]         = useState(3)
+  const [builder, setBuilder]   = useState({ places: [] })
+  const [showSearch, setShowSearch] = useState(false)
 
-  const togglePlace = (place) =>
-    setPlaces((prev) =>
-      prev.some((p) => p.id === place.id)
-        ? prev.filter((p) => p.id !== place.id)
-        : [...prev, place],
-    )
+  const addPlace = (place) => {
+    if (builder.places.some(p => p.id === place.id)) return
+    setBuilder(prev => ({ places: [...prev.places, place] }))
+  }
 
-  const removePlace = (id) => setPlaces((prev) => prev.filter((p) => p.id !== id))
+  const removePlace = (idx) => {
+    setBuilder(prev => ({ places: prev.places.filter((_, i) => i !== idx) }))
+  }
 
-  const toggleTravelStyle = (id) =>
-    setTravelStyles((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
-    )
-
-  const runAiSuggest = async () => {
-    setAiStage('thinking')
-    setAiError(null)
-    setThinkingIdx(0)
+  const submitManual = async () => {
+    if (builder.places.length === 0) { setSubmitError(t('addAtLeastOne')); return }
+    setLoading(true); setSubmitError(null)
     try {
-      const [result, allPlaces] = await Promise.all([
-        api.suggestPlaces({ num_days: numDays, travel_styles: travelStyles, group_type: groupType }),
-        api.getCuratedPlaces(),
-      ])
-      const suggested = result.suggested_place_ids
-        .map((id) => allPlaces.find((p) => p.id === id))
-        .filter(Boolean)
-      setPlaces(suggested)
-      setAiStage('done')
-    } catch (e) {
-      setAiError(e.message)
-      setAiStage('error')
-    }
-  }
+      const sessionId = localStorage.getItem('session_id') ?? generateId()
+      localStorage.setItem('session_id', sessionId)
 
-  const handleNumDays = (e) => {
-    const v = parseInt(e.target.value, 10)
-    if (!isNaN(v) && v >= 1) setNumDays(v)
-  }
-
-  const handleBudget = (e) => {
-    const v = parseInt(e.target.value, 10)
-    if (!isNaN(v) && v >= 1) setBudget(v)
-  }
-
-  const submit = async () => {
-    setLoading(true)
-    setSubmitError(null)
-    try {
-      let sessionId
-      try { sessionId = localStorage.getItem('session_id') ?? generateId(); localStorage.setItem('session_id', sessionId) }
-      catch { sessionId = generateId() }
-
-      const trip = await api.createTrip({ session_id: sessionId, num_days: numDays, budget_sgd: budget })
+      const trip = await api.createTrip({ session_id: sessionId, num_days: manNumDays, budget_sgd: 60 })
       await api.planTrip(trip.trip_id, {
-        place_ids: places.map((p) => p.id),
-        optimize_order: optimizeOrder,
+        place_ids: builder.places.map(p => p.id),
+        optimize_order: false,
         preferences: {
-          prefer_mrt: preferMrt,
-          max_walk_minutes: maxWalkMinutes,
-          travel_styles: travelStyles,
-          group_type: groupType,
+          prefer_mrt: true,
+          max_walk_minutes: 20,
+          travel_styles: [],
+          group_type: 'solo',
         },
       })
-      navigate(`/trip/${trip.trip_id}`)
+      navigate(`/trip/${trip.trip_id}`, {
+        state: { pendingSave: { name: tripName.trim() || 'Singapore Trip', startDate: manFlexible ? null : manStartDate, numDays: manNumDays } },
+      })
     } catch (e) {
       setSubmitError(e.message)
     } finally {
@@ -131,365 +170,487 @@ export default function Planner() {
     }
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-xl px-4 py-8 sm:px-6">
-        {/* Step indicator */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            {STEPS.map((s, i) => (
-              <div key={s.id} className="flex items-center">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold transition-colors ${step > s.id ? 'bg-sky-500 text-white' : step === s.id ? 'bg-sky-500 text-white ring-4 ring-sky-100' : 'bg-slate-200 text-slate-500'}`}>
-                  {step > s.id ? <Check className="h-4 w-4" /> : s.id}
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className={`h-0.5 w-full mx-1 sm:mx-2 ${step > s.id ? 'bg-sky-500' : 'bg-slate-200'}`} style={{ width: '2rem' }} />
-                )}
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 text-xs text-slate-500 text-center">
-            Bước {step} / {STEPS.length} — {STEPS[step - 1].label}
-          </p>
-        </div>
+  /* ── AI state ──────────────────────── */
+  const [aiStartDate, setAiStartDate]       = useState('')
+  const [aiFlexible, setAiFlexible]         = useState(false)
+  const [aiNumDays, setAiNumDays]           = useState(3)
+  const [companion, setCompanion]           = useState('solo')
+  const [travelStyles, setTravelStyles]     = useState([])
+  const [pace, setPace]                     = useState('moderate')
+  const [prefsOpen, setPrefsOpen]           = useState(true)
 
-        {/* Card container */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-6">
+  const toggleStyle = (id) =>
+    setTravelStyles(p => p.includes(id) ? p.filter(s => s !== id) : [...p, id])
 
-          {/* Step 1 */}
-          {step === 1 && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Điểm đến</h2>
-                <p className="text-sm text-slate-500 mt-1">Chúng tôi hỗ trợ lập kế hoạch tại Singapore trong MVP này</p>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 p-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-100">
-                  <MapPin className="h-5 w-5 text-sky-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-slate-900">Singapore</p>
-                  <p className="text-xs text-slate-500">Thành phố sư tử — Hub giao thông công cộng hàng đầu Châu Á</p>
-                </div>
-              </div>
-              <Button className="w-full" onClick={() => setStep(2)}>Tiếp theo</Button>
+  const paceConfig = PACES.find(p => p.id === pace) ?? PACES[1]
+  const aiCanSubmit = !loading && (aiFlexible || aiStartDate !== '')
+
+  const submitAI = async () => {
+    setLoading(true); setSubmitError(null)
+    try {
+      const sessionId = localStorage.getItem('session_id') ?? generateId()
+      localStorage.setItem('session_id', sessionId)
+      const allPlaces = await api.getCuratedPlaces()
+      const placeIds = selectPlaces(allPlaces, travelStyles, aiNumDays, pace)
+      const trip = await api.createTrip({ session_id: sessionId, num_days: aiNumDays, budget_sgd: paceConfig.budget })
+      await api.planTrip(trip.trip_id, {
+        place_ids: placeIds,
+        optimize_order: true,
+        preferences: {
+          prefer_mrt: true,
+          max_walk_minutes: paceConfig.walk,
+          travel_styles: travelStyles,
+          group_type: companion,
+        },
+      })
+      navigate(`/trip/${trip.trip_id}`, {
+        state: { pendingSave: { name: 'Singapore Trip', startDate: aiFlexible || !aiStartDate ? null : aiStartDate, numDays: aiNumDays } },
+      })
+    } catch (e) {
+      setSubmitError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  /* ── Mode chooser ───────────────────────────────────────────────── */
+  if (planMode === null) {
+    return (
+      <div className="min-h-screen bg-slate-50 py-10">
+        <div className="w-[min(480px,calc(100vw-32px))] mx-auto px-4 sm:px-0 space-y-5">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white shadow-pop mb-4">
+              <Navigation2 size={22} strokeWidth={2.5} />
             </div>
-          )}
+            <h1 className="font-display font-extrabold text-[28px] text-slate-900 leading-tight">
+              {t('planYourTrip')}
+            </h1>
+            <p className="text-[14px] text-slate-500 mt-1.5">{t('choosePlanMethod')}</p>
+          </div>
 
-          {/* Step 2 */}
-          {step === 2 && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Chọn địa điểm</h2>
-                <p className="text-sm text-slate-500 mt-1">Chọn các địa điểm bạn muốn ghé thăm tại Singapore</p>
+          {/* PRIMARY: Manual */}
+          <button
+            onClick={() => setPlanMode('manual')}
+            className="w-full rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 p-px shadow-pop group"
+          >
+            <div className="rounded-[calc(1rem-1px)] bg-white p-5 text-left hover:bg-indigo-50/30 transition">
+              <div className="flex items-start gap-4">
+                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white">
+                  <Pencil size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-display font-bold text-[17px] text-slate-900">
+                      {t('buildYourselfTitle')}
+                    </span>
+                    <span className="rounded-full bg-indigo-100 text-indigo-700 text-[10.5px] font-bold px-2 h-5 inline-flex items-center">
+                      {t('recommendedBadge')}
+                    </span>
+                  </div>
+                  <p className="text-[13px] text-slate-500 leading-relaxed">
+                    {t('buildYourselfDesc')}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {[t('tag_freeChoice'), t('tag_transport'), t('tag_customizable')].map(tag => (
+                      <span key={tag} className="text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full px-2 h-5 inline-flex items-center font-medium">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-indigo-400 group-hover:translate-x-0.5 transition-transform shrink-0 mt-1">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </button>
+
+          {/* SECONDARY: AI */}
+          <button
+            onClick={() => setPlanMode('ai')}
+            className="w-full rounded-2xl border border-slate-200 bg-white p-5 text-left hover:border-slate-300 hover:bg-slate-50/50 transition group shadow-card"
+          >
+            <div className="flex items-start gap-4">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600 group-hover:bg-fuchsia-50 group-hover:text-fuchsia-600 transition">
+                <Sparkles size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-display font-bold text-[17px] text-slate-900 mb-1">
+                  {t('planWithAITitle')}
+                </div>
+                <p className="text-[13px] text-slate-500 leading-relaxed">
+                  {t('planWithAIDesc')}
+                </p>
+              </div>
+              <div className="text-slate-300 group-hover:translate-x-0.5 transition-transform shrink-0 mt-1">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  /* ── Shared header wrapper ──────────────────────────────────────── */
+  return (
+    <div className="min-h-screen bg-slate-50 py-8">
+      <div className="w-[min(520px,calc(100vw-32px))] mx-auto px-4 sm:px-0">
+
+        {/* Back link */}
+        <button
+          onClick={() => { setPlanMode(null); setSubmitError(null) }}
+          className="inline-flex items-center gap-1.5 text-[13px] text-slate-500 hover:text-slate-700 mb-4 transition"
+        >
+          <ChevronLeft size={14} />
+          {t('changeMethod')}
+        </button>
+
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
+
+          {/* ── MANUAL MODE ─────────────────────────────────────── */}
+          {planMode === 'manual' && (
+            <>
+              {/* Header */}
+              <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 px-5 pt-5 pb-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide font-semibold text-white/70 mb-1">{t('manualHeaderLabel')}</div>
+                    <div className="font-display font-extrabold text-[26px] text-white leading-none">Singapore</div>
+                    <div className="text-[13px] text-white/75 mt-2">{t('manualHeaderSub')}</div>
+                  </div>
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/20 border border-white/30">
+                    <Pencil size={16} className="text-white" />
+                  </div>
+                </div>
               </div>
 
-              {/* Mode tabs */}
-              <div className="flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 gap-0.5">
-                {[
-                  { id: 'manual',  label: '🗂️ Tự chọn' },
-                  { id: 'ai',      label: '✨ AI Gợi ý' },
-                ].map(({ id, label }) => (
-                  <button
-                    key={id}
-                    onClick={() => setPlaceMode(id)}
-                    className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
-                      placeMode === id
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <div className="px-5 pb-5 pt-5 space-y-6">
 
-              {/* Manual tab */}
-              {placeMode === 'manual' && (
-                <PlaceBrowser
-                  selectedIds={places.map((p) => p.id)}
-                  onToggle={togglePlace}
-                />
-              )}
+                {/* Trip basics */}
+                <section className="space-y-4">
+                  <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500">{t('tripInfoSection')}</p>
 
-              {/* AI Suggest tab */}
-              {placeMode === 'ai' && (
-                <div className="space-y-4">
-                  {aiStage === 'idle' && (
-                    <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-4 text-center">
-                      <p className="text-sm text-slate-600">
-                        AI sẽ gợi ý địa điểm phù hợp dựa trên sở thích của bạn.
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        Đặt phong cách du lịch ở Bước 3 để gợi ý chính xác hơn.
-                      </p>
-                      <Button onClick={runAiSuggest} className="gap-2">
-                        <Sparkles className="h-4 w-4" />
-                        Tạo gợi ý cho tôi
-                      </Button>
-                    </div>
+                  {/* Trip name */}
+                  <div>
+                    <label className="text-[12px] font-semibold text-slate-600 block mb-1.5">{t('tripNameLabel')}</label>
+                    <input
+                      type="text"
+                      value={tripName}
+                      onChange={e => setTripName(e.target.value)}
+                      placeholder={t('tripNamePlaceholder')}
+                      className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                    />
+                  </div>
+
+                  {/* Date toggle */}
+                  <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50 gap-1">
+                    {[
+                      { id: true,  label: t('flexibleLabel'), icon: <Clock size={13} /> },
+                      { id: false, label: t('specificDatesLabel'), icon: <Calendar size={13} /> },
+                    ].map(({ id, label, icon }) => (
+                      <button
+                        key={String(id)}
+                        type="button"
+                        onClick={() => setManFlexible(id)}
+                        className={cn(
+                          'flex-1 h-9 rounded-lg text-[13px] font-medium transition inline-flex items-center justify-center gap-1.5',
+                          manFlexible === id
+                            ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                            : 'text-slate-500 hover:text-slate-700'
+                        )}
+                      >
+                        {icon} {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {!manFlexible ? (
+                    <input
+                      type="date"
+                      value={manStartDate}
+                      onChange={e => setManStartDate(e.target.value)}
+                      className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:border-indigo-400"
+                    />
+                  ) : (
+                    <p className="text-[12.5px] text-slate-500 italic px-1">{t('flexibleHint')}</p>
                   )}
 
-                  {aiStage === 'thinking' && (
-                    <div className="space-y-3 rounded-lg border border-sky-100 bg-sky-50 p-5">
-                      {[
-                        'Đang phân tích sở thích của bạn...',
-                        'Đang tìm địa điểm phù hợp...',
-                        'Đang tối ưu lịch trình...',
-                      ].map((label, i) => (
-                        <div key={i} className={`flex items-center gap-2.5 text-sm transition-opacity ${i <= thinkingIdx ? 'opacity-100' : 'opacity-30'}`}>
-                          {i < thinkingIdx ? (
-                            <Check className="h-4 w-4 text-sky-500 shrink-0" />
-                          ) : i === thinkingIdx ? (
-                            <Loader2 className="h-4 w-4 text-sky-500 shrink-0 animate-spin" />
-                          ) : (
-                            <span className="h-4 w-4 shrink-0" />
-                          )}
-                          <span className={i <= thinkingIdx ? 'text-sky-700' : 'text-slate-400'}>{label}</span>
-                        </div>
+                  {/* Duration */}
+                  <div className="flex items-center justify-between">
+                    <p className="text-[13px] font-medium text-slate-700">{t('numDaysLabel')}</p>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setManNumDays(n => Math.max(1, n - 1))}
+                        className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold"
+                      >−</button>
+                      <div className="h-11 w-20 rounded-xl border border-slate-200 bg-slate-50/40 grid place-items-center">
+                        <span className="font-display font-bold text-[22px] text-slate-900 tabular-nums">{manNumDays}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setManNumDays(n => Math.min(14, n + 1))}
+                        className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold"
+                      >+</button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Place builder */}
+                <section>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500">
+                      {t('placesSection', builder.places.length)}
+                    </p>
+                    {builder.places.length > 0 && (
+                      <span className="text-[11px] text-slate-400">
+                        {t('clickToChange')}
+                      </span>
+                    )}
+                  </div>
+
+                  {builder.places.length === 0 ? (
+                    <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 py-8 text-center">
+                      <MapPin size={24} className="mx-auto text-slate-300 mb-2" />
+                      <p className="text-[13px] font-medium text-slate-500">{t('noPlacesTitle')}</p>
+                      <p className="text-[12px] text-slate-400 mt-0.5">{t('noPlacesHint')}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-0">
+                      {builder.places.map((place, i) => (
+                        <PlaceRow
+                          key={place.id}
+                          place={place}
+                          index={i}
+                          onRemove={() => removePlace(i)}
+                        />
                       ))}
                     </div>
                   )}
 
-                  {aiStage === 'error' && (
-                    <div className="space-y-3 rounded-lg border border-red-100 bg-red-50 p-4">
-                      <p className="text-sm text-red-600">{aiError}</p>
-                      <Button variant="outline" size="sm" onClick={runAiSuggest} className="gap-2">
-                        <Sparkles className="h-4 w-4" />
-                        Thử lại
-                      </Button>
-                    </div>
-                  )}
-
-                  {aiStage === 'done' && (
-                    <div className="space-y-3">
+                  {/* Search panel */}
+                  {showSearch ? (
+                    <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 space-y-2">
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-slate-500">
-                          AI đã gợi ý {places.length} địa điểm — bạn có thể chỉnh sửa bên dưới.
-                        </p>
+                        <span className="text-[12px] font-semibold text-indigo-700">{t('searchPlaceTitle')}</span>
                         <button
-                          onClick={() => setAiStage('idle')}
-                          className="text-xs text-sky-600 hover:underline"
+                          type="button"
+                          onClick={() => setShowSearch(false)}
+                          className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:bg-slate-200"
                         >
-                          Tạo lại
+                          <X size={12} />
                         </button>
                       </div>
-                      <PlaceBrowser
-                        selectedIds={places.map((p) => p.id)}
-                        onToggle={togglePlace}
+                      <PlaceSearch
+                        onAdd={addPlace}
+                        addedIds={new Set(builder.places.map(p => p.id))}
                       />
                     </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowSearch(true)}
+                      className="mt-3 w-full h-10 rounded-xl border-2 border-dashed border-slate-300 text-[13px] font-semibold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition inline-flex items-center justify-center gap-2"
+                    >
+                      <Plus size={14} /> {t('addPlaceBtn')}
+                    </button>
                   )}
-                </div>
-              )}
+                </section>
 
-              {places.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wide">
-                    Đã chọn ({places.length})
-                  </p>
-                  <ul className="space-y-1.5">
-                    {places.map((p) => (
-                      <li
-                        key={p.id}
-                        className="flex items-center justify-between rounded-lg bg-sky-50 border border-sky-100 px-3 py-2"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Check className="h-3.5 w-3.5 text-sky-500 shrink-0" />
-                          <span className="text-sm text-slate-700">{p.name}</span>
-                        </div>
-                        <button
-                          onClick={() => removePlace(p.id)}
-                          className="text-slate-400 hover:text-red-500 transition-colors ml-2"
-                          aria-label={`Xoá ${p.name}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <Button className="w-full" onClick={() => setStep(3)} disabled={!places.length}>
-                Tiếp theo {places.length > 0 && `(${places.length} địa điểm)`}
-              </Button>
-            </div>
-          )}
-
-          {/* Step 3 */}
-          {step === 3 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Tuỳ chỉnh chuyến đi</h2>
-                <p className="text-sm text-slate-500 mt-1">Thiết lập thời gian, ngân sách và sở thích di chuyển</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="numDays">Số ngày</Label>
-                  <Input id="numDays" type="number" value={numDays} min={1} max={7} onChange={handleNumDays} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="budget">Ngân sách (SGD)</Label>
-                  <Input id="budget" type="number" value={budget} min={1} onChange={handleBudget} />
-                </div>
-              </div>
-
-              {/* Travel style */}
-              <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-4">
-                <p className="text-sm font-medium text-slate-700">Phong cách du lịch</p>
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Phong cách du lịch">
-                  {TRAVEL_STYLES.map(({ id, label }) => {
-                    const active = travelStyles.includes(id)
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => toggleTravelStyle(id)}
-                        aria-pressed={active}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          active
-                            ? 'border-sky-400 bg-sky-500 text-white'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-600'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              {/* Group type */}
-              <div className="space-y-3 rounded-lg border border-slate-100 bg-slate-50 p-4">
-                <p className="text-sm font-medium text-slate-700">Đi cùng ai</p>
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Đi cùng ai">
-                  {GROUP_TYPES.map(({ id, label }) => {
-                    const active = groupType === id
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setGroupType(id)}
-                        aria-pressed={active}
-                        className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                          active
-                            ? 'border-sky-400 bg-sky-500 text-white'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:text-sky-600'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="space-y-4 rounded-lg border border-slate-100 bg-slate-50 p-4">
-                <p className="text-sm font-medium text-slate-700">Sở thích di chuyển</p>
-                <div className="flex items-center gap-3">
-                  <Checkbox
-                    id="preferMrt"
-                    checked={preferMrt}
-                    onCheckedChange={(v) => setPreferMrt(v === true)}
-                  />
-                  <Label htmlFor="preferMrt" className="cursor-pointer">Ưu tiên MRT (nhanh hơn)</Label>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label htmlFor="walk-slider">Tối đa đi bộ</Label>
-                    <span className="text-sm font-semibold text-sky-600">{maxWalkMinutes} phút</span>
-                  </div>
-                  <input
-                    id="walk-slider"
-                    type="range"
-                    min={5}
-                    max={60}
-                    step={5}
-                    value={maxWalkMinutes}
-                    onChange={(e) => setMaxWalkMinutes(+e.target.value)}
-                    className="w-full h-2 cursor-pointer accent-sky-500"
-                  />
-                  <div className="flex justify-between text-xs text-slate-400">
-                    <span>5 phút</span>
-                    <span>60 phút</span>
-                  </div>
-                </div>
-              </div>
-
-              <Button className="w-full" onClick={() => setStep(4)}>Tiếp theo</Button>
-            </div>
-          )}
-
-          {/* Step 4 */}
-          {step === 4 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Xác nhận & Tạo kế hoạch</h2>
-                <p className="text-sm text-slate-500 mt-1">Xem lại và tạo hành trình của bạn</p>
-              </div>
-
-              {/* Summary */}
-              <div className="rounded-lg border border-slate-200 divide-y divide-slate-100 text-sm">
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-slate-500">Địa điểm</span>
-                  <span className="font-medium text-slate-900">{places.length} nơi</span>
-                </div>
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-slate-500">Số ngày</span>
-                  <span className="font-medium text-slate-900">{numDays} ngày</span>
-                </div>
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-slate-500">Ngân sách</span>
-                  <span className="font-medium text-slate-900">SGD {budget}</span>
-                </div>
-                <div className="flex justify-between px-4 py-2.5">
-                  <span className="text-slate-500">Ưu tiên MRT</span>
-                  <span className="font-medium text-slate-900">{preferMrt ? 'Có' : 'Không'}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Checkbox
-                  id="optimizeOrder"
-                  checked={optimizeOrder}
-                  onCheckedChange={(v) => setOptimizeOrder(v === true)}
-                />
-                <Label htmlFor="optimizeOrder" className="cursor-pointer">
-                  Tự động tối ưu thứ tự địa điểm
-                </Label>
-              </div>
-
-              {submitError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{submitError}</AlertDescription>
-                </Alert>
-              )}
-
-              <Button className="w-full" onClick={submit} disabled={loading} size="lg">
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    Đang tạo kế hoạch...
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    Tạo kế hoạch
-                  </span>
+                {/* Error */}
+                {submitError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{submitError}</AlertDescription>
+                  </Alert>
                 )}
-              </Button>
 
-              <button
-                onClick={() => setStep(3)}
-                className="w-full text-sm text-slate-500 hover:text-slate-700 transition-colors"
-              >
-                ← Quay lại
-              </button>
-            </div>
+                {/* CTA */}
+                <button
+                  onClick={submitManual}
+                  disabled={loading || builder.places.length === 0}
+                  className="w-full h-14 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[16px] shadow-pop hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                >
+                  {loading
+                    ? <><Loader2 size={18} className="animate-spin" /> {t('creatingTrip')}</>
+                    : <><Navigation2 size={18} /> {t('createTripBtn', builder.places.length)}</>
+                  }
+                </button>
+                {builder.places.length === 0 && !loading && (
+                  <p className="text-center text-[12px] text-slate-400 -mt-4">
+                    {t('addAtLeastOne')}
+                  </p>
+                )}
+
+              </div>
+            </>
           )}
+
+          {/* ── AI MODE ─────────────────────────────────────────── */}
+          {planMode === 'ai' && (
+            <>
+              {/* Gradient header */}
+              <div className="bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 px-5 pt-5 pb-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide font-semibold text-white/60 mb-1">{t('aiHeaderLabel')}</div>
+                    <div className="font-display font-extrabold text-[28px] text-white leading-none">Singapore</div>
+                    <div className="text-[13px] text-white/65 mt-2">{t('aiHeaderSub')}</div>
+                  </div>
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 border border-white/20">
+                    <Sparkles size={18} className="text-white" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-5 pb-5 pt-5 space-y-6">
+
+                {/* Dates */}
+                <section>
+                  <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500 mb-3">{t('whenGoingLabel')}</p>
+                  <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50 gap-1 mb-4">
+                    {[
+                      { id: false, label: t('specificDatesLabel'), icon: <Calendar size={13} /> },
+                      { id: true,  label: t('flexibleLabel'),      icon: <Clock size={13} /> },
+                    ].map(({ id, label, icon }) => (
+                      <button
+                        key={String(id)}
+                        type="button"
+                        onClick={() => setAiFlexible(id)}
+                        className={cn(
+                          'flex-1 h-9 rounded-lg text-[13px] font-medium transition inline-flex items-center justify-center gap-1.5',
+                          aiFlexible === id
+                            ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                            : 'text-slate-500 hover:text-slate-700'
+                        )}
+                      >
+                        {icon} {label}
+                      </button>
+                    ))}
+                  </div>
+                  {!aiFlexible ? (
+                    <input
+                      type="date"
+                      value={aiStartDate}
+                      onChange={e => setAiStartDate(e.target.value)}
+                      className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:border-indigo-400 mb-4"
+                    />
+                  ) : (
+                    <p className="text-[12.5px] text-slate-500 italic px-1 mb-4">
+                      {t('flexibleDatesHint')}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <p className="text-[13px] font-medium text-slate-700">{t('numDaysLabel')}</p>
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => setAiNumDays(n => Math.max(1, n - 1))} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold">−</button>
+                      <div className="h-11 w-20 rounded-xl border border-slate-200 bg-slate-50/40 grid place-items-center">
+                        <span className="font-display font-bold text-[22px] text-slate-900 tabular-nums">{aiNumDays}</span>
+                      </div>
+                      <button onClick={() => setAiNumDays(n => Math.min(7, n + 1))} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold">+</button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Preferences — collapsible */}
+                <section>
+                  <button
+                    type="button"
+                    onClick={() => setPrefsOpen(o => !o)}
+                    className="w-full flex items-center justify-between text-left mb-3"
+                  >
+                    <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500">{t('preferencesLabel')}</p>
+                    <ChevronDown size={14} className={cn('text-slate-400 transition-transform', prefsOpen && 'rotate-180')} />
+                  </button>
+
+                  {prefsOpen && (
+                    <div className="space-y-5 animate-fade-up">
+                      <div>
+                        <p className="text-[11.5px] font-semibold text-slate-500 mb-2">{t('travellingWithLabel')}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {COMPANIONS.map(({ id, emoji }) => (
+                            <Chip key={id} active={companion === id} onClick={() => setCompanion(id)}>
+                              <span className="text-[15px] leading-none">{emoji}</span>
+                              <span>{t(`comp_${id}`)}</span>
+                            </Chip>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11.5px] font-semibold text-slate-500 mb-2">{t('travelStyleLabel')}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {STYLES.map(({ id, emoji }) => (
+                            <Chip key={id} active={travelStyles.includes(id)} onClick={() => toggleStyle(id)}>
+                              <span className="text-[15px] leading-none">{emoji}</span>
+                              <span>{t(`style_${id}`)}</span>
+                            </Chip>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11.5px] font-semibold text-slate-500 mb-2">{t('tripPaceLabel')}</p>
+                        <div className="flex gap-2">
+                          {PACES.map(({ id, emoji, budget, walk }) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => setPace(id)}
+                              className={cn(
+                                'flex-1 flex flex-col items-center gap-1 rounded-xl border py-3 px-2 text-[13px] font-medium transition',
+                                pace === id
+                                  ? 'border-indigo-300 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-200'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
+                              )}
+                            >
+                              <span className="text-[20px]">{emoji}</span>
+                              <span>{t(`pace_${id}`)}</span>
+                              <span className="text-[10px] text-slate-400 tabular-nums">≤S${budget} · {walk}m walk</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </section>
+
+                <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 px-4 py-3 flex items-start gap-3">
+                  <Sparkles size={15} className="text-fuchsia-500 mt-0.5 shrink-0" />
+                  <p className="text-[12.5px] text-fuchsia-800 leading-relaxed">
+                    {t('aiHint')}
+                  </p>
+                </div>
+
+                {submitError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{submitError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <button
+                  onClick={submitAI}
+                  disabled={!aiCanSubmit}
+                  className="w-full h-14 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-900 text-white font-display font-bold text-[16px] shadow-pop hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                >
+                  {loading
+                    ? <><Loader2 size={18} className="animate-spin" /> {t('planningBtn')}</>
+                    : <><Sparkles size={18} /> {t('planWithAIBtn')}</>
+                  }
+                </button>
+                {!aiCanSubmit && !loading && (
+                  <p className="text-center text-[12px] text-slate-400">
+                    {aiFlexible ? '' : t('selectStartDate')}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
         </div>
       </div>
     </div>
