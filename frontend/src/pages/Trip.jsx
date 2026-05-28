@@ -5,7 +5,7 @@ import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useGeolocation } from '../hooks/useGeolocation'
-import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { buildPlacesById } from '../lib/tripUtils'
 import { api } from '../services/api'
 import DayPlan from '../components/planner/DayPlan'
@@ -60,21 +60,13 @@ export default function Trip() {
   const navigate = useNavigate()
   const location = useLocation()
   const { state: navState } = location
-  const [authUserId, setAuthUserId] = useState(null)
-  const { trip, loading, error, refresh, isOffline } = useTrip(id)
-  const { save: saveTrip } = useSavedTrips(authUserId)
+  const { user } = useAuth()
+  const authUserId = user?.id ?? null
+  const { trip, loading, error, refresh, isOffline } = useTrip(id, authUserId)
+  const { trips: savedTrips, save: saveTrip } = useSavedTrips(authUserId)
   const { alerts, dismiss } = useAlerts(id)
   const { position } = useGeolocation()
   const lastLocationSent = useRef(0)
-
-  // ── Auth: resolve userId for per-user localStorage isolation ──
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setAuthUserId(data.session?.user?.id ?? null))
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setAuthUserId(session?.user?.id ?? null)
-    })
-    return () => subscription.unsubscribe()
-  }, [])
 
   // ── Pending save (navigated from Planner before saving) ───────
   // Persisted in sessionStorage so a page refresh doesn't orphan the trip.
@@ -106,11 +98,13 @@ export default function Trip() {
 
   // ── Edit setup modal ──────────────────────────────────────────
   const [setupOpen, setSetupOpen] = useState(false)
-  const [savedMeta, setSavedMeta] = useState(null)
 
-  useEffect(() => {
-    setSavedMeta(api.getSavedTrips(authUserId).find((t) => t.id === id) ?? null)
-  }, [authUserId, id])
+  // P6-BUG-6: derive from savedTrips so auth changes and saves auto-update
+  // without a second getSavedTrips call.
+  const savedMeta = useMemo(
+    () => savedTrips.find((t) => t.id === id) ?? null,
+    [savedTrips, id]
+  )
 
   // ── Optimization log (for SummaryTab) ─────────────────────────
   const [optimizationLog, setOptimizationLog] = useState([])
@@ -217,11 +211,11 @@ export default function Trip() {
   }, [weatherAlert])
 
   // ── Save setup ────────────────────────────────────────────────
+  // P6-BUG-1: use hook saveTrip (carries authUserId) not api.saveTrip directly.
+  // savedMeta is derived from savedTrips so it updates automatically after save.
   const handleSaveSetup = useCallback((updatedMeta) => {
-    const merged = { ...savedMeta, ...updatedMeta }
-    api.saveTrip(id, merged)
-    setSavedMeta(merged)
-  }, [savedMeta, id])
+    saveTrip(id, { ...savedMeta, ...updatedMeta })
+  }, [saveTrip, savedMeta, id])
 
   const placesById = useMemo(
     () => buildPlacesById(trip?.places ?? []),

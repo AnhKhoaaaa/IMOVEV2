@@ -8,16 +8,14 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useParams: () => ({ id: 'trip-123' }) }
 })
 
-vi.mock('../../lib/supabase', () => ({
-  supabase: {
-    auth: {
-      getSession: vi.fn(() => Promise.resolve({ data: { session: null } })),
-      onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
-    },
-  },
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: vi.fn(() => ({ user: null })),
 }))
 
 vi.mock('../../hooks/useTrip')
+vi.mock('../../hooks/useSavedTrips', () => ({
+  useSavedTrips: vi.fn(() => ({ trips: [], save: vi.fn(), remove: vi.fn(), reload: vi.fn() })),
+}))
 vi.mock('../../hooks/useAlerts', () => ({
   useAlerts: () => ({ alerts: [], dismiss: vi.fn() }),
 }))
@@ -37,6 +35,8 @@ vi.mock('../../components/map/TripMap', () => ({
 }))
 
 import { useTrip } from '../../hooks/useTrip'
+import { useSavedTrips } from '../../hooks/useSavedTrips'
+import { useAuth } from '../../contexts/AuthContext'
 
 const makeTrip = (overrides = {}) => ({
   id: 'trip-123',
@@ -111,5 +111,41 @@ describe('Trip page', () => {
     })
     render(<BrowserRouter><Trip /></BrowserRouter>)
     expect(screen.getByRole('alert')).toHaveTextContent('Warning A · Warning B')
+  })
+
+  it('P6-BUG-1: handleSaveSetup uses hook saveTrip, not api.saveTrip directly', async () => {
+    const mockSave = vi.fn()
+    useSavedTrips.mockReturnValue({
+      trips: [{ id: 'trip-123', name: 'My Trip' }],
+      save: mockSave,
+      remove: vi.fn(),
+      reload: vi.fn(),
+    })
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    // Open the TripSetupModal via the Settings button
+    fireEvent.click(screen.getByTitle('Edit setup'))
+    // Click Save changes in the modal
+    fireEvent.click(screen.getByText('Save changes'))
+    expect(mockSave).toHaveBeenCalledWith('trip-123', expect.any(Object))
+  })
+
+  it('P6-BUG-2: passes authUserId from useAuth to useTrip', () => {
+    useAuth.mockReturnValue({ user: { id: 'user-abc' } })
+    useTrip.mockReturnValue({ trip: null, loading: true, error: null })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    expect(useTrip).toHaveBeenCalledWith('trip-123', 'user-abc')
+  })
+
+  it('P6-BUG-6: savedMeta name shown in header comes from savedTrips (no double getSavedTrips)', () => {
+    useSavedTrips.mockReturnValue({
+      trips: [{ id: 'trip-123', name: 'My Singapore Adventure' }],
+      save: vi.fn(),
+      remove: vi.fn(),
+      reload: vi.fn(),
+    })
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    expect(screen.getByText('My Singapore Adventure')).toBeInTheDocument()
   })
 })

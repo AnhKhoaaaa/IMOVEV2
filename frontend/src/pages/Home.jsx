@@ -4,7 +4,7 @@ import { Navigation2, Sparkles, Plus, Clock, Wallet, Footprints, MapPin, Edit, T
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { formatDateRange, computeTripMetrics } from '../lib/tripUtils'
 import { api } from '../services/api'
-import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 
@@ -83,10 +83,10 @@ const StatBadge = ({ icon, label, value }) => (
 )
 
 /* ── Trip card ───────────────────────────────────────────────────── */
-const TripCard = ({ trip, onOpen, onStart, onDelete }) => {
+const TripCard = ({ trip, onOpen, onStart, onDelete, userId }) => {
   const { t } = useT()
   const isToday = trip.status === 'today'
-  const metrics = computeTripMetrics(api.getCachedTripData(trip.id))
+  const metrics = computeTripMetrics(api.getCachedTripData(trip.id, userId))
 
   return (
     <div className={cn(
@@ -221,7 +221,7 @@ const STATUS_FOR_FILTER = { Today: 'today', Upcoming: 'upcoming', Drafts: 'draft
 export default function Home() {
   const navigate = useNavigate()
   const { t } = useT()
-  const [authUser, setAuthUser] = useState(null)
+  const { user: authUser } = useAuth()
   const { trips, remove } = useSavedTrips(authUser?.id)
   const [filter, setFilter] = useState('All')
   const [modalTrip, setModalTrip] = useState(null)
@@ -231,14 +231,6 @@ export default function Home() {
     try { await api.deleteTrip(trip.id) } catch { /* best-effort — remove locally regardless */ }
     remove(trip.id)
   }
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user ?? null))
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthUser(session?.user ?? null)
-    })
-    return () => subscription.unsubscribe()
-  }, [])
 
   useEffect(() => {
     const todayTrip = trips.find((t) => t.status === 'today')
@@ -347,6 +339,7 @@ export default function Home() {
                 <TripCard
                   key={trip.id}
                   trip={trip}
+                  userId={authUser?.id}
                   onOpen={() => navigate(`/trip/${trip.id}`)}
                   onStart={() => setModalTrip(trip)}
                   onDelete={() => handleDelete(trip)}
