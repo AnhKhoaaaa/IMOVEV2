@@ -200,12 +200,20 @@ def test_check_schedule_fit_overfull():
 
 
 def test_check_schedule_fit_underfull():
-    # Underfull is no longer flagged — sparse days are intentional (greedy handles distribution)
+    # 1 place × 60 min = 60 < 120 min threshold → underfull
     places = [{"id": "a", "dwell_minutes": 60}]
     days = [places]
     issue, summary = _check_schedule_fit(days, {})
-    assert issue is None
+    assert issue == "underfull"
     assert summary[0]["occupied_minutes"] == 60
+
+
+def test_check_schedule_fit_not_underfull_when_properly_distributed():
+    # 2 places × 90 min + 15 min transit = 195 min ≥ 120 → properly distributed, no warning
+    places = [{"id": "a", "dwell_minutes": 90}, {"id": "b", "dwell_minutes": 90}]
+    days = [places]
+    issue, _ = _check_schedule_fit(days, {("a", "b"): 15})
+    assert issue is None
 
 
 # ── integration tests: plan_trip ─────────────────────────────────────────────
