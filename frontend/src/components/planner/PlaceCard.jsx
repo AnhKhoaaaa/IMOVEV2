@@ -1,7 +1,14 @@
 import { useState } from 'react'
-import { MapPin, ChevronDown, RotateCcw, X } from 'lucide-react'
+import { MapPin, ChevronDown, RotateCcw, X, Clock, Sun } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Label } from '../ui/label'
+
+function formatOpenHours(openingHours) {
+  if (!openingHours) return null
+  if (openingHours === '24h') return 'Open 24h'
+  // "09:00-12:00 14:00-16:00" → "Open 09:00–12:00, 14:00–16:00"
+  return 'Open ' + openingHours.split(' ').map(s => s.replace('-', '–')).join(', ')
+}
 
 function ImageStrip({ imageUrl }) {
   return (
@@ -35,9 +42,10 @@ function ImageStrip({ imageUrl }) {
 export default function PlaceCard({ place, index, expanded, onToggle, onDelete, notes, onNotesChange }) {
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // Format open hours from backend data
-  const openLabel = place.best_time_start
-    ? `Open ${place.best_time_start}–${place.best_time_end}`
+  const openLabel = formatOpenHours(place.opening_hours)
+
+  const bestTimeLabel = place.best_time_start
+    ? `${place.best_time_start}–${place.best_time_end}`
     : null
 
   // Format suggested visit duration
@@ -70,7 +78,7 @@ export default function PlaceCard({ place, index, expanded, onToggle, onDelete, 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-display font-bold text-[16px] text-slate-900">
-                  <span className="text-slate-400 mr-1.5 tabular-nums">{index + 1}.</span>
+                  <span className="text-slate-400 mr-1.5 tabular-nums">{index}.</span>
                   {place.name}
                 </span>
                 {place.is_outdoor && (
@@ -117,6 +125,12 @@ export default function PlaceCard({ place, index, expanded, onToggle, onDelete, 
 
         {expanded && (
           <div className="border-t border-slate-100 px-4 py-3 bg-slate-50/40 space-y-2 animate-fade-up">
+            {bestTimeLabel && (
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11.5px] font-medium text-amber-700">
+                <Sun size={11} className="text-amber-500" />
+                Best time to visit: {bestTimeLabel}
+              </div>
+            )}
             <Label className="flex items-center gap-1.5 text-slate-600">Notes</Label>
             <textarea
               value={notes || ''}
