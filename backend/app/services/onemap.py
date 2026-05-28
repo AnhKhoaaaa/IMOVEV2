@@ -70,6 +70,43 @@ def _build_pt_instructions(legs: list[dict]) -> list[str]:
             if to_name:
                 steps.append(f"Alight at {to_name} ({duration_min} min)")
     return steps
+
+
+def _pt_summary(sub_legs: list[dict]) -> str:
+    """Derive a short human summary from PT sub-legs (e.g. 'via EW line')."""
+    transit = next((s for s in sub_legs if s.get("mode") != "WALK" and s.get("route")), None)
+    return f"via {transit['route']} line" if transit else ""
+
+
+async def get_all_routes(
+    from_lat: float, from_lng: float, to_lat: float, to_lng: float
+) -> dict:
+    """Fetch PT, walk, and cycle routes in parallel.
+
+    Returns {"pt": {...}, "walk": {...}, "cycle": {...}}.
+    Each value has keys: available, duration_minutes, fare_sgd, distance_km, summary.
+    A mode that fails with NoRouteError returns available=False instead of raising.
+    """
+    _UNAVAILABLE = {"available": False, "duration_minutes": 0, "fare_sgd": 0.0, "distance_km": 0.0, "summary": ""}
+
+    async def _safe(mode: str) -> dict:
+        try:
+            r = await get_route(from_lat, from_lng, to_lat, to_lng, mode)
+            summary = _pt_summary(r.get("sub_legs", [])) if mode == "pt" else "direct"
+            return {
+                "available": True,
+                "duration_minutes": r["duration_minutes"],
+                "fare_sgd": r.get("fare_sgd", 0.0),
+                "distance_km": r.get("distance_km", 0.0),
+                "summary": summary,
+            }
+        except NoRouteError:
+            return dict(_UNAVAILABLE)
+
+    pt, walk, cycle = await asyncio.gather(_safe("pt"), _safe("walk"), _safe("cycle"))
+    return {"pt": pt, "walk": walk, "cycle": cycle}
+
+
 _SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search"
 _ROUTE_URL = "https://www.onemap.gov.sg/api/public/routingsvc/route"
 

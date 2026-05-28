@@ -60,6 +60,20 @@ class TripPlan(BaseModel):
     warnings: list[str]
 
 
+class ModeResult(BaseModel):
+    available: bool
+    duration_minutes: int = 0
+    fare_sgd: float = 0.0
+    distance_km: float = 0.0
+    summary: str = ""
+
+
+class RouteComparison(BaseModel):
+    pt: ModeResult
+    walk: ModeResult
+    cycle: ModeResult
+
+
 class LegUpdateRequest(BaseModel):
     transport_mode: Literal["MRT", "LRT", "BUS", "WALK"]
 

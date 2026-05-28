@@ -361,3 +361,117 @@ async def test_get_route_walk_mode_has_no_sub_legs():
     with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
         result = await get_route(1.28, 103.85, 1.30, 103.82, "walk")
     assert "sub_legs" not in result
+
+
+# ── get_all_routes ─────────────────────────────────────────────────────────────
+
+_PT_RESULT = {
+    "duration_minutes": 30, "fare_sgd": 1.50, "distance_km": 5.2,
+    "sub_legs": [
+        {"mode": "WALK", "route": "", "from_name": "Origin", "to_name": "Bayfront Station",
+         "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0},
+        {"mode": "MRT", "route": "EW", "from_name": "Bayfront", "to_name": "City Hall",
+         "from_stop_code": "EW24/NS1", "to_stop_code": "EW13/NS25", "duration_minutes": 20, "num_stops": 10},
+        {"mode": "WALK", "route": "", "from_name": "City Hall Station", "to_name": "Destination",
+         "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0},
+    ],
+}
+_WALK_RESULT = {"duration_minutes": 45, "fare_sgd": 0.0, "distance_km": 3.5, "sub_legs": []}
+_CYCLE_RESULT = {"duration_minutes": 18, "fare_sgd": 0.0, "distance_km": 3.5, "sub_legs": []}
+
+
+async def _mock_get_route(from_lat, from_lng, to_lat, to_lng, mode):
+    if mode == "pt":
+        return _PT_RESULT
+    if mode == "walk":
+        return _WALK_RESULT
+    return _CYCLE_RESULT
+
+
+@pytest.mark.asyncio
+async def test_get_all_routes_returns_three_modes():
+    """get_all_routes must return pt, walk, cycle keys."""
+    from app.services.onemap import get_all_routes
+    with patch("app.services.onemap.get_route", side_effect=_mock_get_route):
+        result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
+    assert set(result.keys()) == {"pt", "walk", "cycle"}
+
+
+@pytest.mark.asyncio
+async def test_get_all_routes_pt_values():
+    """PT result must carry duration, fare, distance, available=True."""
+    from app.services.onemap import get_all_routes
+    with patch("app.services.onemap.get_route", side_effect=_mock_get_route):
+        result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
+    pt = result["pt"]
+    assert pt["available"] is True
+    assert pt["duration_minutes"] == 30
+    assert pt["fare_sgd"] == 1.50
+    assert pt["distance_km"] == 5.2
+
+
+@pytest.mark.asyncio
+async def test_get_all_routes_pt_summary_from_sub_legs():
+    """PT summary must be derived from the first non-WALK sub-leg route."""
+    from app.services.onemap import get_all_routes
+    with patch("app.services.onemap.get_route", side_effect=_mock_get_route):
+        result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
+    assert result["pt"]["summary"] == "via EW line"
+
+
+@pytest.mark.asyncio
+async def test_get_all_routes_walk_cycle_summary_direct():
+    """Walk and cycle summaries must be 'direct'."""
+    from app.services.onemap import get_all_routes
+    with patch("app.services.onemap.get_route", side_effect=_mock_get_route):
+        result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
+    assert result["walk"]["summary"] == "direct"
+    assert result["cycle"]["summary"] == "direct"
+
+
+@pytest.mark.asyncio
+async def test_get_all_routes_mode_failure_returns_unavailable():
+    """A NoRouteError for one mode must not fail the whole call."""
+    from app.services.onemap import get_all_routes
+
+    async def _mock_failing(from_lat, from_lng, to_lat, to_lng, mode):
+        if mode == "cycle":
+            raise NoRouteError("No cycle route")
+        return await _mock_get_route(from_lat, from_lng, to_lat, to_lng, mode)
+
+    with patch("app.services.onemap.get_route", side_effect=_mock_failing):
+        result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
+    assert result["cycle"]["available"] is False
+    assert result["cycle"]["duration_minutes"] == 0
+    assert result["pt"]["available"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_all_routes_all_modes_fail():
+    """All modes failing must return three unavailable entries (no exception raised)."""
+    from app.services.onemap import get_all_routes
+
+    async def _all_fail(*_args, **_kwargs):
+        raise NoRouteError("no route")
+
+    with patch("app.services.onemap.get_route", side_effect=_all_fail):
+        result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
+    assert all(not result[m]["available"] for m in ("pt", "walk", "cycle"))
+
+
+@pytest.mark.asyncio
+async def test_get_all_routes_pt_no_transit_sub_leg_summary_empty():
+    """When PT result has no non-WALK sub-legs, summary must be empty string."""
+    from app.services.onemap import get_all_routes
+
+    async def _mock_walk_only(from_lat, from_lng, to_lat, to_lng, mode):
+        if mode == "pt":
+            return {**_PT_RESULT, "sub_legs": [
+                {"mode": "WALK", "route": "", "from_name": "A", "to_name": "B",
+                 "from_stop_code": "", "to_stop_code": "", "duration_minutes": 30, "num_stops": 0}
+            ]}
+        return await _mock_get_route(from_lat, from_lng, to_lat, to_lng, mode)
+
+    with patch("app.services.onemap.get_route", side_effect=_mock_walk_only):
+        result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
+    assert result["pt"]["summary"] == ""
