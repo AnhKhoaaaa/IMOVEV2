@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map, WifiOff, Settings } from 'lucide-react'
+import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map, WifiOff, Settings, CheckCircle } from 'lucide-react'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
 import { useSavedTrips } from '../hooks/useSavedTrips'
@@ -18,7 +18,15 @@ import AlertBanner from '../components/adaptation/AlertBanner'
 import { Skeleton } from '../components/ui/skeleton'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { cn } from '../lib/utils'
-import { Plus } from 'lucide-react'
+import { Plus, Loader2 } from 'lucide-react'
+
+function haversineMeters(a, b) {
+  const R = 6371000
+  const φ1 = (a.lat * Math.PI) / 180, φ2 = (b.lat * Math.PI) / 180
+  const Δφ = ((b.lat - a.lat) * Math.PI) / 180, Δλ = ((b.lng - a.lng) * Math.PI) / 180
+  const x = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))
+}
 
 /* ── Day pill ────────────────────────────────────────────────────── */
 const DayPill = ({ active, onClick, children, kind, pulse }) => (
@@ -98,6 +106,9 @@ export default function Trip() {
 
   // ── Edit setup modal ──────────────────────────────────────────
   const [setupOpen, setSetupOpen] = useState(false)
+  const [savedConfirm, setSavedConfirm] = useState(false)
+  const [dayMutating, setDayMutating] = useState(false)
+  const [virtualStartLeg, setVirtualStartLeg] = useState(null)
 
   // P6-BUG-6: derive from savedTrips so auth changes and saves auto-update
   // without a second getSavedTrips call.
@@ -117,6 +128,21 @@ export default function Trip() {
       setTab(`d${firstDay}`)
     }
   }, [tripStarted, trip?.days?.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Virtual start leg: when trip starts, check GPS distance to Stop 1
+  useEffect(() => {
+    if (!tripStarted || !position || !trip) return
+    const currentDay = trip.days.find((d) => d.day === activeDayNum)
+    const firstLeg = currentDay?.legs?.[0]
+    if (!firstLeg) return
+    const stop1 = placesById[firstLeg.from_place_id]
+    if (!stop1) return
+    const dist = haversineMeters(position, { lat: stop1.lat, lng: stop1.lng })
+    if (dist < 1000) { setVirtualStartLeg(null); return }
+    api.compareRoutes(position.lat, position.lng, stop1.lat, stop1.lng)
+      .then((result) => setVirtualStartLeg({ toPlace: stop1, routeComparison: result }))
+      .catch(() => setVirtualStartLeg(null))
+  }, [tripStarted]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Send position to backend at most once per 30 s for proximity-based LTA alerts
   useEffect(() => {
@@ -339,13 +365,40 @@ export default function Trip() {
                   pulse={tripStarted && d.day === activeDayNum}
                 >
                   Day {d.day}
+                  {!tripStarted && (trip?.days?.length ?? 0) > 1 && (
+                    <span
+                      role="button"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (dayMutating) return
+                        setDayMutating(true)
+                        try { await api.removeDay(id, d.day); await refresh() }
+                        catch (err) { console.error('removeDay failed:', err) }
+                        finally { setDayMutating(false) }
+                      }}
+                      className="ml-1 inline-grid h-4 w-4 place-items-center rounded-full hover:bg-red-100 hover:text-red-500 transition"
+                    >
+                      <X size={9} />
+                    </span>
+                  )}
                 </DayPill>
               ))}
               <DayPill active={tab === 'summary'} onClick={() => setTab('summary')} kind="summary">
                 Summary
               </DayPill>
-              <button className="ml-1 grid h-8 w-8 place-items-center rounded-full border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/40 transition">
-                <Plus size={13} />
+              <button
+                onClick={async () => {
+                  if (dayMutating) return
+                  setDayMutating(true)
+                  try { await api.addDay(id); await refresh() }
+                  catch (err) { console.error('addDay failed:', err) }
+                  finally { setDayMutating(false) }
+                }}
+                disabled={dayMutating || tripStarted}
+                className="ml-1 grid h-8 w-8 place-items-center rounded-full border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/40 transition disabled:opacity-40"
+                title="Add day"
+              >
+                {dayMutating ? <Loader2 size={11} className="animate-spin" /> : <Plus size={13} />}
               </button>
             </div>
           </div>
@@ -370,7 +423,7 @@ export default function Trip() {
                   trip={trip}
                   savedMeta={savedMeta}
                   onJumpDay={(dayNum) => setTab(`d${dayNum}`)}
-                  onOptimize={async () => { await api.optimizeRoute(id); await refresh() }}
+                  onOptimize={tripStarted ? undefined : async () => { await api.optimizeRoute(id); await refresh() }}
                 />
               )}
 
@@ -407,6 +460,8 @@ export default function Trip() {
                       onApproveSwap={handleApproveSwap}
                       onDismissWeather={() => setWeatherAlert(null)}
                       onDismissTransit={() => setTransitAlert(null)}
+                      virtualStartLeg={tripStarted && d.day === activeDayNum ? virtualStartLeg : null}
+                      onVirtualArrive={() => setVirtualStartLeg(null)}
                     />
                   </div>
                 ) : null
@@ -420,9 +475,9 @@ export default function Trip() {
                   onSave={(name) => {
                     const meta = { ...pendingSave, name }
                     saveTrip(id, meta)
-                    setSavedMeta(meta)
                     setPendingSave(null)
                     try { sessionStorage.removeItem(pendingKey) } catch {}
+                    setSavedConfirm(true)
                   }}
                 />
               )}
@@ -456,6 +511,27 @@ export default function Trip() {
           : <><Map size={14} /> Map</>
         }
       </button>
+
+      {/* Save confirmation overlay */}
+      {savedConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[min(360px,calc(100vw-32px))] rounded-2xl bg-white p-6 shadow-pop space-y-4">
+            <div className="text-center">
+              <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-emerald-100">
+                <CheckCircle size={24} className="text-emerald-600" />
+              </div>
+              <p className="font-display font-bold text-[18px] text-slate-900">Itinerary saved!</p>
+              <p className="text-[13px] text-slate-500 mt-1">Your trip has been saved successfully.</p>
+            </div>
+            <button
+              onClick={() => navigate('/')}
+              className="w-full h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
+            >
+              Go to Home
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Trip Setup Modal */}
       <TripSetupModal

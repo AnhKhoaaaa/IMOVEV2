@@ -228,6 +228,8 @@ export default function ActiveLegFocus({
   onApproveSwap,
   onDismissWeather,
   onDismissTransit,
+  virtualStartLeg = null,
+  onVirtualArrive,
 }) {
   const [placeNotes, setPlaceNotes] = useState({})
 
@@ -285,7 +287,7 @@ export default function ActiveLegFocus({
       ? haversineMeters(position, { lat: targetPlace.lat, lng: targetPlace.lng })
       : null
 
-  const targetIndex = completedPlaces.length + 2
+  const targetIndex = completedPlaces.length + (virtualStartLeg ? 1 : 2)
 
   const activeWeatherAlert =
     weatherAlert && weatherAlert.legIndex === clamped ? weatherAlert : null
@@ -296,6 +298,33 @@ export default function ActiveLegFocus({
     <div className="space-y-3 animate-fade-up">
       {/* Completed stack */}
       <CompletedStack places={completedPlaces} />
+
+      {/* Virtual start leg — Get to Start */}
+      {virtualStartLeg && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3 animate-fade-up">
+          <div className="flex items-center gap-2">
+            <span className="font-display font-bold text-[13px] text-amber-900">GET TO START</span>
+            <span className="text-[12px] text-amber-700">→ {virtualStartLeg.toPlace.name}</span>
+          </div>
+          {virtualStartLeg.routeComparison && (() => {
+            const best = virtualStartLeg.routeComparison.pt?.available
+              ? virtualStartLeg.routeComparison.pt
+              : virtualStartLeg.routeComparison.walk
+            return best ? (
+              <p className="text-[12.5px] text-amber-800 ml-1">
+                {best.duration_minutes} min · {best.summary || 'to first stop'}
+                {best.fare_sgd > 0 && ` · S$${best.fare_sgd.toFixed(2)}`}
+              </p>
+            ) : null
+          })()}
+          <button
+            onClick={onVirtualArrive}
+            className="w-full h-10 rounded-xl bg-amber-500 text-white font-display font-bold text-[13.5px] hover:bg-amber-600 transition inline-flex items-center justify-center gap-2"
+          >
+            <Navigation2 size={14} /> Arrived at {virtualStartLeg.toPlace.name}
+          </button>
+        </div>
+      )}
 
       {/* YOU ARE HERE block */}
       <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4">

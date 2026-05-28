@@ -71,6 +71,8 @@ export default function DayPlan({
   onApproveSwap,
   onDismissWeather,
   onDismissTransit,
+  virtualStartLeg = null,
+  onVirtualArrive,
 }) {
   const [expanded, setExpanded] = useState({ place: null })
   const [notes, setNotes] = useState({})
@@ -129,6 +131,8 @@ export default function DayPlan({
           onApproveSwap={onApproveSwap}
           onDismissWeather={onDismissWeather}
           onDismissTransit={onDismissTransit}
+          virtualStartLeg={virtualStartLeg}
+          onVirtualArrive={onVirtualArrive}
         />
       ) : (
         <>
