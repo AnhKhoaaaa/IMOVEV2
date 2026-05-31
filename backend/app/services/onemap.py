@@ -18,7 +18,7 @@ _TOKEN_LOCK = asyncio.Lock()
 _AUTH_URL = "https://www.onemap.gov.sg/api/auth/post/getToken"
 
 
-_MODE_REMAP = {"SUBWAY": "MRT", "TRAM": "LRT", "BUS": "BUS", "WALK": "WALK"}
+_MODE_REMAP: dict[str, str] = {"SUBWAY": "METRO", "TRAM": "METRO", "BUS": "BUS", "WALK": "WALK"}
 
 
 def _extract_sub_legs(legs: list[dict]) -> list[dict]:
@@ -26,15 +26,21 @@ def _extract_sub_legs(legs: list[dict]) -> list[dict]:
     result = []
     for leg in legs:
         raw_mode = leg.get("mode", "WALK").upper()
+        raw_stops = leg.get("intermediateStops", [])
         result.append({
-            "mode": _MODE_REMAP.get(raw_mode, raw_mode),
+            "mode": _MODE_REMAP.get(raw_mode, "WALK"),
             "route": leg.get("route", ""),
             "from_name": leg.get("from", {}).get("name", ""),
             "to_name": leg.get("to", {}).get("name", ""),
             "from_stop_code": leg.get("from", {}).get("stopCode", ""),
             "to_stop_code": leg.get("to", {}).get("stopCode", ""),
-            "duration_minutes": round(leg.get("duration", 0) / 60),
-            "num_stops": leg.get("numStops", 0),
+            "duration_minutes": int(round(float(leg.get("duration", 0) or 0) / 60)),
+            "num_stops": int(leg.get("numStops") or 0),
+            "geometry": leg.get("legGeometry", {}).get("points"),
+            "intermediate_stops": [
+                {"name": s.get("name", ""), "stop_code": s.get("stopCode", "")}
+                for s in raw_stops
+            ],
         })
     return result
 
@@ -47,12 +53,21 @@ def _extract_pt_geometry(legs: list[dict]) -> str | None:
     return legs[0].get("legGeometry", {}).get("points") if legs else None
 
 
+def _extract_all_geometries(legs: list[dict]) -> list[str]:
+    """Return encoded polylines for ALL legs (including WALK), preserving order."""
+    return [
+        leg["legGeometry"]["points"]
+        for leg in legs
+        if leg.get("legGeometry", {}).get("points")
+    ]
+
+
 def _build_pt_instructions(legs: list[dict]) -> list[str]:
     """Build a concise list of human-readable steps from OTP-format itinerary legs."""
     steps: list[str] = []
     for leg in legs:
         mode = leg.get("mode", "").upper()
-        duration_min = round(leg.get("duration", 0) / 60)
+        duration_min = int(round(float(leg.get("duration", 0) or 0) / 60))
         from_name = leg.get("from", {}).get("name", "")
         to_name = leg.get("to", {}).get("name", "")
         route = leg.get("route", "")
@@ -170,10 +185,12 @@ async def get_route(
     to_lat: float,
     to_lng: float,
     mode: str,
+    transit_modes: str | None = None,
 ) -> dict:
     """Get a route via OneMap Routing API.
 
     mode: "pt" (public transit), "walk", "drive", "cycle"
+    transit_modes: optional OTP filter for PT mode, e.g. "BUS" for bus-only routes.
     Returns {duration_minutes, fare_sgd, legs}.
     Raises NoRouteError when no viable route exists or the API is unavailable.
     """
@@ -192,6 +209,8 @@ async def get_route(
             "mode": "TRANSIT",
             "numItineraries": 1,
         })
+        if transit_modes:
+            params["transitModes"] = transit_modes  # e.g. "BUS" for bus-only routing
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(_ROUTE_URL, params=params, headers=headers)
@@ -211,22 +230,23 @@ async def get_route(
         legs = [
             {
                 "mode": leg["mode"],
-                "duration_minutes": round(leg["duration"] / 60),
+                "duration_minutes": int(round(float(leg.get("duration", 0) or 0) / 60)),
                 "instruction": leg.get("route", ""),
             }
             for leg in itin_legs
         ]
-        total_distance_m = sum(leg.get("distance", 0) for leg in itin_legs)
+        total_distance_m = sum(float(leg.get("distance", 0) or 0) for leg in itin_legs)
         raw_fare = itin.get("fare", 0.0)
         try:
             fare_sgd = float(raw_fare)
         except (ValueError, TypeError):
             fare_sgd = 0.0  # OneMap returns "info unavailable" for some routes
         return {
-            "duration_minutes": round(itin["duration"] / 60),
+            "duration_minutes": int(round(float(itin.get("duration", 0)) / 60)),
             "fare_sgd": fare_sgd,
             "legs": legs,
             "geometry": _extract_pt_geometry(itin_legs),
+            "geometries": _extract_all_geometries(itin_legs),
             "instructions": _build_pt_instructions(itin_legs),
             "distance_km": round(total_distance_m / 1000, 2),
             "sub_legs": _extract_sub_legs(itin_legs),
@@ -237,17 +257,21 @@ async def get_route(
             raise NoRouteError(
                 f"No {mode} route from ({from_lat},{from_lng}) to ({to_lat},{to_lng})"
             )
+        total_time     = float(summary.get("total_time",     0) or 0)
+        total_distance = float(summary.get("total_distance", 0) or 0)
+        duration_min   = int(round(total_time / 60))
         return {
-            "duration_minutes": round(summary["total_time"] / 60),
+            "duration_minutes": duration_min,
             "fare_sgd": 0.0,
             "legs": [
                 {
                     "mode": mode.upper(),
-                    "duration_minutes": round(summary["total_time"] / 60),
+                    "duration_minutes": duration_min,
                     "instruction": "",
                 }
             ],
             "geometry": data.get("route_geometry"),
-            "instructions": [],
-            "distance_km": round(summary.get("total_distance", 0) / 1000, 2),
+            "geometries": [data["route_geometry"]] if data.get("route_geometry") else [],
+            "instructions": data.get("route_instructions") or [],
+            "distance_km": round(total_distance / 1000, 2),
         }

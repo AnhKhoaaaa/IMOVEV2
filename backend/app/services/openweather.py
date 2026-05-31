@@ -6,10 +6,51 @@ SINGAPORE_LAT = 1.3521
 SINGAPORE_LNG = 103.8198
 
 _BASE = "https://api.openweathermap.org/data/2.5/forecast"
+_CURRENT_BASE = "https://api.openweathermap.org/data/2.5/weather"
 
 
 class WeatherUnavailableError(Exception):
     pass
+
+
+async def get_current_weather(
+    lat: float = SINGAPORE_LAT,
+    lng: float = SINGAPORE_LNG,
+) -> dict:
+    """Return current weather for the given coordinates.
+
+    Returns dict with keys: condition, temp_c, rain_1h (mm).
+    rain_1h = 0.0 when it is not raining.
+    Raises WeatherUnavailableError on API failure or missing key.
+    """
+    if not settings.openweather_api_key:
+        raise WeatherUnavailableError("OpenWeather API key not configured")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                _CURRENT_BASE,
+                params={
+                    "lat": lat,
+                    "lon": lng,
+                    "appid": settings.openweather_api_key,
+                    "units": "metric",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise WeatherUnavailableError(f"OpenWeather current unavailable: {exc}") from exc
+
+    condition = data.get("weather", [{}])[0].get("main", "Unknown")
+    temp_c    = data.get("main", {}).get("temp", 0.0)
+    rain_1h   = float(data.get("rain", {}).get("1h", 0.0) or 0.0)
+
+    return {
+        "condition": condition,
+        "temp_c":    round(temp_c, 1),
+        "rain_1h":   rain_1h,
+    }
 
 
 async def get_forecast(

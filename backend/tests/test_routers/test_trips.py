@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.dependencies import get_current_user
-from app.models.trip import TripPlan, DayPlan, LegResponse
+from app.models.trip import TripPlan, DayPlan, LegResponse, LegSwapResult, AlternativeRoute
 from app.models.place import Place
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
 from app.services.onemap import NoRouteError
@@ -33,7 +33,7 @@ def _make_plan(trip_id: str = "test-trip") -> TripPlan:
         id="leg-001",
         from_place_id="gardens-by-the-bay",
         to_place_id="marina-bay-sands",
-        transport_mode="MRT",
+        transport_mode="METRO",
         duration_minutes=15,
         cost_sgd=1.80,
         is_estimated=False,
@@ -191,24 +191,57 @@ def test_get_trip_not_found_returns_404():
 # ── PATCH /trips/{id}/legs/{leg_id} ──────────────────────────────────────────
 
 def test_patch_leg_updates_transport_mode():
+    """PATCH returns LegSwapResult; updated_leg has the new mode and route data."""
     create = client.post("/trips", json={"session_id": "session-x", "num_days": 1, "budget_sgd": 999})
     trip_id = create.json()["trip_id"]
 
     mock_plan = _make_plan(trip_id)
-    with patch(
-        "app.routers.trips.planning_agent.plan_trip",
-        new_callable=AsyncMock,
-        return_value=mock_plan,
-    ):
+
+    # Build LegSwapResult that switch_leg_mode would return
+    updated_leg = mock_plan.days[0].legs[0].model_copy(update={
+        "transport_mode": "BUS",
+        "duration_minutes": 20,
+        "cost_sgd": 1.20,
+    })
+    mock_swap = LegSwapResult(updated_leg=updated_leg, trip_cost_sgd=1.20, warnings=[])
+
+    with patch("app.routers.trips.planning_agent.plan_trip", new_callable=AsyncMock, return_value=mock_plan):
         client.post(f"/trips/{trip_id}/plan", json={
             "place_ids": ["gardens-by-the-bay", "marina-bay-sands"],
             "optimize_order": False,
         })
 
-    resp = client.patch(f"/trips/{trip_id}/legs/leg-001", json={"transport_mode": "BUS"})
+    with patch("app.routers.trips.planning_agent.switch_leg_mode",
+               new_callable=AsyncMock, return_value=mock_swap):
+        resp = client.patch(f"/trips/{trip_id}/legs/leg-001", json={"transport_mode": "BUS"})
+
     assert resp.status_code == 200
-    assert resp.json()["transport_mode"] == "BUS"
-    assert resp.json()["id"] == "leg-001"
+    data = resp.json()
+    assert data["updated_leg"]["transport_mode"] == "BUS"
+    assert data["updated_leg"]["id"] == "leg-001"
+    assert "trip_cost_sgd" in data
+    assert isinstance(data["warnings"], list)
+
+
+def test_patch_leg_no_route_returns_422():
+    """When switch_leg_mode raises NoRouteError → 422 with error message."""
+    create = client.post("/trips", json={"session_id": "session-x", "num_days": 1, "budget_sgd": 999})
+    trip_id = create.json()["trip_id"]
+
+    mock_plan = _make_plan(trip_id)
+    with patch("app.routers.trips.planning_agent.plan_trip", new_callable=AsyncMock, return_value=mock_plan):
+        client.post(f"/trips/{trip_id}/plan", json={
+            "place_ids": ["gardens-by-the-bay", "marina-bay-sands"],
+            "optimize_order": False,
+        })
+
+    with patch("app.routers.trips.planning_agent.switch_leg_mode",
+               new_callable=AsyncMock,
+               side_effect=NoRouteError("No BUS route available")):
+        resp = client.patch(f"/trips/{trip_id}/legs/leg-001", json={"transport_mode": "BUS"})
+
+    assert resp.status_code == 422
+    assert "BUS" in resp.json()["detail"]
 
 
 def test_patch_leg_not_found_returns_404():
@@ -362,7 +395,7 @@ def _make_two_place_plan(trip_id: str = "trip-p5") -> TripPlan:
     )
     leg = LegResponse(
         id="leg-ab", from_place_id="place-a", to_place_id="place-b",
-        transport_mode="MRT", duration_minutes=10, cost_sgd=1.50, is_estimated=False,
+        transport_mode="METRO", duration_minutes=10, cost_sgd=1.50, is_estimated=False,
     )
     return TripPlan(id=trip_id, days=[DayPlan(day=1, legs=[leg])], places=[place_a, place_b], warnings=[])
 
@@ -410,7 +443,7 @@ def test_ordered_place_ids_with_legs_reconstructs_correctly():
     from app.routers.trips import _ordered_place_ids
     leg = LegResponse(
         id="l1", from_place_id="a", to_place_id="b",
-        transport_mode="MRT", duration_minutes=5, cost_sgd=1.0, is_estimated=False,
+        transport_mode="METRO", duration_minutes=5, cost_sgd=1.0, is_estimated=False,
     )
     assert _ordered_place_ids([leg], []) == ["a", "b"]
 
@@ -668,3 +701,255 @@ def test_add_place_trip_not_found_returns_404():
 def test_reorder_trip_not_found_returns_404():
     resp = client.patch("/trips/nonexistent-xyz/reorder", json={"day": 1, "place_ids": ["a", "b"]})
     assert resp.status_code == 404
+
+
+# ── POST /trips/{id}/legs/{leg_id}/switch-now ─────────────────────────────────
+
+def _seed_switch_now_trip(trip_id: str, budget: float = 999.0) -> TripPlan:
+    """Seed a trip with a known leg-001 for switch-now tests."""
+    plan = _make_plan(trip_id)
+    _trips_module._trip_store[trip_id] = plan
+    _trips_module._trip_meta[trip_id] = {
+        "num_days": 1,
+        "budget_sgd": budget,
+        "session_id": "session-sw",
+        "user_id": None,
+    }
+    return plan
+
+
+def test_switch_now_returns_leg_swap_result():
+    """POST .../switch-now returns LegSwapResult shape with routed_from_current_position."""
+    trip_id = "trip-sw-1"
+    plan = _seed_switch_now_trip(trip_id)
+    try:
+        updated_leg = plan.days[0].legs[0].model_copy(update={
+            "transport_mode": "BUS",
+            "duration_minutes": 20,
+            "cost_sgd": 1.20,
+        })
+        mock_swap = LegSwapResult(
+            updated_leg=updated_leg,
+            trip_cost_sgd=1.20,
+            warnings=[],
+            routed_from_current_position=True,
+        )
+        with patch("app.routers.trips.planning_agent.switch_leg_mode_live",
+                   new_callable=AsyncMock, return_value=mock_swap):
+            resp = client.post(f"/trips/{trip_id}/legs/leg-001/switch-now", json={
+                "new_mode": "BUS",
+                "current_lat": 1.2916,
+                "current_lng": 103.8636,
+            })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["updated_leg"]["transport_mode"] == "BUS"
+        assert data["updated_leg"]["id"] == "leg-001"
+        assert "trip_cost_sgd" in data
+        assert isinstance(data["warnings"], list)
+        assert data["routed_from_current_position"] is True
+    finally:
+        _cleanup(trip_id)
+
+
+def test_switch_now_gps_coords_forwarded_to_agent():
+    """GPS coordinates in request body are passed through to switch_leg_mode_live."""
+    trip_id = "trip-sw-2"
+    plan = _seed_switch_now_trip(trip_id)
+    try:
+        updated_leg = plan.days[0].legs[0].model_copy(update={"transport_mode": "WALK"})
+        mock_swap = LegSwapResult(
+            updated_leg=updated_leg,
+            trip_cost_sgd=0.0,
+            warnings=[],
+            routed_from_current_position=False,
+        )
+        with patch("app.routers.trips.planning_agent.switch_leg_mode_live",
+                   new_callable=AsyncMock, return_value=mock_swap) as mock_live:
+            resp = client.post(f"/trips/{trip_id}/legs/leg-001/switch-now", json={
+                "new_mode": "WALK",
+                "current_lat": 1.2816,
+                "current_lng": 103.8636,
+            })
+        assert resp.status_code == 200
+        # Verify GPS coords were forwarded to the agent function
+        call_kwargs = mock_live.call_args.kwargs
+        assert call_kwargs["new_mode"] == "WALK"
+        assert call_kwargs["current_lat"] == pytest.approx(1.2816)
+        assert call_kwargs["current_lng"] == pytest.approx(103.8636)
+    finally:
+        _cleanup(trip_id)
+
+
+def test_switch_now_no_route_returns_422():
+    """When switch_leg_mode_live raises NoRouteError → 422 with message."""
+    trip_id = "trip-sw-3"
+    _seed_switch_now_trip(trip_id)
+    try:
+        with patch("app.routers.trips.planning_agent.switch_leg_mode_live",
+                   new_callable=AsyncMock,
+                   side_effect=NoRouteError("No BUS route from your current position")):
+            resp = client.post(f"/trips/{trip_id}/legs/leg-001/switch-now", json={
+                "new_mode": "BUS",
+                "current_lat": 1.2916,
+                "current_lng": 103.8636,
+            })
+        assert resp.status_code == 422
+        assert "BUS" in resp.json()["detail"]
+    finally:
+        _cleanup(trip_id)
+
+
+def test_switch_now_trip_not_found_returns_404():
+    """Trip not in store → 404."""
+    resp = client.post("/trips/nonexistent-trip/legs/leg-001/switch-now", json={
+        "new_mode": "WALK",
+        "current_lat": 1.28,
+        "current_lng": 103.86,
+    })
+    assert resp.status_code == 404
+
+
+def test_switch_now_leg_not_found_returns_404():
+    """Leg not in trip → 404."""
+    trip_id = "trip-sw-404leg"
+    _seed_switch_now_trip(trip_id)
+    try:
+        resp = client.post(f"/trips/{trip_id}/legs/no-such-leg/switch-now", json={
+            "new_mode": "WALK",
+            "current_lat": 1.28,
+            "current_lng": 103.86,
+        })
+        assert resp.status_code == 404
+    finally:
+        _cleanup(trip_id)
+
+
+def test_switch_now_budget_warning():
+    """When new trip cost > budget → budget warning appended to result."""
+    trip_id = "trip-sw-budget"
+    plan = _seed_switch_now_trip(trip_id, budget=0.50)  # tiny budget
+    try:
+        updated_leg = plan.days[0].legs[0].model_copy(update={
+            "transport_mode": "METRO",
+            "cost_sgd": 5.0,
+        })
+        mock_swap = LegSwapResult(
+            updated_leg=updated_leg,
+            trip_cost_sgd=5.0,
+            warnings=[],
+            routed_from_current_position=True,
+        )
+        with patch("app.routers.trips.planning_agent.switch_leg_mode_live",
+                   new_callable=AsyncMock, return_value=mock_swap):
+            resp = client.post(f"/trips/{trip_id}/legs/leg-001/switch-now", json={
+                "new_mode": "METRO",
+                "current_lat": 1.2916,
+                "current_lng": 103.8636,
+            })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any("budget" in w.lower() for w in data["warnings"])
+    finally:
+        _cleanup(trip_id)
+
+
+# ── POST /trips/{id}/plan — Patch 3: preference profile fallback ──────────────
+
+def test_plan_trip_uses_default_profile_for_guest():
+    """[PATCH 3] Guest user (no auth) → planning_agent receives default UserPreferenceProfile."""
+    from app.models.preferences import UserPreferenceProfile
+    create = client.post("/trips", json={"session_id": "sess-pref-1", "num_days": 1, "budget_sgd": 999})
+    trip_id = create.json()["trip_id"]
+    mock_plan = _make_plan(trip_id)
+
+    captured: dict = {}
+
+    async def _spy_plan_trip(*args, **kwargs):
+        captured.update(kwargs)
+        return mock_plan
+
+    with patch("app.routers.trips.planning_agent.plan_trip", side_effect=_spy_plan_trip):
+        resp = client.post(f"/trips/{trip_id}/plan", json={
+            "place_ids": ["gardens-by-the-bay", "marina-bay-sands"],
+            "optimize_order": False,
+        })
+
+    assert resp.status_code == 200
+    assert "profile" in captured
+    assert isinstance(captured["profile"], UserPreferenceProfile)
+    # Must be default weights
+    assert abs(captured["profile"].duration_w - 0.40) < 0.01
+    assert abs(captured["profile"].cost_w    - 0.30) < 0.01
+
+
+def test_plan_trip_uses_default_when_no_pref_record():
+    """[PATCH 3] Authenticated user with no preference row → default profile, no crash."""
+    from app.models.preferences import UserPreferenceProfile
+    create = client.post("/trips", json={"session_id": "sess-pref-2", "num_days": 1, "budget_sgd": 999})
+    trip_id = create.json()["trip_id"]
+    mock_plan = _make_plan(trip_id)
+
+    # Supabase returns empty list (user has no preference row yet)
+    mock_sb = MagicMock()
+    mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
+
+    captured: dict = {}
+
+    async def _spy_plan_trip(*args, **kwargs):
+        captured.update(kwargs)
+        return mock_plan
+
+    with _auth_as("user-no-prefs"), \
+         patch("app.routers.trips.supabase", mock_sb), \
+         patch("app.routers.trips.planning_agent.plan_trip", side_effect=_spy_plan_trip):
+        resp = client.post(f"/trips/{trip_id}/plan", json={
+            "place_ids": ["gardens-by-the-bay", "marina-bay-sands"],
+            "optimize_order": False,
+        })
+
+    assert resp.status_code == 200
+    assert isinstance(captured.get("profile"), UserPreferenceProfile)
+    assert abs(captured["profile"].duration_w - 0.40) < 0.01
+
+
+def test_plan_trip_uses_profile_when_found():
+    """[PATCH 3] Authenticated user with saved preference → custom profile passed to agent."""
+    from app.models.preferences import UserPreferenceProfile
+    create = client.post("/trips", json={"session_id": "sess-pref-3", "num_days": 1, "budget_sgd": 999})
+    trip_id = create.json()["trip_id"]
+    mock_plan = _make_plan(trip_id)
+
+    custom_profile_data = {
+        "duration_w": 0.10,
+        "cost_w":     0.70,
+        "walking_w":  0.15,
+        "transfers_w": 0.05,
+        "constraints": {
+            "avoid_bus": False, "avoid_metro": False,
+            "minimize_walking": False, "minimize_fee": True,
+        },
+    }
+    mock_sb = MagicMock()
+    mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+        {"profile": custom_profile_data}
+    ]
+
+    captured: dict = {}
+
+    async def _spy_plan_trip(*args, **kwargs):
+        captured.update(kwargs)
+        return mock_plan
+
+    with _auth_as("user-with-prefs"), \
+         patch("app.routers.trips.supabase", mock_sb), \
+         patch("app.routers.trips.planning_agent.plan_trip", side_effect=_spy_plan_trip):
+        resp = client.post(f"/trips/{trip_id}/plan", json={
+            "place_ids": ["gardens-by-the-bay", "marina-bay-sands"],
+            "optimize_order": False,
+        })
+
+    assert resp.status_code == 200
+    assert isinstance(captured.get("profile"), UserPreferenceProfile)
+    assert abs(captured["profile"].cost_w - 0.70) < 0.01
+    assert captured["profile"].constraints.minimize_fee is True

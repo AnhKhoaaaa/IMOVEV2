@@ -3,6 +3,9 @@ from unittest.mock import AsyncMock, patch
 
 from app.agents.planning_agent import (
     plan_trip,
+    switch_leg_mode,
+    switch_leg_mode_live,
+    _fetch_all_alternatives,
     _classify_place,
     _pre_assign_evening_places,
     _day_bucketed_greedy,
@@ -10,83 +13,42 @@ from app.agents.planning_agent import (
     _parse_opening_hours,
     _check_schedule_fit,
     _haversine_km,
-    _time_slot,
-    _rule_based_suggest,
-    suggest_places,
     _PLACES,
 )
 from app.exceptions import PlaceDataMissingError
+from app.models.place import Place
+from app.models.trip import AlternativeRoute, LegResponse, DayPlan, TripPlan
 from app.services.onemap import NoRouteError
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _mock_route(duration=15, fare=1.80, mode="MRT"):
+def _mock_route(duration=15, fare=1.80, mode="SUBWAY"):
     return {
         "duration_minutes": duration,
         "fare_sgd": fare,
         "legs": [{"mode": "WALK"}, {"mode": mode}],
+        "geometry": None,
+        "geometries": [],
+        "instructions": [],
+        "sub_legs": [],
+        "is_estimated": False,
     }
+
+
+def _make_place(pid: str, lat: float = 1.28, lng: float = 103.85, dwell: int = 60) -> Place:
+    """Helper: create a minimal Place object for tests."""
+    return Place(
+        id=pid, name=pid, lat=lat, lng=lng,
+        dwell_minutes=dwell, best_time_start="09:00", best_time_end="17:00",
+        category="test", is_outdoor=False, in_curated_dataset=True,
+    )
 
 
 VALID_IDS = list(_PLACES.keys())[:3]  # use first 3 real places from dataset
 
 
 # ── unit tests: helpers ───────────────────────────────────────────────────────
-
-def test_time_slot_morning():
-    assert _time_slot("07:00") == "morning"
-    assert _time_slot("08:00") == "morning"
-    assert _time_slot("11:59") == "morning"
-
-
-def test_time_slot_afternoon():
-    assert _time_slot("12:00") == "afternoon"
-    assert _time_slot("14:00") == "afternoon"
-    assert _time_slot("16:59") == "afternoon"
-
-
-def test_time_slot_evening():
-    assert _time_slot("17:00") == "evening"
-    assert _time_slot("19:00") == "evening"
-    assert _time_slot("22:00") == "evening"
-
-
-def test_rule_based_suggest_returns_ids_within_limit():
-    ids = _rule_based_suggest(num_days=2, travel_styles=["nature"])
-    assert len(ids) <= 2 * 4
-    assert all(i in _PLACES for i in ids)
-
-
-def test_rule_based_suggest_prefers_matching_category():
-    ids = _rule_based_suggest(num_days=1, travel_styles=["nature"])
-    # All returned IDs for nature style should be nature/viewpoint category
-    nature_cats = {"nature", "viewpoint"}
-    assert all(_PLACES[pid]["category"] in nature_cats for pid in ids)
-
-
-def test_rule_based_suggest_no_styles_returns_any_places():
-    ids = _rule_based_suggest(num_days=1, travel_styles=[])
-    assert len(ids) > 0
-    assert all(i in _PLACES for i in ids)
-
-
-@pytest.mark.asyncio
-async def test_suggest_places_uses_fallback_when_gemini_fails():
-    with patch("app.services.gemini.suggest_places", new_callable=AsyncMock,
-               side_effect=Exception("API down")):
-        result = await suggest_places(2, ["nature"], "solo")
-    assert len(result) > 0
-    assert all(i in _PLACES for i in result)
-
-
-@pytest.mark.asyncio
-async def test_suggest_places_returns_gemini_result_on_success():
-    expected = ["gardens-by-the-bay", "merlion-park"]
-    with patch("app.services.gemini.suggest_places", new_callable=AsyncMock,
-               return_value=expected):
-        result = await suggest_places(2, ["nature"], "solo")
-    assert result == expected
 
 
 def test_haversine_same_point_is_zero():
@@ -329,25 +291,26 @@ async def test_budget_exceeded_adds_warning():
 
 @pytest.mark.asyncio
 async def test_onemap_network_failure_raises_no_route():
-    # Network errors (generic Exception) must still raise NoRouteError — not fall back.
-    ids = VALID_IDS[:2]
+    # Network errors swallowed per-mode by _fetch_all_alternatives.
+    # Long-distance pair with all modes failing → NoRouteError raised.
+    ids = ["gardens-by-the-bay", "sentosa-universal-studios"]  # ≈5km → PT needed
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
         side_effect=Exception("Network timeout"),
     ):
-        with pytest.raises(NoRouteError, match="unavailable"):
+        with pytest.raises(NoRouteError):
             await plan_trip("t4", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
 
 
 @pytest.mark.asyncio
-async def test_no_route_error_falls_back_to_haversine():
-    # NoRouteError (API returns no itinerary) → haversine estimate; plan must succeed.
-    ids = VALID_IDS[:2]
+async def test_short_distance_no_route_falls_back_to_haversine():
+    # clarke-quay → boat-quay ≈ 530m < 1.5km → walk mode → NoRouteError → haversine estimate
+    ids = ["clarke-quay", "boat-quay"]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
-        side_effect=NoRouteError("no route"),
+        side_effect=NoRouteError("no walk route"),
     ):
         result = await plan_trip("t5", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
     assert len(result.days) >= 1
@@ -355,40 +318,50 @@ async def test_no_route_error_falls_back_to_haversine():
 
 
 @pytest.mark.asyncio
-async def test_short_distance_uses_walk_mode():
-    """clarke-quay → boat-quay ≈ 530m < 1.5km → must call onemap with mode='walk'."""
-    ids = ["clarke-quay", "boat-quay"]
-    mock = AsyncMock(return_value=_mock_route())
-    with patch("app.agents.planning_agent.onemap.get_route", mock):
-        await plan_trip("t-walk", ids, 1, 999.0, False, None)
-    first_mode = mock.call_args_list[0].kwargs.get("mode") or mock.call_args_list[0].args[-1]
-    assert first_mode == "walk"
-
-
-@pytest.mark.asyncio
-async def test_long_distance_uses_pt_mode():
-    """gardens-by-the-bay → sentosa-universal-studios ≈ 5km > 1.5km → must use mode='pt'."""
+async def test_long_distance_no_route_raises():
+    # gardens-by-the-bay → sentosa-universal-studios ≈ 5km ≥ 1.5km → PT mode
+    # PT NoRouteError must NOT fall back to haversine walk — must raise
     ids = ["gardens-by-the-bay", "sentosa-universal-studios"]
-    mock = AsyncMock(return_value=_mock_route())
-    with patch("app.agents.planning_agent.onemap.get_route", mock):
-        await plan_trip("t-pt", ids, 1, 999.0, False, None)
-    first_mode = mock.call_args_list[0].kwargs.get("mode") or mock.call_args_list[0].args[-1]
-    assert first_mode == "pt"
-
-
-@pytest.mark.asyncio
-async def test_time_slot_assigned_to_legs():
-    # gardens-by-the-bay has best_time_start "08:00" → morning
-    ids = ["gardens-by-the-bay", "marina-bay-sands"]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
-        return_value=_mock_route(),
+        side_effect=NoRouteError("no pt route"),
     ):
-        result = await plan_trip("t-slot", ids, 1, 999.0, False, None)
+        with pytest.raises(NoRouteError):
+            await plan_trip("t-pt-fail", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
 
-    leg = result.days[0].legs[0]
-    assert leg.time_slot == "morning"
+
+@pytest.mark.asyncio
+async def test_short_distance_leg_has_walk_transport_mode():
+    """clarke-quay → boat-quay ≈ 530m < 1.5km → WALK wins scoring (free 6 min vs S$1.80 20 min PT).
+
+    With the weighted scoring system, WALK wins when it is faster and cheaper.
+    The old distance-threshold rule (<1.5km → always WALK) has been replaced.
+    """
+    ids = ["clarke-quay", "boat-quay"]
+
+    async def _mode_aware(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
+        if mode == "walk":
+            return {"duration_minutes": 6, "fare_sgd": 0.0,
+                    "legs": [{"mode": "WALK"}], "geometry": None, "geometries": [],
+                    "instructions": [], "sub_legs": [], "is_estimated": False}
+        # pt (mixed or bus-only) — slower and costs money
+        return {"duration_minutes": 20, "fare_sgd": 1.80,
+                "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
+                "geometries": [], "instructions": [], "sub_legs": [], "is_estimated": False}
+
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mode_aware):
+        result = await plan_trip("t-walk", ids, 1, 999.0, False, None)
+    assert result.days[0].legs[0].transport_mode == "WALK"
+
+
+@pytest.mark.asyncio
+async def test_long_distance_leg_has_metro_transport_mode():
+    """gardens-by-the-bay → sentosa-universal-studios ≈ 5km >= 1.5km → leg.transport_mode 'METRO'."""
+    ids = ["gardens-by-the-bay", "sentosa-universal-studios"]
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
+        result = await plan_trip("t-pt", ids, 1, 999.0, False, None)
+    assert result.days[0].legs[0].transport_mode == "METRO"
 
 
 @pytest.mark.asyncio
@@ -410,11 +383,18 @@ async def test_best_time_no_warning_when_arrival_in_window():
 @pytest.mark.asyncio
 async def test_plan_trip_populates_leg_geometry():
     ids = VALID_IDS[:2]
-    route_with_geo = {**_mock_route(), "geometry": "encoded_abc", "instructions": ["Walk to station", "Board NS"]}
+    route_with_geo = {
+        **_mock_route(),
+        "geometry": "encoded_abc",
+        "geometries": ["walk_poly", "mrt_poly", "walk2_poly"],
+        "instructions": ["Walk to station", "Board NS"],
+    }
     with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=route_with_geo):
         result = await plan_trip("t-geo", ids, 1, 999.0, False, None)
-    assert result.days[0].legs[0].geometry == "encoded_abc"
-    assert result.days[0].legs[0].instructions == ["Walk to station", "Board NS"]
+    leg = result.days[0].legs[0]
+    assert leg.geometry == "encoded_abc"
+    assert leg.geometries == ["walk_poly", "mrt_poly", "walk2_poly"]
+    assert leg.instructions == ["Walk to station", "Board NS"]
 
 
 @pytest.mark.asyncio
@@ -434,19 +414,22 @@ async def test_plan_trip_populates_sub_legs():
         **_mock_route(),
         "sub_legs": [
             {"mode": "WALK", "route": "", "from_name": "Start", "to_name": "Station",
-             "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0},
-            {"mode": "MRT", "route": "EW", "from_name": "Bayfront", "to_name": "City Hall",
-             "from_stop_code": "EW24", "to_stop_code": "EW13", "duration_minutes": 10, "num_stops": 3},
+             "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0,
+             "geometry": None, "intermediate_stops": []},
+            {"mode": "METRO", "route": "EW", "from_name": "Bayfront", "to_name": "City Hall",
+             "from_stop_code": "EW24", "to_stop_code": "EW13", "duration_minutes": 10, "num_stops": 3,
+             "geometry": "mrt_poly", "intermediate_stops": []},
         ],
     }
     with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=route_with_sub_legs):
         result = await plan_trip("t-sub", ids, 1, 999.0, False, None)
     leg = result.days[0].legs[0]
     assert len(leg.sub_legs) == 2
-    mrt = next(s for s in leg.sub_legs if s.mode == "MRT")
-    assert mrt.route == "EW"
-    assert mrt.from_stop_code == "EW24"
-    assert mrt.num_stops == 3
+    metro = next(s for s in leg.sub_legs if s.mode == "METRO")
+    assert metro.route == "EW"
+    assert metro.from_stop_code == "EW24"
+    assert metro.num_stops == 3
+    assert metro.geometry == "mrt_poly"
 
 
 @pytest.mark.asyncio
@@ -506,6 +489,221 @@ async def test_gemini_exception_falls_back_to_place_missing():
     with patch("app.services.gemini.parse_places_input", new_callable=AsyncMock, side_effect=ValueError("rate limit")):
         with pytest.raises(PlaceDataMissingError):
             await plan_trip("t-gem3", [VALID_IDS[0], "unknownxyz"], 1, 999.0, False, None)
+
+
+# ── _fetch_all_alternatives ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fetch_all_alternatives_returns_available_modes():
+    """Standard PT + walk both succeed → both stored under correct keys."""
+    async def _mock(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
+        if mode == "walk":
+            return {"duration_minutes": 10, "fare_sgd": 0.0,
+                    "legs": [{"mode": "WALK"}], "geometry": None,
+                    "geometries": [], "instructions": [], "sub_legs": []}
+        if transit_modes == "BUS":
+            return {"duration_minutes": 20, "fare_sgd": 1.20,
+                    "legs": [{"mode": "WALK"}, {"mode": "BUS"}], "geometry": None,
+                    "geometries": [], "instructions": [], "sub_legs": []}
+        return {"duration_minutes": 15, "fare_sgd": 1.80,
+                "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
+                "geometries": [], "instructions": [], "sub_legs": []}
+
+    from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
+    to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+        alts = await _fetch_all_alternatives(from_p, to_p)
+
+    assert "METRO" in alts
+    assert "BUS" in alts
+    assert "WALK" in alts
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_alternatives_bus_only_not_stored_when_returns_metro():
+    """If PT+BUS call returns a METRO-primary route, it must NOT be stored as BUS."""
+    async def _mock(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
+        # All calls return SUBWAY regardless of transit_modes
+        return {"duration_minutes": 15, "fare_sgd": 1.80,
+                "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
+                "geometries": [], "instructions": [], "sub_legs": []}
+
+    from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
+    to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+        alts = await _fetch_all_alternatives(from_p, to_p)
+
+    assert "METRO" in alts
+    assert "BUS" not in alts   # not stored because primary mode was METRO, not BUS
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_alternatives_partial_failure_returns_available():
+    """When one mode fails, the others are still returned."""
+    async def _mock(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
+        if mode == "walk":
+            raise NoRouteError("no walk route")
+        return {"duration_minutes": 15, "fare_sgd": 1.80,
+                "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
+                "geometries": [], "instructions": [], "sub_legs": []}
+
+    from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
+    to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+        alts = await _fetch_all_alternatives(from_p, to_p)
+
+    assert "METRO" in alts
+    assert "WALK" not in alts
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_alternatives_all_fail_returns_empty():
+    from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
+    to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(side_effect=NoRouteError)):
+        alts = await _fetch_all_alternatives(from_p, to_p)
+    assert alts == {}
+
+
+@pytest.mark.asyncio
+async def test_plan_trip_populates_alternatives():
+    """After plan_trip, each leg must have an alternatives dict with at least one mode."""
+    ids = VALID_IDS[:2]
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
+        result = await plan_trip("t-alts", ids, 1, 999.0, False, None)
+    leg = result.days[0].legs[0]
+    assert isinstance(leg.alternatives, dict)
+    assert len(leg.alternatives) >= 1
+
+
+# ── switch_leg_mode ───────────────────────────────────────────────────────────
+
+def _make_plan_for_switch(trip_id: str = "t-sw") -> TripPlan:
+    """TripPlan with Gardens→MBS leg, BUS alternative pre-populated."""
+    bus_alt = AlternativeRoute(duration_minutes=20, cost_sgd=1.20, is_estimated=False)
+    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False)
+    walk_alt  = AlternativeRoute(duration_minutes=45, cost_sgd=0.0,  is_estimated=False)
+    leg = LegResponse(
+        id="leg-sw",
+        from_place_id="gardens-by-the-bay",
+        to_place_id="marina-bay-sands",
+        transport_mode="METRO",
+        duration_minutes=10,
+        cost_sgd=1.80,
+        is_estimated=False,
+        alternatives={"BUS": bus_alt, "METRO": metro_alt, "WALK": walk_alt},
+    )
+    p_a = _make_place("gardens-by-the-bay", lat=1.2816, lng=103.8636, dwell=60)
+    p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607, dwell=60)
+    return TripPlan(id=trip_id, days=[DayPlan(day=1, legs=[leg])],
+                    places=[p_a, p_b], warnings=[])
+
+
+@pytest.mark.asyncio
+async def test_switch_leg_mode_uses_cached_alternative():
+    """When alternative is in cache → no API call, returns updated leg."""
+    plan = _make_plan_for_switch()
+    with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock) as mock_api:
+        result = await switch_leg_mode("BUS", plan.days[0].legs[0], plan)
+    mock_api.assert_not_called()
+    assert result.updated_leg.transport_mode == "BUS"
+    assert result.updated_leg.duration_minutes == 20
+    assert result.updated_leg.cost_sgd == 1.20
+
+
+@pytest.mark.asyncio
+async def test_switch_leg_mode_cache_miss_fetches_on_demand():
+    """When BUS not in alternatives → on-demand fetch, then switch."""
+    bus_route = {"duration_minutes": 25, "fare_sgd": 1.10, "is_estimated": False,
+                 "legs": [{"mode": "WALK"}, {"mode": "BUS"}],
+                 "geometry": None, "geometries": [], "instructions": [], "sub_legs": []}
+    metro_route = {"duration_minutes": 10, "fare_sgd": 1.80, "is_estimated": False,
+                   "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}],
+                   "geometry": None, "geometries": [], "instructions": [], "sub_legs": []}
+    walk_route  = {"duration_minutes": 40, "fare_sgd": 0.0, "is_estimated": False,
+                   "legs": [{"mode": "WALK"}],
+                   "geometry": None, "geometries": [], "instructions": [], "sub_legs": []}
+
+    async def _mock(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
+        if mode == "walk":
+            return walk_route
+        if transit_modes == "BUS":
+            return bus_route
+        return metro_route
+
+    # Leg with NO alternatives (simulates DB-loaded trip)
+    leg = LegResponse(
+        id="leg-cm", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="METRO", duration_minutes=10, cost_sgd=1.80, is_estimated=False,
+    )
+    p_a = _make_place("gardens-by-the-bay", lat=1.2816, lng=103.8636)
+    p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607)
+    plan = TripPlan(id="t-cm", days=[DayPlan(day=1, legs=[leg])],
+                    places=[p_a, p_b], warnings=[])
+
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+        result = await switch_leg_mode("BUS", leg, plan)
+
+    assert result.updated_leg.transport_mode == "BUS"
+    assert result.updated_leg.duration_minutes == 25
+
+
+@pytest.mark.asyncio
+async def test_switch_leg_mode_raises_when_mode_unavailable():
+    """If requested mode has no route at all → NoRouteError with clear message."""
+    leg = LegResponse(
+        id="leg-na", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="METRO", duration_minutes=10, cost_sgd=1.80, is_estimated=False,
+        # No BUS alternative, and on-demand fetch will also fail
+    )
+    p_a = _make_place("gardens-by-the-bay", lat=1.2816, lng=103.8636)
+    p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607)
+    plan = TripPlan(id="t-na", days=[DayPlan(day=1, legs=[leg])],
+                    places=[p_a, p_b], warnings=[])
+
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(side_effect=NoRouteError)):
+        with pytest.raises(NoRouteError, match="BUS"):
+            await switch_leg_mode("BUS", leg, plan)
+
+
+@pytest.mark.asyncio
+async def test_switch_leg_mode_schedule_warning_when_overfull():
+    """Switching to a slow mode that makes day_end > 17:30 → warning in result."""
+    # dwell: place_a=60, place_b=60 → total_dwell=120
+    # current transit=10 → day_end=540+120+10=670 (fine)
+    # walk alt=600min → day_end=540+120+600=1260 > 1050 → warning
+    slow_walk = AlternativeRoute(duration_minutes=600, cost_sgd=0.0)
+    leg = LegResponse(
+        id="leg-ov", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="METRO", duration_minutes=10, cost_sgd=1.80, is_estimated=False,
+        alternatives={"WALK": slow_walk},
+    )
+    p_a = _make_place("gardens-by-the-bay", dwell=60)
+    p_b = _make_place("marina-bay-sands",   dwell=60)
+    plan = TripPlan(id="t-ov", days=[DayPlan(day=1, legs=[leg])],
+                    places=[p_a, p_b], warnings=[])
+
+    result = await switch_leg_mode("WALK", leg, plan)
+    assert result.updated_leg.transport_mode == "WALK"
+    assert any("WALK" in w for w in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_switch_leg_mode_no_warning_when_fits():
+    """Fast switch that keeps day within 17:30 → no schedule warning."""
+    fast_bus = AlternativeRoute(duration_minutes=12, cost_sgd=1.20)
+    leg = LegResponse(
+        id="leg-ok", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="METRO", duration_minutes=10, cost_sgd=1.80, is_estimated=False,
+        alternatives={"BUS": fast_bus},
+    )
+    p_a = _make_place("gardens-by-the-bay", dwell=60)
+    p_b = _make_place("marina-bay-sands",   dwell=60)
+    plan = TripPlan(id="t-ok", days=[DayPlan(day=1, legs=[leg])],
+                    places=[p_a, p_b], warnings=[])
+
+    result = await switch_leg_mode("BUS", leg, plan)
+    assert result.warnings == []
 
 
 # ── P4-BUG-2: opening-hours check must include dwell time ────────────────────
@@ -596,5 +794,148 @@ def test_check_schedule_fit_at_exactly_1700_not_overfull():
     places = [{"id": "z", "dwell_minutes": 480}]
     issue, _ = _check_schedule_fit([places], {})
     assert issue != "overfull"
+
+
+# ── switch_leg_mode_live ──────────────────────────────────────────────────────
+
+# Gardens: lat=1.2816, lng=103.8636  (from_place in _make_plan_for_switch)
+# GPS "at origin"  = 1.2816, 103.8636  (0m away)
+# GPS "mid-journey" = 1.2916, 103.8636  (~1.1 km north — well above 200m threshold)
+
+_GPS_AT_ORIGIN  = (1.2816, 103.8636)
+_GPS_MID        = (1.2916, 103.8636)
+
+
+@pytest.mark.asyncio
+async def test_switch_live_at_origin_uses_cache():
+    """GPS at from_place → fast path (switch_leg_mode), no OneMap API call."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock) as mock_api:
+        result = await switch_leg_mode_live("BUS", leg, plan,
+                                            current_lat=_GPS_AT_ORIGIN[0],
+                                            current_lng=_GPS_AT_ORIGIN[1])
+    mock_api.assert_not_called()   # fast path uses cache, never hits OneMap
+    assert result.updated_leg.transport_mode == "BUS"
+    assert result.updated_leg.duration_minutes == 20   # from BUS alternative
+    assert result.routed_from_current_position is False
+
+
+@pytest.mark.asyncio
+async def test_switch_live_at_origin_flag_false():
+    """Fast path always sets routed_from_current_position=False."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock):
+        result = await switch_leg_mode_live("METRO", leg, plan,
+                                            current_lat=_GPS_AT_ORIGIN[0],
+                                            current_lng=_GPS_AT_ORIGIN[1])
+    assert result.routed_from_current_position is False
+
+
+@pytest.mark.asyncio
+async def test_switch_live_mid_journey_calls_onemap_with_gps():
+    """GPS >200m away → OneMap called with GPS coords as origin, not from_place coords."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    mock_route = {**_mock_route(duration=18, fare=1.50), "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}]}
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, return_value=mock_route) as mock_api:
+        result = await switch_leg_mode_live("METRO", leg, plan,
+                                            current_lat=_GPS_MID[0],
+                                            current_lng=_GPS_MID[1])
+
+    call_args = mock_api.call_args
+    assert call_args.args[0] == pytest.approx(_GPS_MID[0])   # lat from GPS
+    assert call_args.args[1] == pytest.approx(_GPS_MID[1])   # lng from GPS
+    assert result.routed_from_current_position is True
+    assert result.updated_leg.transport_mode == "METRO"
+
+
+@pytest.mark.asyncio
+async def test_switch_live_mid_journey_sets_flag():
+    """Realtime path always sets routed_from_current_position=True."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    mock_route = {**_mock_route(duration=18, fare=1.50), "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}]}
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, return_value=mock_route):
+        result = await switch_leg_mode_live("METRO", leg, plan,
+                                            current_lat=_GPS_MID[0],
+                                            current_lng=_GPS_MID[1])
+
+    assert result.routed_from_current_position is True
+    assert result.updated_leg.duration_minutes == 18
+
+
+@pytest.mark.asyncio
+async def test_switch_live_mid_journey_bus_mode_uses_transit_modes():
+    """BUS mode in realtime path passes transit_modes='BUS' to OneMap."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    bus_route = {**_mock_route(duration=22, fare=1.20), "legs": [{"mode": "WALK"}, {"mode": "BUS"}]}
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, return_value=bus_route) as mock_api:
+        result = await switch_leg_mode_live("BUS", leg, plan,
+                                            current_lat=_GPS_MID[0],
+                                            current_lng=_GPS_MID[1])
+
+    assert mock_api.call_args.kwargs.get("transit_modes") == "BUS"
+    assert result.updated_leg.transport_mode == "BUS"
+    assert result.updated_leg.duration_minutes == 22
+
+
+@pytest.mark.asyncio
+async def test_switch_live_mid_journey_bus_fallback_to_metro_raises():
+    """BUS-only request but OneMap returns METRO-primary route → NoRouteError."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    # OneMap returns SUBWAY (METRO) even when transit_modes=BUS is requested
+    metro_route = {**_mock_route(duration=10, fare=1.80), "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}]}
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, return_value=metro_route):
+        with pytest.raises(NoRouteError, match="BUS"):
+            await switch_leg_mode_live("BUS", leg, plan,
+                                       current_lat=_GPS_MID[0],
+                                       current_lng=_GPS_MID[1])
+
+
+@pytest.mark.asyncio
+async def test_switch_live_mid_journey_no_route_raises():
+    """OneMap raises NoRouteError from GPS position → switch_leg_mode_live re-raises."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               AsyncMock(side_effect=NoRouteError("no route"))):
+        with pytest.raises(NoRouteError):
+            await switch_leg_mode_live("METRO", leg, plan,
+                                       current_lat=_GPS_MID[0],
+                                       current_lng=_GPS_MID[1])
+
+
+@pytest.mark.asyncio
+async def test_switch_live_schedule_warning_overfull():
+    """Realtime path: slow new duration pushes day_end past 17:30 → schedule warning."""
+    # dwell: gardens=60, mbs=60 → total_dwell=120
+    # current transit=10 → day_end=540+120+10=670 (fine)
+    # new walk=600 min → day_end=540+120+600=1260 > 1050 → warning
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    slow_route = {"duration_minutes": 600, "fare_sgd": 0.0, "legs": [{"mode": "WALK"}],
+                  "geometry": None, "geometries": [], "instructions": [], "sub_legs": []}
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, return_value=slow_route):
+        result = await switch_leg_mode_live("WALK", leg, plan,
+                                            current_lat=_GPS_MID[0],
+                                            current_lng=_GPS_MID[1])
+
+    assert result.routed_from_current_position is True
+    assert any("WALK" in w for w in result.warnings)
 
 
