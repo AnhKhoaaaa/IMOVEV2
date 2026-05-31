@@ -52,7 +52,7 @@ def _make_supabase_mock(trips=None, legs=None, places_data=None, alert=None):
     return sb
 
 
-def _make_plan(trip_id="t1", transport_mode="MRT") -> TripPlan:
+def _make_plan(trip_id="t1", transport_mode="METRO") -> TripPlan:
     leg = LegResponse(
         id="leg-1",
         from_place_id="gardens-by-the-bay",
@@ -220,7 +220,7 @@ async def test_adapt_trip_alert_not_found_returns_unchanged():
 
 @pytest.mark.asyncio
 async def test_adapt_trip_train_delay_reroutes_mrt_legs():
-    plan = _make_plan(transport_mode="MRT")
+    plan = _make_plan(transport_mode="METRO")
     alert_data = [{"id": "alert-1", "alert_type": "train_delay", "affected_line": "NS", "message": "Delay"}]
     sb = _make_supabase_mock(alert=alert_data)
 
@@ -239,7 +239,7 @@ async def test_adapt_trip_train_delay_reroutes_mrt_legs():
 
 @pytest.mark.asyncio
 async def test_adapt_trip_train_delay_onemap_fails_keeps_original():
-    plan = _make_plan(transport_mode="MRT")
+    plan = _make_plan(transport_mode="METRO")
     alert_data = [{"id": "alert-1", "alert_type": "train_delay", "affected_line": "NS", "message": "Delay"}]
     sb = _make_supabase_mock(alert=alert_data)
 
@@ -250,7 +250,7 @@ async def test_adapt_trip_train_delay_onemap_fails_keeps_original():
 
     # When rerouting fails, keep original leg
     leg = result.updated_trip.days[0].legs[0]
-    assert leg.transport_mode == "MRT"
+    assert leg.transport_mode == "METRO"
     assert result.adapted is False  # No changes were made
 
 
