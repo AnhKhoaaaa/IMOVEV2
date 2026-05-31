@@ -7,6 +7,8 @@ from app.models.place import Place
 
 TripStatus = Literal["DRAFT", "UPCOMING", "HAPPENING_TODAY", "PAST"]
 
+TransportMode = Literal["BUS", "METRO", "CYCLE", "WALK"]
+
 
 class TripCreate(BaseModel):
     session_id: str = Field(min_length=8, max_length=128)
@@ -24,7 +26,7 @@ class TripPlanRequest(BaseModel):
 
 
 class PTSubLeg(BaseModel):
-    mode: str
+    mode: TransportMode
     route: str = ""
     from_name: str = ""
     to_name: str = ""
@@ -32,20 +34,37 @@ class PTSubLeg(BaseModel):
     to_stop_code: str = ""
     duration_minutes: int = 0
     num_stops: int = 0
+    geometry: str | None = None
+    intermediate_stops: list[dict] = []
+
+
+class AlternativeRoute(BaseModel):
+    """Pre-fetched route data for one transport mode.
+    Stored in-memory alongside LegResponse — NOT persisted to DB."""
+    duration_minutes: int
+    cost_sgd: float
+    is_estimated: bool = False
+    geometry: str | None = None
+    geometries: list[str] = []
+    instructions: list[str] = []
+    distance_km: float | None = None
+    sub_legs: list[PTSubLeg] = []
 
 
 class LegResponse(BaseModel):
     id: str
     from_place_id: str
     to_place_id: str
-    transport_mode: str
+    transport_mode: TransportMode
     duration_minutes: int
     cost_sgd: float
     is_estimated: bool
     instructions: list[str] = []
     geometry: str | None = None
+    geometries: list[str] = []
     distance_km: float | None = None
     sub_legs: list[PTSubLeg] = []
+    alternatives: dict[str, AlternativeRoute] = {}   # key = TransportMode; in-memory only
 
 
 class DayPlan(BaseModel):
@@ -69,6 +88,14 @@ class TripPlan(BaseModel):
     gap_notifications: list[GapNotification] = []
 
 
+class LegSwapResult(BaseModel):
+    """Response for PATCH /trips/{id}/legs/{leg_id} and POST .../switch-now."""
+    updated_leg: LegResponse
+    trip_cost_sgd: float        # recalculated total cost for the whole trip
+    warnings: list[str] = []   # schedule overfull, budget exceeded, etc.
+    routed_from_current_position: bool = False  # True = geometry starts from GPS, not from_place
+
+
 class ModeResult(BaseModel):
     available: bool
     duration_minutes: int = 0
@@ -84,7 +111,16 @@ class RouteComparison(BaseModel):
 
 
 class LegUpdateRequest(BaseModel):
-    transport_mode: Literal["MRT", "LRT", "BUS", "WALK"]
+    transport_mode: TransportMode
+
+
+class LiveSwitchRequest(BaseModel):
+    """Request body for POST /trips/{id}/legs/{leg_id}/switch-now.
+    User-initiated live mode-switch using current GPS position.
+    """
+    new_mode: TransportMode
+    current_lat: float = Field(ge=-90, le=90)
+    current_lng: float = Field(ge=-180, le=180)
 
 
 class AdaptRequest(BaseModel):

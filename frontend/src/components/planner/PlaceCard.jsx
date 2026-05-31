@@ -19,6 +19,7 @@ function ImageStrip({ imageUrl }) {
             <img
               src={imageUrl}
               alt=""
+              referrerPolicy="no-referrer"
               className="absolute inset-0 w-full h-full object-cover"
               onError={(e) => { e.currentTarget.style.display = 'none' }}
             />

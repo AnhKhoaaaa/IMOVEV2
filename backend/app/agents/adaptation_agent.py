@@ -47,7 +47,7 @@ async def poll_lta_alerts() -> None:
     mrt_trip_ids = {
         leg["trip_id"]
         for leg in (all_legs_resp.data or [])
-        if leg.get("transport_mode") == "MRT"
+        if leg.get("transport_mode") in ("MRT", "METRO")  # MRT = legacy DB value
     }
     if not mrt_trip_ids:
         return  # No active trips with MRT legs — nothing to alert on
@@ -242,7 +242,7 @@ async def check_lta_proximity(
         leg.from_place_id
         for day in plan.days
         for leg in day.legs
-        if leg.transport_mode == "MRT"
+        if leg.transport_mode == "METRO"
     }
     if not mrt_from_ids:
         return
@@ -396,9 +396,11 @@ async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
             dwell_minutes=p.get("dwell_minutes", 60),
             best_time_start=p.get("best_time_start", "00:00"),
             best_time_end=p.get("best_time_end", "23:59"),
+            opening_hours=p.get("opening_hours"),
             category=p.get("category", ""),
             is_outdoor=p.get("is_outdoor", False),
             in_curated_dataset=p["id"] in get_all_places(),
+            image_url=p.get("image_url"),
         )
         for p in new_places_raw
     ]
@@ -414,7 +416,7 @@ async def _reroute_mrt_legs(plan: TripPlan) -> tuple[TripPlan, list[str]]:
     for day in plan.days:
         new_legs = []
         for leg in day.legs:
-            if leg.transport_mode != "MRT":
+            if leg.transport_mode != "METRO":
                 new_legs.append(leg)
                 continue
 
@@ -436,8 +438,8 @@ async def _reroute_mrt_legs(plan: TripPlan) -> tuple[TripPlan, list[str]]:
                     cost_sgd=route["fare_sgd"],
                     is_estimated=False,
                 )
-                if new_mode != "MRT":
-                    changes.append(f"Leg {leg.from_place_id} → {leg.to_place_id}: MRT → {new_mode} (disruption)")
+                if new_mode != "METRO":
+                    changes.append(f"Leg {leg.from_place_id} → {leg.to_place_id}: METRO → {new_mode} (disruption)")
                 new_legs.append(new_leg)
             except NoRouteError as exc:
                 log.warning("No route for leg %s → %s: %s", leg.from_place_id, leg.to_place_id, exc)
