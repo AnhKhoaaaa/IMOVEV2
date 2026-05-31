@@ -6,11 +6,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import get_current_user
+from app.models.preferences import UserPreferenceProfile, ContextSnapshot
 
 from app.models.trip import (
     TripCreate, TripPlanRequest, TripPlan,
-    LegUpdateRequest, AdaptRequest, AdaptResponse, TripStatus, LocationUpdate,
-    AddPlaceRequest, ReorderRequest,
+    LegUpdateRequest, LiveSwitchRequest, AdaptRequest, AdaptResponse, TripStatus, LocationUpdate,
+    AddPlaceRequest, ReorderRequest, LegSwapResult,
 )
 from app.agents import planning_agent, adaptation_agent
 from app.agents.planning_agent import get_curated_place
@@ -58,8 +59,39 @@ async def create_trip(body: TripCreate):
 
 
 @router.post("/{trip_id}/plan")
-async def plan_trip(trip_id: str, body: TripPlanRequest):
+async def plan_trip(
+    trip_id: str,
+    body: TripPlanRequest,
+    current_user: Optional[str] = Depends(get_current_user),
+):
     num_days, budget_sgd = _get_trip_params(trip_id, body)
+
+    # [PATCH 3] Fetch user preference profile — fallback to default nếu guest/new user
+    effective_profile: UserPreferenceProfile = UserPreferenceProfile()
+    if current_user and supabase:
+        try:
+            pref_resp = (
+                supabase.table("user_preferences")
+                .select("profile")
+                .eq("user_id", current_user)
+                .limit(1)
+                .execute()
+            )
+            if pref_resp.data:
+                effective_profile = UserPreferenceProfile(**pref_resp.data[0]["profile"])
+        except Exception as exc:
+            log.warning("Preferences fetch failed for %s (using defaults): %s", current_user, exc)
+
+    # Build real-time context — weather fetch is optional, non-blocking
+    rain_mm = 0.0
+    try:
+        from app.services import openweather
+        weather = await openweather.get_current_weather()
+        rain_mm = weather.get("rain_1h", 0.0)
+    except Exception:
+        pass   # non-fatal: use 0.0 when OpenWeather is unavailable
+    effective_ctx = ContextSnapshot.now(rain_mm=rain_mm)
+
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -68,6 +100,8 @@ async def plan_trip(trip_id: str, body: TripPlanRequest):
             budget_sgd=budget_sgd,
             optimize_order=body.optimize_order,
             preferences=body.preferences,
+            profile=effective_profile,
+            context=effective_ctx,
         )
     except PlaceDataMissingError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -123,54 +157,151 @@ async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_curre
 
 
 @router.patch("/{trip_id}/legs/{leg_id}")
-async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest):
-    # Find leg in memory store
+async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSwapResult:
+    """Real mode-switch: replaces duration/cost/geometry/sub_legs from pre-fetched alternatives.
+
+    Returns LegSwapResult { updated_leg, trip_cost_sgd, warnings }.
+    422 when requested mode has no available route.
+    """
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
         plan = _fetch_trip_from_db(trip_id)
         if plan:
-            _trip_store[trip_id] = plan  # cache so future mutations stay consistent
+            _trip_store[trip_id] = plan
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
     target_leg = None
-    found = False
     for day in plan.days:
         for leg in day.legs:
             if leg.id == leg_id:
                 target_leg = leg
-                found = True
                 break
-        if found:
+        if target_leg:
             break
 
     if target_leg is None:
         raise HTTPException(status_code=404, detail=f"Leg '{leg_id}' not found")
 
     old_mode = target_leg.transport_mode
-    updated_leg = target_leg.model_copy(update={
-        "transport_mode": body.transport_mode,
-    })
-    for day in plan.days:
-        for i, leg in enumerate(day.legs):
-            if leg.id == leg_id:
-                day.legs[i] = updated_leg
-                break
 
+    try:
+        result = await planning_agent.switch_leg_mode(
+            new_mode=body.transport_mode,
+            target_leg=target_leg,
+            plan=plan,
+        )
+    except NoRouteError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Budget check — router has access to _trip_meta
+    meta = _trip_meta.get(trip_id, {})
+    budget = meta.get("budget_sgd")
+    if budget is not None and result.trip_cost_sgd > budget:
+        result.warnings.append(
+            f"Estimated transit cost S${result.trip_cost_sgd:.2f} "
+            f"exceeds your budget of S${budget:.2f}."
+        )
+
+    # Update in-memory plan
+    _trip_store[trip_id] = _apply_leg_update(plan, leg_id, result.updated_leg)
+
+    # Persist to Supabase with all updated fields (not just transport_mode)
     if supabase:
-        supabase.table("route_legs").update(
-            {"transport_mode": body.transport_mode}
-        ).eq("id", leg_id).execute()
+        leg = result.updated_leg
+        supabase.table("route_legs").update({
+            "transport_mode":   leg.transport_mode,
+            "duration_minutes": leg.duration_minutes,
+            "cost_sgd":         leg.cost_sgd,
+            "is_estimated":     leg.is_estimated,
+            "geometry":         leg.geometry,
+            "instructions":     leg.instructions,
+        }).eq("id", leg_id).execute()
 
-        # Log implicit feedback for Memory Agent
         supabase.table("trip_feedback").insert({
-            "trip_id": trip_id,
-            "leg_id": leg_id,
+            "trip_id":       trip_id,
+            "leg_id":        leg_id,
             "feedback_type": "implicit",
-            "comment": f"Mode changed: {old_mode} → {updated_leg.transport_mode}",
+            "comment":       f"Mode changed: {old_mode} → {leg.transport_mode}",
         }).execute()
 
-    return updated_leg
+    return result
+
+
+@router.post("/{trip_id}/legs/{leg_id}/switch-now")
+async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> LegSwapResult:
+    """User-initiated live mode-switch using current GPS position.
+
+    Differs from PATCH /legs/{id}:
+    - Accepts GPS coords → agent decides fast path (cache) vs realtime (OneMap from GPS)
+    - No alert_id required, no accept-swap flow — commits immediately
+    - Returns routed_from_current_position=True when geometry originates from GPS
+    """
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+        if plan:
+            _trip_store[trip_id] = plan
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    target_leg = None
+    for day in plan.days:
+        for leg in day.legs:
+            if leg.id == leg_id:
+                target_leg = leg
+                break
+        if target_leg:
+            break
+    if target_leg is None:
+        raise HTTPException(status_code=404, detail=f"Leg '{leg_id}' not found")
+
+    old_mode = target_leg.transport_mode
+
+    try:
+        result = await planning_agent.switch_leg_mode_live(
+            new_mode=body.new_mode,
+            target_leg=target_leg,
+            plan=plan,
+            current_lat=body.current_lat,
+            current_lng=body.current_lng,
+        )
+    except NoRouteError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Budget check — same guard as PATCH /legs
+    meta = _trip_meta.get(trip_id, {})
+    budget = meta.get("budget_sgd")
+    if budget is not None and result.trip_cost_sgd > budget:
+        result.warnings.append(
+            f"Estimated transit cost S${result.trip_cost_sgd:.2f} "
+            f"exceeds your budget of S${budget:.2f}."
+        )
+
+    # Update in-memory plan
+    _trip_store[trip_id] = _apply_leg_update(plan, leg_id, result.updated_leg)
+
+    # Persist all updated fields to Supabase
+    if supabase:
+        leg = result.updated_leg
+        supabase.table("route_legs").update({
+            "transport_mode":   leg.transport_mode,
+            "duration_minutes": leg.duration_minutes,
+            "cost_sgd":         leg.cost_sgd,
+            "is_estimated":     leg.is_estimated,
+            "geometry":         leg.geometry,
+            "instructions":     leg.instructions,
+        }).eq("id", leg_id).execute()
+
+        origin_note = "from GPS" if result.routed_from_current_position else "from place"
+        supabase.table("trip_feedback").insert({
+            "trip_id":       trip_id,
+            "leg_id":        leg_id,
+            "feedback_type": "implicit",
+            "comment":       f"Live switch ({origin_note}): {old_mode} → {leg.transport_mode}",
+        }).execute()
+
+    return result
 
 
 @router.post("/{trip_id}/adapt")
@@ -674,6 +805,15 @@ def _ordered_place_ids(legs: list, places) -> list[str]:
     return ids
 
 
+def _apply_leg_update(plan: TripPlan, leg_id: str, updated_leg) -> TripPlan:
+    """Return a new TripPlan with the named leg replaced in all days."""
+    new_days = []
+    for day in plan.days:
+        new_legs = [updated_leg if leg.id == leg_id else leg for leg in day.legs]
+        new_days.append(day.model_copy(update={"legs": new_legs}))
+    return plan.model_copy(update={"days": new_days})
+
+
 def _fetch_trip_from_db(trip_id: str):
     """Reconstruct TripPlan from Supabase tables. Returns None if not found."""
     trip_resp = supabase.table("trips").select("*").eq("id", trip_id).execute()
@@ -699,19 +839,26 @@ def _fetch_trip_from_db(trip_id: str):
             dwell_minutes=curated.get("dwell_minutes", p.get("dwell_minutes", 60)),
             best_time_start=curated.get("best_time_start", "00:00"),
             best_time_end=curated.get("best_time_end", "23:59"),
+            opening_hours=curated.get("opening_hours"),
             category=curated.get("category", ""),
             is_outdoor=curated.get("is_outdoor", False),
             in_curated_dataset=bool(curated),
+            image_url=curated.get("image_url"),
         ))
+
+    # Coerce legacy DB values ("MRT", "LRT") to current TransportMode labels
+    _LEGACY_MODE: dict[str, str] = {"MRT": "METRO", "LRT": "METRO"}
 
     days_map: dict[int, list] = {}
     for leg in legs_resp.data:
         d = leg["day_number"]
+        raw_mode = leg["transport_mode"]
+        transport_mode = _LEGACY_MODE.get(raw_mode, raw_mode)
         days_map.setdefault(d, []).append(LegResponse(
             id=leg["id"],
             from_place_id=leg["from_place_id"],
             to_place_id=leg["to_place_id"],
-            transport_mode=leg["transport_mode"],
+            transport_mode=transport_mode,
             duration_minutes=leg["duration_minutes"],
             cost_sgd=float(leg["cost_sgd"]),
             is_estimated=leg["is_estimated"],

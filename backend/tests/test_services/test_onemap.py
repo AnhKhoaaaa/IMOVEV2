@@ -4,7 +4,10 @@ import httpx
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import app.services.onemap as _onemap
-from app.services.onemap import geocode, get_route, NoRouteError, GeocodingError, _extract_sub_legs
+from app.services.onemap import (
+    geocode, get_route, NoRouteError, GeocodingError,
+    _extract_sub_legs, _extract_all_geometries,
+)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -274,13 +277,17 @@ async def test_get_route_fare_info_unavailable_returns_zero():
 
 # ── _extract_sub_legs ─────────────────────────────────────────────────────────
 
-def test_extract_sub_legs_maps_subway_to_mrt():
+def test_extract_sub_legs_maps_subway_to_metro():
     legs = [{"mode": "SUBWAY", "duration": 600, "route": "EW",
              "from": {"name": "Bayfront", "stopCode": "EW24"},
              "to": {"name": "City Hall", "stopCode": "EW13"},
-             "numStops": 3}]
+             "numStops": 3,
+             "legGeometry": {"points": "mrt_poly"},
+             "intermediateStops": [
+                 {"name": "Raffles Place", "stopCode": "EW14/NS26"},
+             ]}]
     result = _extract_sub_legs(legs)
-    assert result[0]["mode"] == "MRT"
+    assert result[0]["mode"] == "METRO"
     assert result[0]["route"] == "EW"
     assert result[0]["from_name"] == "Bayfront"
     assert result[0]["to_name"] == "City Hall"
@@ -288,13 +295,15 @@ def test_extract_sub_legs_maps_subway_to_mrt():
     assert result[0]["to_stop_code"] == "EW13"
     assert result[0]["num_stops"] == 3
     assert result[0]["duration_minutes"] == 10
+    assert result[0]["geometry"] == "mrt_poly"
+    assert result[0]["intermediate_stops"] == [{"name": "Raffles Place", "stop_code": "EW14/NS26"}]
 
 
-def test_extract_sub_legs_maps_tram_to_lrt():
+def test_extract_sub_legs_maps_tram_to_metro():
     legs = [{"mode": "TRAM", "duration": 300, "route": "BP",
              "from": {"name": "Bukit Panjang"}, "to": {"name": "Petir"}, "numStops": 2}]
     result = _extract_sub_legs(legs)
-    assert result[0]["mode"] == "LRT"
+    assert result[0]["mode"] == "METRO"
     assert result[0]["route"] == "BP"
 
 
@@ -335,7 +344,7 @@ async def test_get_route_pt_returns_sub_legs():
     sub_legs = result["sub_legs"]
     assert len(sub_legs) == 3
     # MRT sub-leg has route and stop codes
-    mrt = next(s for s in sub_legs if s["mode"] == "MRT")
+    mrt = next(s for s in sub_legs if s["mode"] == "METRO")
     assert mrt["route"] == "EW"
     assert mrt["from_stop_code"] == "EW24/NS1"
     assert mrt["num_stops"] == 10
@@ -363,17 +372,75 @@ async def test_get_route_walk_mode_has_no_sub_legs():
     assert "sub_legs" not in result
 
 
+# ── _extract_all_geometries ────────────────────────────────────────────────────
+
+def test_extract_all_geometries_returns_all_legs():
+    legs = [
+        {"mode": "WALK", "legGeometry": {"points": "walk_poly1"}},
+        {"mode": "SUBWAY", "legGeometry": {"points": "mrt_poly"}},
+        {"mode": "WALK", "legGeometry": {"points": "walk_poly2"}},
+    ]
+    result = _extract_all_geometries(legs)
+    assert result == ["walk_poly1", "mrt_poly", "walk_poly2"]
+
+
+def test_extract_all_geometries_skips_missing():
+    legs = [
+        {"mode": "WALK"},  # no legGeometry
+        {"mode": "SUBWAY", "legGeometry": {"points": "mrt_poly"}},
+    ]
+    result = _extract_all_geometries(legs)
+    assert result == ["mrt_poly"]
+
+
+def test_extract_all_geometries_empty_returns_empty():
+    assert _extract_all_geometries([]) == []
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_returns_geometries_list():
+    """get_route PT must return 'geometries' key with all leg polylines."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON_WITH_GEOMETRY)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+    assert "geometries" in result
+    assert result["geometries"] == ["walk_poly", "mrt_poly", "walk2_poly"]
+
+
+@pytest.mark.asyncio
+async def test_get_route_walk_returns_geometries_list():
+    """Walk route must return 'geometries' with the single route_geometry."""
+    walk_json = {"route_summary": {"total_time": 600, "total_distance": 800},
+                 "route_geometry": "walk_route_poly"}
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=walk_json)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.28, 103.85, 1.30, 103.82, "walk")
+    assert result["geometries"] == ["walk_route_poly"]
+
+
+@pytest.mark.asyncio
+async def test_get_route_walk_no_geometry_returns_empty_list():
+    walk_json = {"route_summary": {"total_time": 600, "total_distance": 800}}
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=walk_json)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.28, 103.85, 1.30, 103.82, "walk")
+    assert result["geometries"] == []
+
+
 # ── get_all_routes ─────────────────────────────────────────────────────────────
 
 _PT_RESULT = {
     "duration_minutes": 30, "fare_sgd": 1.50, "distance_km": 5.2,
     "sub_legs": [
         {"mode": "WALK", "route": "", "from_name": "Origin", "to_name": "Bayfront Station",
-         "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0},
-        {"mode": "MRT", "route": "EW", "from_name": "Bayfront", "to_name": "City Hall",
-         "from_stop_code": "EW24/NS1", "to_stop_code": "EW13/NS25", "duration_minutes": 20, "num_stops": 10},
+         "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0,
+         "geometry": None, "intermediate_stops": []},
+        {"mode": "METRO", "route": "EW", "from_name": "Bayfront", "to_name": "City Hall",
+         "from_stop_code": "EW24/NS1", "to_stop_code": "EW13/NS25", "duration_minutes": 20,
+         "num_stops": 10, "geometry": "mrt_poly", "intermediate_stops": []},
         {"mode": "WALK", "route": "", "from_name": "City Hall Station", "to_name": "Destination",
-         "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0},
+         "from_stop_code": "", "to_stop_code": "", "duration_minutes": 5, "num_stops": 0,
+         "geometry": None, "intermediate_stops": []},
     ],
 }
 _WALK_RESULT = {"duration_minutes": 45, "fare_sgd": 0.0, "distance_km": 3.5, "sub_legs": []}
@@ -387,6 +454,32 @@ async def _mock_get_route(from_lat, from_lng, to_lat, to_lng, mode):
         return _WALK_RESULT
     return _CYCLE_RESULT
 
+
+# ── transit_modes param ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_route_pt_with_transit_modes_bus_passes_param():
+    """transit_modes='BUS' must be forwarded as transitModes in the OneMap request."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        await get_route(1.28, 103.85, 1.30, 103.82, "pt", transit_modes="BUS")
+    call_params = client.get.call_args.kwargs.get("params") or client.get.call_args.args[1] if client.get.call_args.args else {}
+    if not call_params and client.get.call_args.kwargs:
+        call_params = client.get.call_args.kwargs.get("params", {})
+    assert call_params.get("transitModes") == "BUS"
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_without_transit_modes_no_param():
+    """When transit_modes=None (default), transitModes must NOT appear in the request."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        await get_route(1.28, 103.85, 1.30, 103.82, "pt")
+    call_params = client.get.call_args.kwargs.get("params", {})
+    assert "transitModes" not in call_params
+
+
+# ── get_all_routes ─────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_get_all_routes_returns_three_modes():
@@ -475,3 +568,65 @@ async def test_get_all_routes_pt_no_transit_sub_leg_summary_empty():
     with patch("app.services.onemap.get_route", side_effect=_mock_walk_only):
         result = await get_all_routes(1.28, 103.85, 1.30, 103.82)
     assert result["pt"]["summary"] == ""
+
+
+# ── Patch 2 — type coercion (string fields from OneMap) ──────────────────────
+
+@pytest.mark.asyncio
+async def test_get_route_walk_with_string_total_time():
+    """[PATCH 2] OneMap returns total_time as string → duration_minutes is still an int."""
+    walk_json = {
+        "route_summary": {
+            "total_time": "900",        # ← string instead of int
+            "total_distance": "1200",   # ← string instead of int
+        }
+    }
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=walk_json)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.28, 103.85, 1.29, 103.85, "walk")
+    assert isinstance(result["duration_minutes"], int)
+    assert result["duration_minutes"] == 15       # 900 / 60 = 15
+    assert isinstance(result["distance_km"], float)
+    assert result["distance_km"] == 1.2           # 1200 / 1000 = 1.2
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_with_string_distance():
+    """[PATCH 2] OneMap returns leg distance as string → total_distance_m computed correctly."""
+    pt_json_str_dist = {
+        "plan": {
+            "itineraries": [
+                {
+                    "duration": 1800,
+                    "fare": 1.50,
+                    "legs": [
+                        {"mode": "WALK", "duration": "300", "route": "", "distance": "500"},
+                        {"mode": "SUBWAY", "duration": "1200", "route": "NS", "distance": "4500"},
+                    ],
+                }
+            ]
+        }
+    }
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=pt_json_str_dist)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.28, 103.85, 1.35, 103.82, "pt")
+    # Should not crash; distance_km = (500+4500)/1000 = 5.0
+    assert result["distance_km"] == pytest.approx(5.0, abs=0.01)
+    assert isinstance(result["duration_minutes"], int)
+
+
+def test_extract_sub_legs_string_duration():
+    """[PATCH 2] OneMap returns duration/numStops as strings → should coerce to int."""
+    legs = [
+        {
+            "mode": "SUBWAY",
+            "duration": "600",     # ← string
+            "route": "EW",
+            "from": {"name": "Bayfront", "stopCode": "EW24"},
+            "to": {"name": "City Hall", "stopCode": "EW13"},
+            "numStops": "3",       # ← string
+        }
+    ]
+    result = _extract_sub_legs(legs)
+    assert result[0]["duration_minutes"] == 10    # int(round(float("600") / 60))
+    assert result[0]["num_stops"] == 3             # int("3")

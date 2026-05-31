@@ -11,9 +11,14 @@ from pathlib import Path
 
 from app.services import onemap
 from app.services.onemap import NoRouteError
+from app.services.scoring import score_alternatives
 from app.exceptions import PlaceDataMissingError, BudgetExceededError
-from app.models.trip import TripPlan, DayPlan, LegResponse, GapNotification
+from app.models.trip import (
+    TripPlan, DayPlan, LegResponse, GapNotification,
+    AlternativeRoute, LegSwapResult, TransportMode,
+)
 from app.models.place import Place
+from app.models.preferences import UserPreferenceProfile, ContextSnapshot
 
 _PLACES_PATH = Path(__file__).parent.parent / "data" / "places.json"
 
@@ -50,8 +55,8 @@ def get_all_places() -> dict:
     """Public accessor for the full _PLACES dict — use instead of importing _PLACES directly."""
     return _PLACES
 
-# Map OneMap transit modes to display labels
-_MODE_MAP = {"SUBWAY": "MRT", "TRAM": "LRT", "BUS": "BUS", "WALK": "WALK"}
+# Map OneMap transit modes to TransportMode labels
+_MODE_MAP: dict[str, str] = {"SUBWAY": "METRO", "TRAM": "METRO", "BUS": "BUS", "WALK": "WALK"}
 
 
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -65,6 +70,7 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 _TRAVEL_SPEED_KM_MIN = 0.3   # used only inside greedy for eligibility — never stored
 _SG_CENTER = {"lat": 1.3521, "lng": 103.8198}
+_AT_ORIGIN_THRESHOLD_KM = 0.2  # 200m — GPS ≤ 200m from from_place → "at origin" fast path
 
 
 def _classify_place(place: dict) -> str:
@@ -340,8 +346,10 @@ def _check_schedule_fit(
 
 async def _get_route_with_fallback(from_p: dict, to_p: dict) -> dict:
     """Distance-based routing: < 1.5km → walk API; ≥ 1.5km → PT API.
-    NoRouteError falls back to haversine walking estimate (is_estimated=True).
-    Generic network exceptions re-raise as NoRouteError (not estimated).
+    For walk mode: NoRouteError falls back to haversine walking estimate (is_estimated=True).
+    For PT mode: NoRouteError is re-raised — a haversine walk estimate for long distances
+    would be physically impossible and mislead the user.
+    Generic network exceptions always re-raise as NoRouteError.
     """
     dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
     mode = "walk" if dist_km < 1.5 else "pt"
@@ -354,23 +362,84 @@ async def _get_route_with_fallback(from_p: dict, to_p: dict) -> dict:
         route["is_estimated"] = False
         return route
     except NoRouteError:
-        pass  # fall through to haversine estimate
+        if mode != "walk":
+            raise  # PT route unavailable — don't fake a walking estimate
     except Exception as exc:
         raise NoRouteError(
             f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
         ) from exc
 
-    # Haversine walking estimate — only reached when API returns no itinerary
+    # Haversine walking estimate — only reached for short-distance walk-mode NoRouteError
     duration_min = max(1, round(dist_km / 5.0 * 60))
     return {
         "duration_minutes": duration_min,
         "fare_sgd": 0.0,
         "legs": [{"mode": "WALK", "duration_minutes": duration_min, "instruction": ""}],
         "geometry": None,
+        "geometries": [],
         "instructions": [],
         "distance_km": round(dist_km, 2),
         "is_estimated": True,
     }
+
+
+def _to_alternative(route_dict: dict) -> AlternativeRoute:
+    """Convert a raw OneMap route dict into an AlternativeRoute model."""
+    return AlternativeRoute(
+        duration_minutes=route_dict["duration_minutes"],
+        cost_sgd=route_dict.get("fare_sgd", 0.0),
+        is_estimated=route_dict.get("is_estimated", False),
+        geometry=route_dict.get("geometry"),
+        geometries=route_dict.get("geometries", []),
+        instructions=route_dict.get("instructions", []),
+        distance_km=route_dict.get("distance_km"),
+        sub_legs=route_dict.get("sub_legs", []),
+    )
+
+
+async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
+    """Fetch PT (mixed), PT bus-only, and Walk routes in parallel.
+
+    Returns dict[TransportMode, route_dict] — only populated for available modes.
+    All failures are swallowed; callers decide what to do with an empty/partial result.
+    """
+    async def _safe(mode: str, transit_modes: str | None = None) -> dict | None:
+        try:
+            r = await onemap.get_route(
+                from_p["lat"], from_p["lng"],
+                to_p["lat"], to_p["lng"],
+                mode=mode,
+                transit_modes=transit_modes,
+            )
+            r["is_estimated"] = False
+            return r
+        except Exception:
+            return None
+
+    pt_route, bus_route, walk_route = await asyncio.gather(
+        _safe("pt"),
+        _safe("pt", transit_modes="BUS"),
+        _safe("walk"),
+    )
+
+    result: dict[str, dict] = {}
+
+    # PT mixed → key = primary mode ("METRO" or "BUS")
+    if pt_route:
+        primary = _primary_mode(pt_route.get("legs", []))
+        result[primary] = pt_route
+
+    # PT bus-only → store as "BUS" only if OneMap actually returned a BUS-primary route
+    if bus_route:
+        bus_primary = _primary_mode(bus_route.get("legs", []))
+        if bus_primary == "BUS":
+            result["BUS"] = bus_route  # overwrite with more precise bus-only route
+
+    # Walk
+    if walk_route:
+        result["WALK"] = walk_route
+
+    return result
 
 
 async def _resolve_via_gemini(name: str) -> str | None:
@@ -397,8 +466,12 @@ async def plan_trip(
     budget_sgd: float,
     optimize_order: bool,
     preferences: dict | None,
+    profile: UserPreferenceProfile | None = None,
+    context: ContextSnapshot | None = None,
 ) -> TripPlan:
     prefs = preferences or {}
+    effective_profile = profile or UserPreferenceProfile()
+    effective_ctx     = context or ContextSnapshot.now()
 
     # [CODE] 1. Validate place_ids; try Gemini resolution for unrecognized entries
     resolved: list[str] = []
@@ -438,14 +511,57 @@ async def plan_trip(
                 seen.add(key)
                 unique_pairs.append((day_places[i], day_places[i + 1]))
 
-    fetch_results = await asyncio.gather(
-        *[_get_route_with_fallback(a, b) for a, b in unique_pairs],
+    alt_results = await asyncio.gather(
+        *[_fetch_all_alternatives(a, b) for a, b in unique_pairs],
         return_exceptions=True,
     )
-    route_cache: dict[tuple, dict] = {}
-    for (a, b), result in zip(unique_pairs, fetch_results):
-        if not isinstance(result, Exception):
-            route_cache[(a["id"], b["id"])] = result
+    route_cache:    dict[tuple, dict] = {}   # best single route for timing calculations
+    alt_cache:      dict[tuple, dict] = {}   # all alternatives keyed by TransportMode
+    best_key_cache: dict[tuple, str]  = {}   # transport mode key chosen as primary
+
+    for (a, b), alts in zip(unique_pairs, alt_results):
+        if isinstance(alts, Exception):
+            alts = {}
+
+        dist_km = _haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
+
+        if not alts:
+            if dist_km < 1.5:
+                # Haversine walk estimate — no OneMap route at all for short distance
+                dur = max(1, round(dist_km / 5.0 * 60))
+                alts = {"WALK": {
+                    "duration_minutes": dur,
+                    "fare_sgd": 0.0,
+                    "is_estimated": True,
+                    "geometry": None,
+                    "geometries": [],
+                    "instructions": [],
+                    "legs": [{"mode": "WALK", "duration_minutes": dur}],
+                    "distance_km": round(dist_km, 2),
+                    "sub_legs": [],
+                }}
+            else:
+                raise NoRouteError(
+                    f"No route available from '{a['id']}' to '{b['id']}' — "
+                    "all routing modes unavailable"
+                )
+
+        alt_cache[(a["id"], b["id"])] = alts
+
+        # Select best route via weighted scoring (replaces hard distance threshold)
+        alt_models = {m: _to_alternative(r) for m, r in alts.items()}
+        scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx)
+        best_key   = scoring.recommended_mode
+
+        # Safety guard: WALK > 1.5km is physically impractical in Singapore heat
+        if dist_km >= 1.5 and best_key == "WALK":
+            pt_key = next((m for m in ("METRO", "BUS") if m in alts), None)
+            if pt_key:
+                best_key = pt_key
+
+        route_cache[(a["id"], b["id"])]    = alts[best_key]
+        best_key_cache[(a["id"], b["id"])] = best_key
+
     route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
 
     # [LLM] 5. Check over/under-fill — call Gemini once if issue detected
@@ -505,23 +621,55 @@ async def plan_trip(
                 to_p = day_places[i + 1]
                 route_key = (from_p["id"], to_p["id"])
                 if route_key in route_cache:
-                    route = route_cache[route_key]
+                    route         = route_cache[route_key]
+                    alts_for_leg  = alt_cache.get(route_key, {})
+                    best_key_used = best_key_cache.get(route_key, "WALK")
                 else:
-                    route = await _get_route_with_fallback(from_p, to_p)
-                    route_cache[route_key] = route
+                    # Cache miss — fetch fresh alternatives on-the-fly
+                    fresh_alts = await _fetch_all_alternatives(from_p, to_p)
+                    dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
+                    if not fresh_alts:
+                        if dist_km < 1.5:
+                            dur = max(1, round(dist_km / 5.0 * 60))
+                            fresh_alts = {"WALK": {
+                                "duration_minutes": dur, "fare_sgd": 0.0,
+                                "is_estimated": True, "geometry": None, "geometries": [],
+                                "instructions": [], "legs": [{"mode": "WALK"}],
+                                "distance_km": round(dist_km, 2), "sub_legs": [],
+                            }}
+                        else:
+                            raise NoRouteError(
+                                f"No route from '{from_p['id']}' to '{to_p['id']}' — "
+                                "all routing modes unavailable"
+                            )
+                    alt_cache[route_key] = fresh_alts
+                    fresh_models  = {m: _to_alternative(r) for m, r in fresh_alts.items()}
+                    fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx)
+                    best_key_used = fresh_scoring.recommended_mode
+                    # Safety guard: WALK > 1.5km impractical
+                    if dist_km >= 1.5 and best_key_used == "WALK":
+                        pt_fallback = next((m for m in ("METRO", "BUS") if m in fresh_alts), None)
+                        if pt_fallback:
+                            best_key_used = pt_fallback
+                    route = fresh_alts[best_key_used]
+                    route_cache[route_key]    = route
+                    best_key_cache[route_key] = best_key_used
+                    alts_for_leg = fresh_alts
 
-                transport_mode = _primary_mode(route.get("legs", []))
-                duration = route["duration_minutes"]
-                cost = route["fare_sgd"]
-                geometry = route.get("geometry")
+                # Transport mode: WALK key → always "WALK"; PT key → derive from legs
+                if best_key_used == "WALK":
+                    transport_mode = "WALK"
+                else:
+                    transport_mode = _primary_mode(route.get("legs", []))
+
+                alternatives = {m: _to_alternative(r) for m, r in alts_for_leg.items()}
+                duration     = route["duration_minutes"]
+                cost         = route.get("fare_sgd", 0.0)
+                geometry     = route.get("geometry")
+                geometries   = route.get("geometries", [])
                 instructions = route.get("instructions", [])
-                distance_km = route.get("distance_km")
+                distance_km  = route.get("distance_km")
                 is_estimated = route.get("is_estimated", False)
-                # Apply user preferences (rule-based, no LLM)
-                if prefs.get("prefer_mrt") is False and transport_mode == "MRT":
-                    transport_mode = "BUS"
-                if transport_mode == "WALK" and duration > prefs.get("max_walk_minutes", 20):
-                    transport_mode = "BUS"
 
                 current_time += duration
                 total_cost += cost
@@ -535,8 +683,10 @@ async def plan_trip(
                     is_estimated=is_estimated,
                     instructions=instructions,
                     geometry=geometry,
+                    geometries=geometries,
                     distance_km=distance_km,
                     sub_legs=route.get("sub_legs", []),
+                    alternatives=alternatives,
                 ))
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))
@@ -602,4 +752,236 @@ async def plan_trip(
         places=response_places,
         warnings=warnings,
         gap_notifications=gap_notifications,
+    )
+
+
+async def switch_leg_mode(
+    new_mode: TransportMode,
+    target_leg: LegResponse,
+    plan: TripPlan,
+) -> LegSwapResult:
+    """Switch transport mode for a leg using pre-fetched alternatives.
+
+    Fast path : alternative found in target_leg.alternatives → instant, no API call.
+    Cache miss : alternative not cached (e.g. trip loaded from DB after restart)
+                 → fetch on-demand via _fetch_all_alternatives, then switch.
+
+    Raises NoRouteError when the requested mode has no available route.
+    """
+    place_map = {p.id: p for p in plan.places}
+    from_place = place_map.get(target_leg.from_place_id)
+    to_place   = place_map.get(target_leg.to_place_id)
+
+    if not from_place or not to_place:
+        raise NoRouteError(f"Place data missing for leg '{target_leg.id}'")
+
+    # ── 1. Lookup alternative ─────────────────────────────────────────────────
+    alt = target_leg.alternatives.get(new_mode)
+
+    if alt is None:
+        # Cache miss: fetch fresh alternatives from OneMap and merge into leg
+        from_p = {"id": from_place.id, "lat": from_place.lat, "lng": from_place.lng}
+        to_p   = {"id": to_place.id,   "lat": to_place.lat,   "lng": to_place.lng}
+        fresh_alts = await _fetch_all_alternatives(from_p, to_p)
+
+        new_alternatives = {
+            **target_leg.alternatives,
+            **{m: _to_alternative(r) for m, r in fresh_alts.items()},
+        }
+        target_leg = target_leg.model_copy(update={"alternatives": new_alternatives})
+        alt = target_leg.alternatives.get(new_mode)
+
+    if alt is None:
+        raise NoRouteError(
+            f"No {new_mode} route available between "
+            f"'{target_leg.from_place_id}' and '{target_leg.to_place_id}'. "
+            "Try a different transport mode."
+        )
+
+    # ── 2. Build updated leg (alternatives preserved for future switches) ─────
+    updated_leg = target_leg.model_copy(update={
+        "transport_mode":   new_mode,
+        "duration_minutes": alt.duration_minutes,
+        "cost_sgd":         alt.cost_sgd,
+        "is_estimated":     alt.is_estimated,
+        "geometry":         alt.geometry,
+        "geometries":       alt.geometries,
+        "instructions":     alt.instructions,
+        "distance_km":      alt.distance_km,
+        "sub_legs":         alt.sub_legs,
+    })
+
+    # ── 3. Schedule check: does the new duration push day_end past 17:30? ─────
+    warnings: list[str] = []
+    duration_delta = alt.duration_minutes - target_leg.duration_minutes
+
+    if duration_delta != 0:
+        for day in plan.days:
+            if not any(leg.id == target_leg.id for leg in day.legs):
+                continue
+
+            # Count each place's dwell time exactly once
+            seen: set[str] = set()
+            total_dwell = 0
+            for leg in day.legs:
+                if leg.from_place_id not in seen:
+                    total_dwell += place_map[leg.from_place_id].dwell_minutes
+                    seen.add(leg.from_place_id)
+            if day.legs and day.legs[-1].to_place_id not in seen:
+                total_dwell += place_map[day.legs[-1].to_place_id].dwell_minutes
+
+            total_transit = sum(
+                (updated_leg.duration_minutes if leg.id == target_leg.id else leg.duration_minutes)
+                for leg in day.legs
+            )
+            day_end = 540 + total_dwell + total_transit   # 09:00 + all activity
+            if day_end > 1050:   # 17:30
+                warnings.append(
+                    f"Switching to {new_mode} adds {duration_delta:+d} min — "
+                    f"Day {day.day} will end around {_fmt_hhmm(day_end)}."
+                )
+            break
+
+    # ── 4. Recalculate total trip cost ────────────────────────────────────────
+    trip_cost = sum(
+        (updated_leg.cost_sgd if leg.id == target_leg.id else leg.cost_sgd)
+        for day in plan.days
+        for leg in day.legs
+    )
+
+    return LegSwapResult(
+        updated_leg=updated_leg,
+        trip_cost_sgd=round(trip_cost, 2),
+        warnings=warnings,
+    )
+
+
+async def switch_leg_mode_live(
+    new_mode: TransportMode,
+    target_leg: LegResponse,
+    plan: TripPlan,
+    current_lat: float,
+    current_lng: float,
+) -> LegSwapResult:
+    """Live mode-switch using current GPS position as routing origin.
+
+    Fast path  : GPS ≤ 200m from from_place → delegates to switch_leg_mode()
+                 (uses pre-fetched cache or on-demand fetch from A).
+                 Returns routed_from_current_position=False.
+
+    Realtime   : GPS > 200m from from_place → calls OneMap from GPS to to_place.
+                 Existing alternatives (A-based) are preserved for planning view.
+                 Returns routed_from_current_position=True.
+
+    Raises NoRouteError when the requested mode has no available route.
+    """
+    place_map = {p.id: p for p in plan.places}
+    from_place = place_map.get(target_leg.from_place_id)
+    to_place   = place_map.get(target_leg.to_place_id)
+
+    if not from_place or not to_place:
+        raise NoRouteError(f"Place data missing for leg '{target_leg.id}'")
+
+    dist_to_origin = _haversine_km(current_lat, current_lng, from_place.lat, from_place.lng)
+
+    # ── Fast path: user still at the departure point ──────────────────────────
+    if dist_to_origin <= _AT_ORIGIN_THRESHOLD_KM:
+        result = await switch_leg_mode(new_mode, target_leg, plan)
+        # routed_from_current_position stays False (default)
+        return result
+
+    # ── Realtime path: user has left the departure point ─────────────────────
+    if new_mode == "WALK":
+        onemap_mode   = "walk"
+        transit_modes = None
+    elif new_mode == "BUS":
+        onemap_mode   = "pt"
+        transit_modes = "BUS"
+    else:  # METRO (or CYCLE)
+        onemap_mode   = "pt"
+        transit_modes = None
+
+    try:
+        route = await onemap.get_route(
+            current_lat, current_lng,
+            to_place.lat, to_place.lng,
+            mode=onemap_mode,
+            transit_modes=transit_modes,
+        )
+        route["is_estimated"] = False
+    except NoRouteError:
+        raise NoRouteError(
+            f"No {new_mode} route from your current position to '{target_leg.to_place_id}'. "
+            "Try a different transport mode."
+        )
+    except Exception as exc:
+        raise NoRouteError(
+            f"Routing unavailable from current position to '{target_leg.to_place_id}': {exc}"
+        ) from exc
+
+    # Sanity check: BUS-only request but OneMap returned a METRO-primary route
+    if new_mode == "BUS":
+        actual_primary = _primary_mode(route.get("legs", []))
+        if actual_primary != "BUS":
+            raise NoRouteError(
+                f"No BUS-only route available from your current position "
+                f"to '{target_leg.to_place_id}'."
+            )
+
+    # Build updated leg — preserve existing alternatives (A-based, still valid for planning view)
+    updated_leg = target_leg.model_copy(update={
+        "transport_mode":   new_mode,
+        "duration_minutes": route["duration_minutes"],
+        "cost_sgd":         route.get("fare_sgd", 0.0),
+        "is_estimated":     False,
+        "geometry":         route.get("geometry"),
+        "geometries":       route.get("geometries", []),
+        "instructions":     route.get("instructions", []),
+        "distance_km":      route.get("distance_km"),
+        "sub_legs":         route.get("sub_legs", []),
+        # alternatives: not overwritten — A-based cache remains for PATCH /legs switching
+    })
+
+    # ── Schedule check (same logic as switch_leg_mode) ────────────────────────
+    warnings: list[str] = []
+    duration_delta = route["duration_minutes"] - target_leg.duration_minutes
+
+    if duration_delta != 0:
+        for day in plan.days:
+            if not any(leg.id == target_leg.id for leg in day.legs):
+                continue
+
+            seen: set[str] = set()
+            total_dwell = 0
+            for leg in day.legs:
+                if leg.from_place_id not in seen:
+                    total_dwell += place_map[leg.from_place_id].dwell_minutes
+                    seen.add(leg.from_place_id)
+            if day.legs and day.legs[-1].to_place_id not in seen:
+                total_dwell += place_map[day.legs[-1].to_place_id].dwell_minutes
+
+            total_transit = sum(
+                (updated_leg.duration_minutes if leg.id == target_leg.id else leg.duration_minutes)
+                for leg in day.legs
+            )
+            day_end = 540 + total_dwell + total_transit   # 09:00 + all activity
+            if day_end > 1050:   # 17:30
+                warnings.append(
+                    f"Switching to {new_mode} adds {duration_delta:+d} min — "
+                    f"Day {day.day} will end around {_fmt_hhmm(day_end)}."
+                )
+            break
+
+    # ── Recalculate total trip cost ────────────────────────────────────────────
+    trip_cost = sum(
+        (updated_leg.cost_sgd if leg.id == target_leg.id else leg.cost_sgd)
+        for day in plan.days
+        for leg in day.legs
+    )
+
+    return LegSwapResult(
+        updated_leg=updated_leg,
+        trip_cost_sgd=round(trip_cost, 2),
+        warnings=warnings,
+        routed_from_current_position=True,
     )
