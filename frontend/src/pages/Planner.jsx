@@ -5,6 +5,7 @@ import {
   ChevronDown, Plus, X, ChevronLeft, Pencil,
 } from 'lucide-react'
 import { api } from '../services/api'
+import { useAuth } from '../contexts/AuthContext'
 import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import { Alert, AlertDescription } from '../components/ui/alert'
@@ -118,6 +119,7 @@ function PlaceRow({ place, index, onRemove }) {
 export default function Planner() {
   const navigate = useNavigate()
   const { t } = useT()
+  const { user: authUser } = useAuth() ?? {}
 
   const [planMode, setPlanMode] = useState(null)
 
@@ -160,8 +162,12 @@ export default function Planner() {
           group_type: 'solo',
         },
       })
+      const draftName = tripName.trim() || 'Singapore Trip'
+      const draftMeta = { name: draftName, startDate: manFlexible ? null : manStartDate, numDays: manNumDays, isDraft: true }
+      // Auto-save as draft immediately — trip survives tab close before user hits Save
+      api.saveTrip(trip.trip_id, draftMeta, authUser?.id ?? null)
       navigate(`/trip/${trip.trip_id}`, {
-        state: { pendingSave: { name: tripName.trim() || 'Singapore Trip', startDate: manFlexible ? null : manStartDate, numDays: manNumDays } },
+        state: { pendingSave: { name: draftName, startDate: manFlexible ? null : manStartDate, numDays: manNumDays } },
       })
     } catch (e) {
       setSubmitError(e.message)
@@ -203,8 +209,12 @@ export default function Planner() {
           group_type: companion,
         },
       })
+      const draftStartDate = aiFlexible || !aiStartDate ? null : aiStartDate
+      const draftMeta = { name: 'Singapore Trip', startDate: draftStartDate, numDays: aiNumDays, isDraft: true }
+      // Auto-save as draft immediately — trip survives tab close before user hits Save
+      api.saveTrip(trip.trip_id, draftMeta, authUser?.id ?? null)
       navigate(`/trip/${trip.trip_id}`, {
-        state: { pendingSave: { name: 'Singapore Trip', startDate: aiFlexible || !aiStartDate ? null : aiStartDate, numDays: aiNumDays } },
+        state: { pendingSave: { name: 'Singapore Trip', startDate: draftStartDate, numDays: aiNumDays } },
       })
     } catch (e) {
       setSubmitError(e.message)
