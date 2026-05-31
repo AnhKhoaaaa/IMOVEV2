@@ -473,7 +473,8 @@ export default function Trip() {
                   optimizationLog={optimizationLog}
                   pendingSave={pendingSave}
                   onSave={(name) => {
-                    const meta = { ...pendingSave, name }
+                    // isDraft: false graduates the trip from draft → dates re-compute correctly
+                    const meta = { ...pendingSave, name, isDraft: false }
                     saveTrip(id, meta)
                     setPendingSave(null)
                     try { sessionStorage.removeItem(pendingKey) } catch {}

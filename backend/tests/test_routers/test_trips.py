@@ -953,3 +953,80 @@ def test_plan_trip_uses_profile_when_found():
     assert isinstance(captured.get("profile"), UserPreferenceProfile)
     assert abs(captured["profile"].cost_w - 0.70) < 0.01
     assert captured["profile"].constraints.minimize_fee is True
+
+
+# ── Re-plan operations: _fetch_plan_context propagation (dev5) ────────────────
+
+def test_optimize_passes_profile_to_plan_trip():
+    """POST /optimize fetches user profile and passes it to planning_agent.plan_trip."""
+    from app.models.preferences import UserPreferenceProfile
+    trip_id = "trip-opt-ctx"
+    plan = _make_two_place_plan(trip_id)
+    _owned_trip(trip_id, "user-opt")
+
+    custom_profile_data = {
+        "duration_w": 0.10, "cost_w": 0.70,
+        "walking_w": 0.15, "transfers_w": 0.05,
+        "constraints": {
+            "avoid_bus": False, "avoid_metro": False,
+            "minimize_walking": False, "minimize_fee": True,
+        },
+    }
+    mock_sb = MagicMock()
+    mock_sb.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+        {"profile": custom_profile_data}
+    ]
+
+    captured: dict = {}
+
+    async def _spy(*args, **kwargs):
+        captured.update(kwargs)
+        return _make_two_place_plan(trip_id)
+
+    try:
+        with _auth_as("user-opt"), \
+             patch("app.routers.trips.supabase", mock_sb), \
+             patch("app.routers.trips.planning_agent.plan_trip", side_effect=_spy):
+            resp = client.post(f"/trips/{trip_id}/optimize")
+
+        assert resp.status_code == 200
+        assert isinstance(captured.get("profile"), UserPreferenceProfile)
+        assert abs(captured["profile"].cost_w - 0.70) < 0.01
+        assert captured["profile"].constraints.minimize_fee is True
+        assert captured.get("context") is not None
+    finally:
+        _cleanup(trip_id)
+
+
+def test_reorder_passes_weather_context_to_plan_trip():
+    """PATCH /reorder fetches weather and passes ContextSnapshot with rain to plan_trip."""
+    from app.models.preferences import ContextSnapshot
+    trip_id = "trip-reorder-ctx"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+
+    captured: dict = {}
+
+    async def _spy(*args, **kwargs):
+        captured.update(kwargs)
+        return _make_two_place_plan(trip_id)
+
+    # Mock openweather to return rain data
+    mock_weather = {"condition": "Rain", "temp_c": 28.0, "rain_1h": 12.5}
+
+    try:
+        with patch("app.routers.trips.planning_agent.plan_trip", side_effect=_spy), \
+             patch("app.services.openweather.get_current_weather",
+                   new_callable=AsyncMock, return_value=mock_weather):
+            resp = client.patch(f"/trips/{trip_id}/reorder", json={
+                "day": 1,
+                "place_ids": ["place-b", "place-a"],
+            })
+
+        assert resp.status_code == 200
+        ctx = captured.get("context")
+        assert isinstance(ctx, ContextSnapshot)
+        assert ctx.rain_mm_per_hour == 12.5
+        assert ctx.rain_level == "heavy"
+    finally:
+        _cleanup(trip_id)

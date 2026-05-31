@@ -362,6 +362,8 @@ async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_
     num_days = meta.get("num_days", len(plan.days))
     budget_sgd = meta.get("budget_sgd", 999.0)
 
+    profile, context = await _fetch_plan_context(current_user)
+
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -370,6 +372,8 @@ async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_
             budget_sgd=budget_sgd,
             optimize_order=True,
             preferences=None,
+            profile=profile,
+            context=context,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -447,6 +451,8 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
     meta["num_days"] = new_num_days
     _trip_meta[trip_id] = meta
 
+    profile, context = await _fetch_plan_context(current_user)
+
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -455,6 +461,8 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
             budget_sgd=meta.get("budget_sgd", 999.0),
             optimize_order=False,
             preferences=None,
+            profile=profile,
+            context=context,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -491,6 +499,8 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
         raise HTTPException(status_code=422, detail="Trip must have at least 2 places")
 
     meta = _trip_meta.get(trip_id, {})
+    profile, context = await _fetch_plan_context(current_user)
+
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -499,6 +509,8 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
             budget_sgd=meta.get("budget_sgd", 999.0),
             optimize_order=False,
             preferences=None,
+            profile=profile,
+            context=context,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -561,6 +573,8 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
     if body.place_id not in all_ids:
         all_ids.append(body.place_id)
 
+    profile, context = await _fetch_plan_context(current_user)
+
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -569,6 +583,8 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
             budget_sgd=meta.get("budget_sgd", 999.0),
             optimize_order=False,
             preferences=None,
+            profile=profile,
+            context=context,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -625,6 +641,8 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
         if p.id not in all_ids:
             all_ids.append(p.id)
 
+    profile, context = await _fetch_plan_context(current_user)
+
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -633,6 +651,8 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
             budget_sgd=meta.get("budget_sgd", 999.0),
             optimize_order=False,
             preferences=None,
+            profile=profile,
+            context=context,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -683,6 +703,40 @@ async def accept_swap(trip_id: str, body: AdaptRequest):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+async def _fetch_plan_context(
+    current_user: Optional[str],
+) -> tuple[UserPreferenceProfile, ContextSnapshot]:
+    """Shared helper for all re-plan operations: fetch user preferences + real-time weather.
+
+    Always returns a valid (profile, context) pair — Supabase failures and
+    OpenWeather failures are both non-fatal and fall back to safe defaults.
+    """
+    profile = UserPreferenceProfile()
+    if current_user and supabase:
+        try:
+            pref_resp = (
+                supabase.table("user_preferences")
+                .select("profile")
+                .eq("user_id", current_user)
+                .limit(1)
+                .execute()
+            )
+            if pref_resp.data:
+                profile = UserPreferenceProfile(**pref_resp.data[0]["profile"])
+        except Exception as exc:
+            log.warning("Preferences fetch failed for %s (using defaults): %s", current_user, exc)
+
+    rain_mm = 0.0
+    try:
+        from app.services import openweather
+        weather = await openweather.get_current_weather()
+        rain_mm = weather.get("rain_1h", 0.0)
+    except Exception:
+        pass
+
+    return profile, ContextSnapshot.now(rain_mm=rain_mm)
+
 
 def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
     """Return (num_days, budget_sgd) — prefers DB, falls back to meta cache."""

@@ -30,7 +30,8 @@ export function buildPlacesById(places) {
   return Object.fromEntries((places ?? []).map((p) => [p.id, p]))
 }
 
-export function computeTripStatus(startDate, numDays) {
+export function computeTripStatus(startDate, numDays, isDraft = false) {
+  if (isDraft) return 'draft'
   if (!startDate) return 'draft'
   const today = new Date().toISOString().slice(0, 10)
   const endMs = new Date(startDate).getTime() + ((numDays ?? 1) - 1) * 86400000
