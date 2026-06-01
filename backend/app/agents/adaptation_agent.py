@@ -22,6 +22,17 @@ log = logging.getLogger(__name__)
 
 _WEATHER_RAIN_THRESHOLD = 70  # % — alert if rain_probability exceeds this
 
+# Maps LTA affected_line names → route code prefix used in OneMap sub_legs.
+# e.g. "East West Line" → sub_legs with route "EW2", "EW12", ...
+_LTA_LINE_PREFIX: dict[str, str] = {
+    "East West Line":          "EW",
+    "North South Line":        "NS",
+    "Circle Line":             "CC",
+    "Downtown Line":           "DT",
+    "Thomson-East Coast Line": "TE",
+    "North East Line":         "NE",
+}
+
 
 # ---------------------------------------------------------------------------
 # Scheduled jobs (called by APScheduler in main.py)
@@ -213,7 +224,8 @@ async def adapt_trip(
     if alert_type == "weather_warning":
         updated_plan, changes = await _apply_weather_swap(current_plan)
     elif alert_type in ("train_delay", "bus_cancellation"):
-        updated_plan, changes = await _reroute_mrt_legs(current_plan)
+        disrupted_lines = [alert["affected_line"]] if alert.get("affected_line") else []
+        updated_plan, changes = await _reroute_mrt_legs(current_plan, disrupted_lines=disrupted_lines)
     else:
         return AdaptResponse(adapted=False, changes=["No adaptation needed"], updated_trip=current_plan)
 
@@ -407,14 +419,59 @@ async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
     return TripPlan(id=plan.id, days=new_days, places=new_places, warnings=plan.warnings), changes
 
 
-async def _reroute_mrt_legs(plan: TripPlan) -> tuple[TripPlan, list[str]]:
-    """Recalculate MRT legs via OneMap PT (which may now route via bus)."""
-    changes = []
-    new_days = []
+def _leg_uses_disrupted_line(sub_legs: list[dict], disrupted_prefixes: set[str]) -> bool:
+    """Return True iff any sub-leg is a METRO leg on a disrupted line.
+
+    ⚠️  mode == "METRO" is checked FIRST (Python short-circuit evaluation).
+    Singapore bus stop names often embed MRT line codes as wayfinding hints
+    (e.g. "Bugis Stn Exit B EW12") — evaluating the route prefix before mode
+    would cause BUS sub-legs to be falsely flagged as disrupted METRO legs.
+    """
+    return any(
+        sl.get("mode") == "METRO"                      # ① METRO check — short-circuits if False
+        and any(                                       # ② only then inspect route prefix
+            sl.get("route", "").upper().startswith(pfx)
+            for pfx in disrupted_prefixes
+        )
+        for sl in sub_legs
+    )
+
+
+def _first_bus_stop_code(sub_legs: list[dict]) -> str | None:
+    """Return LTA stop code for the first BUS boarding point, or None."""
+    bus_leg = next((sl for sl in sub_legs if sl.get("mode") == "BUS"), None)
+    return (bus_leg.get("from_stop_code") or None) if bus_leg else None
+
+
+async def _reroute_mrt_legs(
+    plan: TripPlan,
+    disrupted_lines: list[str] = [],
+) -> tuple[TripPlan, list[str]]:
+    """Recalculate METRO legs around a known disruption (Option C: post-filter + retry).
+
+    Strategy per METRO leg:
+      1. Call OneMap PT normally — OTP may already avoid the disrupted line.
+      2. Inspect sub_legs: if any METRO sub-leg still uses the disrupted line prefix,
+         retry the call with transit_modes="BUS" to force a bus-only route.
+      3. If the BUS retry also raises NoRouteError, keep the original leg and set
+         is_estimated=True so the UI can surface a warning badge.
+
+    disrupted_lines: list of LTA affected_line names (e.g. ["East West Line"]).
+                     Empty list → legacy behaviour, no retry logic.
+    """
+    disrupted_prefixes: set[str] = {
+        _LTA_LINE_PREFIX[name]
+        for name in disrupted_lines
+        if name in _LTA_LINE_PREFIX
+    }
+
+    changes: list[str] = []
+    new_days: list[DayPlan] = []
+    warnings: list[str] = list(plan.warnings)
     place_map = {p.id: p for p in plan.places}
 
     for day in plan.days:
-        new_legs = []
+        new_legs: list[LegResponse] = []
         for leg in day.legs:
             if leg.transport_mode != "METRO":
                 new_legs.append(leg)
@@ -427,8 +484,43 @@ async def _reroute_mrt_legs(plan: TripPlan) -> tuple[TripPlan, list[str]]:
                 continue
 
             try:
-                route = await onemap.get_route(from_p.lat, from_p.lng, to_p.lat, to_p.lng, mode="pt")
+                # Step 1: Try PT normally (OTP may already route around disruption)
+                route = await onemap.get_route(
+                    from_p.lat, from_p.lng, to_p.lat, to_p.lng, mode="pt"
+                )
+                sub_legs_data: list[dict] = route.get("sub_legs", [])
                 new_mode = _primary_mode(route.get("legs", []))
+
+                # Step 2: Post-filter — did OTP still route via the disrupted line?
+                if disrupted_prefixes and _leg_uses_disrupted_line(sub_legs_data, disrupted_prefixes):
+                    try:
+                        route = await onemap.get_route(
+                            from_p.lat, from_p.lng, to_p.lat, to_p.lng,
+                            mode="pt", transit_modes="BUS",
+                        )
+                        sub_legs_data = route.get("sub_legs", [])
+                        new_mode = "BUS"
+                    except NoRouteError:
+                        # No bus alternative — keep original leg, mark as estimated
+                        warn_msg = (
+                            f"No bus route for {leg.from_place_id} → {leg.to_place_id} "
+                            f"during disruption; original METRO route retained."
+                        )
+                        warnings.append(warn_msg)
+                        log.warning(warn_msg)
+                        new_legs.append(
+                            LegResponse(
+                                id=leg.id,
+                                from_place_id=leg.from_place_id,
+                                to_place_id=leg.to_place_id,
+                                transport_mode=leg.transport_mode,
+                                duration_minutes=leg.duration_minutes,
+                                cost_sgd=leg.cost_sgd,
+                                is_estimated=True,
+                            )
+                        )
+                        continue
+
                 new_leg = LegResponse(
                     id=leg.id,
                     from_place_id=leg.from_place_id,
@@ -437,10 +529,19 @@ async def _reroute_mrt_legs(plan: TripPlan) -> tuple[TripPlan, list[str]]:
                     duration_minutes=route["duration_minutes"],
                     cost_sgd=route["fare_sgd"],
                     is_estimated=False,
+                    geometry=route.get("geometry"),
+                    geometries=route.get("geometries", []),
+                    instructions=route.get("instructions", []),
+                    distance_km=route.get("distance_km"),
+                    sub_legs=sub_legs_data,
+                    first_bus_stop_code=_first_bus_stop_code(sub_legs_data) if new_mode == "BUS" else None,
                 )
                 if new_mode != "METRO":
-                    changes.append(f"Leg {leg.from_place_id} → {leg.to_place_id}: METRO → {new_mode} (disruption)")
+                    changes.append(
+                        f"Leg {leg.from_place_id} → {leg.to_place_id}: METRO → {new_mode} (disruption)"
+                    )
                 new_legs.append(new_leg)
+
             except NoRouteError as exc:
                 log.warning("No route for leg %s → %s: %s", leg.from_place_id, leg.to_place_id, exc)
                 new_legs.append(leg)
@@ -450,7 +551,7 @@ async def _reroute_mrt_legs(plan: TripPlan) -> tuple[TripPlan, list[str]]:
 
         new_days.append(DayPlan(day=day.day, legs=new_legs))
 
-    return TripPlan(id=plan.id, days=new_days, places=plan.places, warnings=plan.warnings), changes
+    return TripPlan(id=plan.id, days=new_days, places=plan.places, warnings=warnings), changes
 
 
 async def _recalculate_leg(
@@ -464,14 +565,22 @@ async def _recalculate_leg(
     if from_p and to_p:
         try:
             route = await onemap.get_route(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"], mode="pt")
+            new_mode = _primary_mode(route.get("legs", []))
+            sub_legs_data: list[dict] = route.get("sub_legs", [])
             return LegResponse(
                 id=original.id,
                 from_place_id=new_from_id,
                 to_place_id=new_to_id,
-                transport_mode=_primary_mode(route.get("legs", [])),
+                transport_mode=new_mode,
                 duration_minutes=route["duration_minutes"],
                 cost_sgd=route["fare_sgd"],
                 is_estimated=False,
+                geometry=route.get("geometry"),
+                geometries=route.get("geometries", []),
+                instructions=route.get("instructions", []),
+                distance_km=route.get("distance_km"),
+                sub_legs=sub_legs_data,
+                first_bus_stop_code=_first_bus_stop_code(sub_legs_data) if new_mode == "BUS" else None,
             )
         except Exception as exc:
             # OneMap failed — fall through to estimated fallback.
@@ -487,6 +596,106 @@ async def _recalculate_leg(
         cost_sgd=original.cost_sgd,
         is_estimated=True,
     )
+
+
+async def check_alerts_for_trip(trip_id: str, plan: TripPlan) -> dict:
+    """On-demand alert check for a specific trip (demand-triggered, UPCOMING trips).
+
+    Runs both LTA train check and weather check using the same dedup logic as
+    the scheduled poll jobs. Inserts into lta_alerts; frontend receives new rows
+    via the existing Supabase Realtime WebSocket in useAlerts.js.
+
+    Returns {"lta_checked": bool, "weather_checked": bool, "alerts_inserted": int}.
+    """
+    if not supabase:
+        return {"lta_checked": False, "weather_checked": False, "alerts_inserted": 0}
+
+    alerts_inserted = 0
+    lta_checked = False
+    weather_checked = False
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+
+    # ── LTA train check ───────────────────────────────────────────────────────
+    has_metro = any(
+        leg.transport_mode in ("METRO", "MRT")
+        for day in plan.days
+        for leg in day.legs
+    )
+    if has_metro:
+        lta_checked = True
+        try:
+            train_alerts = await lta.get_train_alerts()
+        except LTAUnavailableError as exc:
+            log.warning("LTA unavailable during on-demand check for trip %s: %s", trip_id, exc)
+            train_alerts = []  # soft failure — proceed to weather check
+
+        for alert in train_alerts:
+            line = alert.get("affected_line", "")
+            message = alert.get("message", "Train disruption detected")
+            existing = (
+                supabase.table("lta_alerts")
+                .select("id")
+                .eq("trip_id", trip_id)
+                .eq("alert_type", "train_delay")
+                .eq("affected_line", line)
+                .is_("resolved_at", "null")
+                .gte("created_at", cutoff)
+                .execute()
+            )
+            if existing.data:
+                continue
+            supabase.table("lta_alerts").insert({
+                "trip_id": trip_id,
+                "alert_type": "train_delay",
+                "affected_line": line,
+                "message": f"MRT disruption on {line} line: {message}",
+            }).execute()
+            alerts_inserted += 1
+
+    # ── Weather check ─────────────────────────────────────────────────────────
+    place_ids = [p.id for p in plan.places]
+    outdoor_places = [p for p in plan.places if p.is_outdoor]
+    if outdoor_places:
+        weather_checked = True
+        centroid = _compute_centroid(place_ids)
+        clat, clng = centroid if centroid else (SINGAPORE_LAT, SINGAPORE_LNG)
+        today = date.today().isoformat()
+
+        try:
+            forecast = await openweather.get_forecast(today, clat, clng)
+        except WeatherUnavailableError as exc:
+            log.warning("OpenWeather unavailable for on-demand check trip %s: %s", trip_id, exc)
+            forecast = None
+
+        if forecast and forecast["rain_probability"] > _WEATHER_RAIN_THRESHOLD:
+            suggestions = []
+            for place in outdoor_places:
+                indoor_alt = _nearest_indoor(place.lat, place.lng, exclude_id=place.id)
+                if indoor_alt:
+                    suggestions.append(f"{place.name} → {indoor_alt['name']}")
+
+            if suggestions:
+                existing = (
+                    supabase.table("lta_alerts")
+                    .select("id")
+                    .eq("trip_id", trip_id)
+                    .eq("alert_type", "weather_warning")
+                    .gte("created_at", cutoff)
+                    .execute()
+                )
+                if not existing.data:
+                    supabase.table("lta_alerts").insert({
+                        "trip_id": trip_id,
+                        "alert_type": "weather_warning",
+                        "affected_line": None,
+                        "message": (
+                            f"Rain forecast ({forecast['rain_probability']}%). "
+                            f"Suggested indoor swaps: {'; '.join(suggestions)}"
+                        ),
+                    }).execute()
+                    alerts_inserted += 1
+
+    return {"lta_checked": lta_checked, "weather_checked": weather_checked, "alerts_inserted": alerts_inserted}
 
 
 def _persist_updated_legs(trip_id: str, plan: TripPlan) -> None:
