@@ -7,6 +7,7 @@ from app.agents.adaptation_agent import (
     adapt_trip,
     check_alerts_for_trip,
     _nearest_indoor,
+    _apply_weather_swap,
     _leg_uses_disrupted_line,
     _reroute_mrt_legs,
 )
@@ -283,15 +284,63 @@ async def test_adapt_trip_weather_swap_outdoor_to_indoor():
 # ── _nearest_indoor ───────────────────────────────────────────────────────────
 
 def test_nearest_indoor_finds_within_2km():
-    # Gardens by the Bay (outdoor) at 1.2816, 103.8636 — marina-bay-sands (indoor) is ~0.33 km away
-    result = _nearest_indoor(1.2816, 103.8636, exclude_id="gardens-by-the-bay")
+    # Gardens by the Bay (outdoor) at 1.2816, 103.8636 — marina-bay-sands (indoor) ~0.33 km away
+    result = _nearest_indoor(1.2816, 103.8636, exclude_ids={"gardens-by-the-bay"})
     assert result is not None
     assert result["is_outdoor"] is False
 
 
 def test_nearest_indoor_excludes_self():
-    result = _nearest_indoor(1.2834, 103.8607, exclude_id="marina-bay-sands")
+    result = _nearest_indoor(1.2834, 103.8607, exclude_ids={"marina-bay-sands"})
     assert result is None or result["id"] != "marina-bay-sands"
+
+
+def test_nearest_indoor_excludes_already_chosen_target():
+    """Bug #2: if the nearest indoor is already in the plan, it must be skipped."""
+    # From Gardens by the Bay coords, marina-bay-sands is nearest indoor (~0.33 km).
+    # Passing it in exclude_ids must force the function to return the *next* nearest instead.
+    first = _nearest_indoor(1.2816, 103.8636, exclude_ids={"gardens-by-the-bay"})
+    assert first is not None
+    first_id = first["id"]
+
+    # Now exclude that first result too — function must return a different place
+    second = _nearest_indoor(1.2816, 103.8636, exclude_ids={"gardens-by-the-bay", first_id})
+    assert second is None or second["id"] != first_id
+
+
+def test_apply_weather_swap_no_duplicate_targets():
+    """Bug #1: two outdoor places must not both be swapped to the same indoor target."""
+    # Two outdoor places that are close together → both would normally map to MBS
+    place_a = Place(id="merlion-park", name="Merlion Park",
+                    lat=1.2868, lng=103.8545, dwell_minutes=30,
+                    best_time_start="07:00", best_time_end="10:00",
+                    category="landmark", is_outdoor=True, in_curated_dataset=True)
+    place_b = Place(id="marina-barrage", name="Marina Barrage",
+                    lat=1.2795, lng=103.8712, dwell_minutes=60,
+                    best_time_start="09:00", best_time_end="21:00",
+                    category="viewpoint", is_outdoor=True, in_curated_dataset=True)
+    leg = LegResponse(id="leg-x", from_place_id="merlion-park", to_place_id="marina-barrage",
+                      transport_mode="WALK", duration_minutes=20, cost_sgd=0.0, is_estimated=False)
+    plan = TripPlan(id="t-dup", days=[DayPlan(day=1, legs=[leg])],
+                    places=[place_a, place_b], warnings=[])
+
+    import asyncio
+
+    async def _run():
+        with patch("app.agents.adaptation_agent.onemap.get_route",
+                   new_callable=AsyncMock,
+                   return_value={"duration_minutes": 10, "fare_sgd": 0.0,
+                                 "legs": [{"mode": "WALK"}], "sub_legs": [],
+                                 "geometry": None, "geometries": [], "instructions": []}):
+            return await _apply_weather_swap(plan)
+
+    updated_plan, changes = asyncio.run(_run())
+
+    swapped_ids = [p.id for p in updated_plan.places]
+    # No duplicate: if both outdoor places were swapped, their targets must differ
+    assert len(swapped_ids) == len(set(swapped_ids)), (
+        f"Duplicate swap target detected: {swapped_ids}"
+    )
 
 
 # ── _leg_uses_disrupted_line — bulletproof mode-first check ──────────────────

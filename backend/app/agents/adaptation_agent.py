@@ -162,11 +162,13 @@ async def poll_weather_alerts() -> None:
         if forecast["rain_probability"] <= _WEATHER_RAIN_THRESHOLD:
             continue
 
+        already_suggested: set[str] = {p["id"] for p in outdoor_places}
         suggestions = []
         for place in outdoor_places:
-            indoor_alt = _nearest_indoor(place["lat"], place["lng"], exclude_id=place["id"])
+            indoor_alt = _nearest_indoor(place["lat"], place["lng"], exclude_ids=already_suggested)
             if indoor_alt:
                 suggestions.append(f"{place['name']} → {indoor_alt['name']}")
+                already_suggested.add(indoor_alt["id"])
 
         if not suggestions:
             continue
@@ -347,26 +349,39 @@ def _compute_centroid(place_ids: list[str]) -> tuple[float, float] | None:
     return sum(lat for lat, _ in coords) / len(coords), sum(lng for _, lng in coords) / len(coords)
 
 
-def _nearest_indoor(lat: float, lng: float, exclude_id: str) -> dict | None:
-    """Find nearest indoor place within 5 km from the curated places dataset."""
-    candidates = [
-        p for p in get_all_places().values()
-        if not p["is_outdoor"] and p["id"] != exclude_id
-        and _haversine_km(lat, lng, p["lat"], p["lng"]) < 5.0
+def _nearest_indoor(lat: float, lng: float, exclude_ids: set[str]) -> dict | None:
+    """Find nearest indoor place within 5 km from the curated places dataset.
+
+    exclude_ids must include the current outdoor place being swapped AND all places
+    already in the plan — this prevents two outdoor places from mapping to the same
+    indoor target, and prevents suggesting a place the user is already visiting.
+
+    Haversine is computed once per candidate (stored as tuple) to avoid redundant calls.
+    """
+    with_dist = [
+        (p, _haversine_km(lat, lng, p["lat"], p["lng"]))
+        for p in get_all_places().values()
+        if not p["is_outdoor"] and p["id"] not in exclude_ids
     ]
-    if not candidates:
+    in_range = [(p, d) for p, d in with_dist if d < 5.0]
+    if not in_range:
         return None
-    return min(candidates, key=lambda p: _haversine_km(lat, lng, p["lat"], p["lng"]))
+    return min(in_range, key=lambda item: item[1])[0]
 
 
 async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
     """Replace outdoor places with nearest indoor alternatives."""
     swap_map: dict[str, dict] = {}  # old_place_id → new_place_dict
+    # Seed with ALL place IDs already in the plan (indoor + outdoor).
+    # This prevents two outdoor places from swapping to the same indoor target
+    # (Bug #1) and prevents suggesting a place the user already visits (Bug #2).
+    already_used: set[str] = {p.id for p in plan.places}
     for place in plan.places:
         if place.is_outdoor:
-            alt = _nearest_indoor(place.lat, place.lng, exclude_id=place.id)
+            alt = _nearest_indoor(place.lat, place.lng, exclude_ids=already_used)
             if alt:
                 swap_map[place.id] = alt
+                already_used.add(alt["id"])  # claim slot before next iteration
 
     if not swap_map:
         return plan, []
@@ -668,11 +683,13 @@ async def check_alerts_for_trip(trip_id: str, plan: TripPlan) -> dict:
             forecast = None
 
         if forecast and forecast["rain_probability"] > _WEATHER_RAIN_THRESHOLD:
+            already_suggested: set[str] = {p.id for p in outdoor_places}
             suggestions = []
             for place in outdoor_places:
-                indoor_alt = _nearest_indoor(place.lat, place.lng, exclude_id=place.id)
+                indoor_alt = _nearest_indoor(place.lat, place.lng, exclude_ids=already_suggested)
                 if indoor_alt:
                     suggestions.append(f"{place.name} → {indoor_alt['name']}")
+                    already_suggested.add(indoor_alt["id"])
 
             if suggestions:
                 existing = (
