@@ -1,0 +1,4 @@
+{
+  "disabledMcpjsonServers": ["gitnexus"],
+  "disableAllHooks": true
+}
