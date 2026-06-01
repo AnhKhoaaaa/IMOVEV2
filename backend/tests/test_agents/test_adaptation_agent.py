@@ -5,7 +5,10 @@ from app.agents.adaptation_agent import (
     poll_lta_alerts,
     poll_weather_alerts,
     adapt_trip,
+    check_alerts_for_trip,
     _nearest_indoor,
+    _leg_uses_disrupted_line,
+    _reroute_mrt_legs,
 )
 from app.agents.planning_agent import _PLACES
 from app.models.trip import TripPlan, DayPlan, LegResponse, AdaptResponse
@@ -289,3 +292,247 @@ def test_nearest_indoor_finds_within_2km():
 def test_nearest_indoor_excludes_self():
     result = _nearest_indoor(1.2834, 103.8607, exclude_id="marina-bay-sands")
     assert result is None or result["id"] != "marina-bay-sands"
+
+
+# ── _leg_uses_disrupted_line — bulletproof mode-first check ──────────────────
+
+def test_leg_uses_disrupted_line_detects_metro_leg():
+    sub_legs = [
+        {"mode": "WALK", "route": ""},
+        {"mode": "METRO", "route": "EW12"},     # disrupted EWL
+        {"mode": "WALK", "route": ""},
+    ]
+    assert _leg_uses_disrupted_line(sub_legs, {"EW"}) is True
+
+
+def test_leg_uses_disrupted_line_ignores_bus_with_mrt_code_in_name():
+    """Bus stop names in Singapore often contain MRT line codes (e.g. 'Bugis Stn Exit B EW12').
+    The helper must NOT flag these BUS sub-legs as disrupted METRO legs."""
+    sub_legs = [
+        # Bus sub-leg whose from_name/route contains "EW12" as wayfinding hint
+        {"mode": "BUS", "route": "EW12", "from_name": "Bugis Stn Exit B EW12"},
+    ]
+    assert _leg_uses_disrupted_line(sub_legs, {"EW"}) is False
+
+
+def test_leg_uses_disrupted_line_returns_false_when_different_line():
+    sub_legs = [{"mode": "METRO", "route": "NS27"}]   # North South Line — not disrupted
+    assert _leg_uses_disrupted_line(sub_legs, {"EW"}) is False
+
+
+def test_leg_uses_disrupted_line_returns_false_on_empty_prefixes():
+    sub_legs = [{"mode": "METRO", "route": "EW12"}]
+    assert _leg_uses_disrupted_line(sub_legs, set()) is False
+
+
+def test_leg_uses_disrupted_line_returns_false_on_empty_sub_legs():
+    assert _leg_uses_disrupted_line([], {"EW"}) is False
+
+
+# ── _reroute_mrt_legs — post-filter + retry ───────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_reroute_detects_disrupted_line_and_retries_bus_only():
+    """When PT result still routes via disrupted EWL, we must retry with transit_modes=BUS."""
+    plan = _make_plan(transport_mode="METRO")
+
+    # Step 1 (PT): returns a route with an EWL METRO sub_leg → triggers retry
+    pt_route = {
+        "duration_minutes": 25, "fare_sgd": 1.80,
+        "legs": [{"mode": "SUBWAY"}],
+        "sub_legs": [{"mode": "METRO", "route": "EW2", "from_stop_code": ""}],
+        "geometry": None, "geometries": [], "instructions": [], "distance_km": 3.0,
+    }
+    # Step 2 (BUS retry): returns a clean bus route
+    bus_route = {
+        "duration_minutes": 35, "fare_sgd": 1.20,
+        "legs": [{"mode": "BUS"}],
+        "sub_legs": [{"mode": "BUS", "route": "65", "from_stop_code": "83139"}],
+        "geometry": None, "geometries": [], "instructions": [], "distance_km": 3.5,
+    }
+
+    call_args: list = []
+
+    async def mock_get_route(*args, **kwargs):
+        call_args.append(kwargs.get("transit_modes"))
+        if kwargs.get("transit_modes") == "BUS":
+            return bus_route
+        return pt_route
+
+    with patch("app.agents.adaptation_agent.onemap.get_route", side_effect=mock_get_route):
+        updated_plan, changes = await _reroute_mrt_legs(plan, disrupted_lines=["East West Line"])
+
+    # Two calls: first PT, then BUS retry
+    assert len(call_args) == 2
+    assert call_args[0] is None        # first call: no transit_modes filter
+    assert call_args[1] == "BUS"       # retry: BUS-only
+
+    leg = updated_plan.days[0].legs[0]
+    assert leg.transport_mode == "BUS"
+    assert leg.duration_minutes == 35
+    assert leg.first_bus_stop_code == "83139"
+    assert len(changes) == 1
+
+
+@pytest.mark.asyncio
+async def test_reroute_skips_retry_when_otp_already_avoids_disrupted_line():
+    """If OTP routes around the disruption (no EW sub-leg), no retry should happen."""
+    plan = _make_plan(transport_mode="METRO")
+
+    # PT result uses NS line (not disrupted)
+    pt_route = {
+        "duration_minutes": 20, "fare_sgd": 1.60,
+        "legs": [{"mode": "SUBWAY"}],
+        "sub_legs": [{"mode": "METRO", "route": "NS27", "from_stop_code": ""}],
+        "geometry": None, "geometries": [], "instructions": [], "distance_km": 2.5,
+    }
+
+    call_count = 0
+
+    async def mock_get_route(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return pt_route
+
+    with patch("app.agents.adaptation_agent.onemap.get_route", side_effect=mock_get_route):
+        updated_plan, changes = await _reroute_mrt_legs(plan, disrupted_lines=["East West Line"])
+
+    assert call_count == 1    # only one call — no retry needed
+    assert updated_plan.days[0].legs[0].transport_mode == "METRO"
+    assert changes == []
+
+
+@pytest.mark.asyncio
+async def test_reroute_bus_with_mrt_code_in_stop_name_not_falsely_retried():
+    """BUS sub-leg whose stop name contains 'EW12' must NOT trigger a retry."""
+    plan = _make_plan(transport_mode="METRO")
+
+    pt_route = {
+        "duration_minutes": 30, "fare_sgd": 1.20,
+        "legs": [{"mode": "BUS"}],
+        # BUS sub-leg, route field happens to start with "EW" as a bus route name
+        "sub_legs": [{"mode": "BUS", "route": "EW", "from_stop_code": "99999",
+                      "from_name": "Bugis Stn Exit B EW12"}],
+        "geometry": None, "geometries": [], "instructions": [], "distance_km": 3.0,
+    }
+
+    call_count = 0
+
+    async def mock_get_route(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return pt_route
+
+    with patch("app.agents.adaptation_agent.onemap.get_route", side_effect=mock_get_route):
+        updated_plan, _ = await _reroute_mrt_legs(plan, disrupted_lines=["East West Line"])
+
+    assert call_count == 1   # no retry — BUS sub-leg was correctly ignored
+
+
+@pytest.mark.asyncio
+async def test_reroute_fallback_keeps_original_when_bus_also_unavailable():
+    """When BUS retry also raises NoRouteError, keep original leg + is_estimated=True."""
+    plan = _make_plan(transport_mode="METRO")
+
+    pt_route = {
+        "duration_minutes": 25, "fare_sgd": 1.80,
+        "legs": [{"mode": "SUBWAY"}],
+        "sub_legs": [{"mode": "METRO", "route": "EW12", "from_stop_code": ""}],
+        "geometry": None, "geometries": [], "instructions": [], "distance_km": 3.0,
+    }
+
+    from app.services.onemap import NoRouteError
+
+    async def mock_get_route(*args, **kwargs):
+        if kwargs.get("transit_modes") == "BUS":
+            raise NoRouteError("No bus route")
+        return pt_route
+
+    with patch("app.agents.adaptation_agent.onemap.get_route", side_effect=mock_get_route):
+        updated_plan, changes = await _reroute_mrt_legs(plan, disrupted_lines=["East West Line"])
+
+    leg = updated_plan.days[0].legs[0]
+    assert leg.transport_mode == "METRO"   # kept original mode
+    assert leg.is_estimated is True        # flagged as estimated
+    assert changes == []                   # no change recorded
+    # Warning must be added to plan
+    assert any("retained" in w for w in updated_plan.warnings)
+
+
+# ── check_alerts_for_trip ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_check_alerts_for_trip_no_supabase_returns_zero():
+    plan = _make_plan(transport_mode="METRO")
+    with patch("app.agents.adaptation_agent.supabase", None):
+        result = await check_alerts_for_trip("t1", plan)
+    assert result == {"lta_checked": False, "weather_checked": False, "alerts_inserted": 0}
+
+
+@pytest.mark.asyncio
+async def test_check_alerts_for_trip_lta_inserts_on_disruption():
+    """Plan with METRO leg + active LTA alert → alert should be inserted."""
+    plan = _make_plan(transport_mode="METRO")
+    sb = _make_supabase_mock()
+    # Simulate no existing dedup row (empty data)
+    sb.table("lta_alerts").execute.return_value = MagicMock(data=[])
+
+    train_alert = [{"affected_line": "East West Line", "message": "Disruption on EWL"}]
+
+    with patch("app.agents.adaptation_agent.supabase", sb):
+        with patch("app.agents.adaptation_agent.lta.get_train_alerts",
+                   new_callable=AsyncMock, return_value=train_alert):
+            result = await check_alerts_for_trip("t1", plan)
+
+    assert result["lta_checked"] is True
+    assert result["alerts_inserted"] >= 1
+    # Verify insert was called on lta_alerts table
+    insert_calls = [
+        call_args[0][0]
+        for call_args in sb.table("lta_alerts").insert.call_args_list
+        if call_args[0]
+    ]
+    assert any(c.get("alert_type") == "train_delay" for c in insert_calls)
+
+
+@pytest.mark.asyncio
+async def test_check_alerts_for_trip_weather_inserts_on_heavy_rain():
+    """Plan with outdoor place + rain forecast > 70% → weather warning should be inserted."""
+    plan = _make_plan(transport_mode="WALK")   # gardens-by-the-bay is outdoor
+    sb = _make_supabase_mock()
+    sb.table("lta_alerts").execute.return_value = MagicMock(data=[])
+
+    forecast = {"rain_probability": 80, "temp_c": 28, "description": "Heavy rain"}
+
+    with patch("app.agents.adaptation_agent.supabase", sb):
+        with patch("app.agents.adaptation_agent.lta.get_train_alerts",
+                   new_callable=AsyncMock, return_value=[]):
+            with patch("app.agents.adaptation_agent.openweather.get_forecast",
+                       new_callable=AsyncMock, return_value=forecast):
+                result = await check_alerts_for_trip("t1", plan)
+
+    assert result["weather_checked"] is True
+    insert_calls = [
+        call_args[0][0]
+        for call_args in sb.table("lta_alerts").insert.call_args_list
+        if call_args[0]
+    ]
+    assert any(c.get("alert_type") == "weather_warning" for c in insert_calls)
+
+
+@pytest.mark.asyncio
+async def test_check_alerts_for_trip_dedup_skips_recent_alert():
+    """If an identical alert was inserted in the last 10 min, no duplicate is inserted."""
+    plan = _make_plan(transport_mode="METRO")
+    sb = _make_supabase_mock()
+    # Simulate existing recent dedup row — should block insert
+    sb.table("lta_alerts").execute.return_value = MagicMock(data=[{"id": "existing"}])
+
+    train_alert = [{"affected_line": "East West Line", "message": "Disruption"}]
+
+    with patch("app.agents.adaptation_agent.supabase", sb):
+        with patch("app.agents.adaptation_agent.lta.get_train_alerts",
+                   new_callable=AsyncMock, return_value=train_alert):
+            result = await check_alerts_for_trip("t1", plan)
+
+    assert result["alerts_inserted"] == 0   # dedup blocked the insert

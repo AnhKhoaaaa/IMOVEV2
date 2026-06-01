@@ -11,7 +11,7 @@ from app.models.preferences import UserPreferenceProfile, ContextSnapshot
 from app.models.trip import (
     TripCreate, TripPlanRequest, TripPlan,
     LegUpdateRequest, LiveSwitchRequest, AdaptRequest, AdaptResponse, TripStatus, LocationUpdate,
-    AddPlaceRequest, ReorderRequest, LegSwapResult,
+    AddPlaceRequest, ReorderRequest, LegSwapResult, CheckAlertsRequest,
 )
 from app.agents import planning_agent, adaptation_agent
 from app.agents.planning_agent import get_curated_place
@@ -698,6 +698,30 @@ async def accept_swap(trip_id: str, body: AdaptRequest):
     del _pending_swaps[trip_id]
 
     return updated_trip
+
+
+@router.post("/{trip_id}/check-alerts")
+async def check_trip_alerts(trip_id: str, body: CheckAlertsRequest):
+    """Demand-triggered alert check for UPCOMING trips.
+
+    Called by the frontend when a user opens a trip scheduled for tomorrow.
+    Runs LTA train + weather checks and inserts into lta_alerts.
+    The frontend receives new alerts via the existing Supabase Realtime WebSocket
+    (useAlerts.js) — no polling required.
+
+    Returns {"lta_checked": bool, "weather_checked": bool, "alerts_inserted": int}.
+    """
+    if body.session_id:
+        _verify_session_ownership(trip_id, body.session_id)
+
+    plan = _trip_store.get(trip_id)
+    if plan is None and supabase:
+        plan = _fetch_trip_from_db(trip_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
+
+    result = await adaptation_agent.check_alerts_for_trip(trip_id, plan)
+    return result
 
 
 # ---------------------------------------------------------------------------

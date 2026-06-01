@@ -65,6 +65,10 @@ class LegResponse(BaseModel):
     distance_km: float | None = None
     sub_legs: list[PTSubLeg] = []
     alternatives: dict[str, AlternativeRoute] = {}   # key = TransportMode; in-memory only
+    # LTA bus stop code for the first boarding point.
+    # Only set when transport_mode == "BUS". Frontend uses this to call
+    # GET /transit/bus-arrivals/{first_bus_stop_code} for real-time countdown.
+    first_bus_stop_code: str | None = None
 
 
 class DayPlan(BaseModel):
@@ -126,6 +130,11 @@ class LiveSwitchRequest(BaseModel):
 class AdaptRequest(BaseModel):
     alert_id: str
     # session_id should match the one used in POST /trips — used to verify ownership.
+    session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
+
+
+class CheckAlertsRequest(BaseModel):
+    """Request body for POST /trips/{id}/check-alerts (demand-triggered, UPCOMING trips)."""
     session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
 
 

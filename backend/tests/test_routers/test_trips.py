@@ -1030,3 +1030,33 @@ def test_reorder_passes_weather_context_to_plan_trip():
         assert ctx.rain_level == "heavy"
     finally:
         _cleanup(trip_id)
+
+
+# ── POST /trips/{id}/check-alerts ─────────────────────────────────────────────
+
+def test_check_alerts_returns_200_for_known_trip():
+    """check-alerts endpoint returns 200 with summary dict for a known trip."""
+    trip_id = "trip-check-ok"
+    plan = _make_two_place_plan(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        mock_result = {"lta_checked": True, "weather_checked": True, "alerts_inserted": 0}
+        with patch(
+            "app.routers.trips.adaptation_agent.check_alerts_for_trip",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            resp = client.post(f"/trips/{trip_id}/check-alerts", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "lta_checked" in data
+        assert "weather_checked" in data
+        assert "alerts_inserted" in data
+    finally:
+        _cleanup(trip_id)
+
+
+def test_check_alerts_returns_404_for_unknown_trip():
+    """check-alerts returns 404 when trip is not in store and Supabase is unavailable."""
+    resp = client.post("/trips/no-such-trip-xyz/check-alerts", json={})
+    assert resp.status_code == 404

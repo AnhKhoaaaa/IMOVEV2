@@ -662,14 +662,25 @@ async def plan_trip(
                 else:
                     transport_mode = _primary_mode(route.get("legs", []))
 
-                alternatives = {m: _to_alternative(r) for m, r in alts_for_leg.items()}
-                duration     = route["duration_minutes"]
-                cost         = route.get("fare_sgd", 0.0)
-                geometry     = route.get("geometry")
-                geometries   = route.get("geometries", [])
-                instructions = route.get("instructions", [])
-                distance_km  = route.get("distance_km")
-                is_estimated = route.get("is_estimated", False)
+                alternatives  = {m: _to_alternative(r) for m, r in alts_for_leg.items()}
+                duration      = route["duration_minutes"]
+                cost          = route.get("fare_sgd", 0.0)
+                geometry      = route.get("geometry")
+                geometries    = route.get("geometries", [])
+                instructions  = route.get("instructions", [])
+                distance_km   = route.get("distance_km")
+                is_estimated  = route.get("is_estimated", False)
+                sub_legs_data = route.get("sub_legs", [])
+
+                # Expose first LTA bus stop code so frontend can call
+                # GET /transit/bus-arrivals/{code} for real-time countdown.
+                bus_stop_code: str | None = None
+                if transport_mode == "BUS":
+                    bus_sub = next(
+                        (sl for sl in sub_legs_data if sl.get("mode") == "BUS"), None
+                    )
+                    if bus_sub:
+                        bus_stop_code = bus_sub.get("from_stop_code") or None
 
                 current_time += duration
                 total_cost += cost
@@ -685,8 +696,9 @@ async def plan_trip(
                     geometry=geometry,
                     geometries=geometries,
                     distance_km=distance_km,
-                    sub_legs=route.get("sub_legs", []),
+                    sub_legs=sub_legs_data,
                     alternatives=alternatives,
+                    first_bus_stop_code=bus_stop_code,
                 ))
 
         days.append(DayPlan(day=day_idx + 1, legs=legs))
