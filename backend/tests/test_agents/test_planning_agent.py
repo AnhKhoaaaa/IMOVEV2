@@ -159,6 +159,22 @@ def test_parse_opening_hours_early():
     assert close_m == 600
 
 
+def test_parse_opening_hours_multi_slot_returns_widest_window():
+    # Hawker centre: ["07:00-14:00", "17:00-22:00"] → earliest open 07:00, latest close 22:00
+    open_m, close_m = _parse_opening_hours(["07:00-14:00", "17:00-22:00"])
+    assert open_m == 420    # 07:00
+    assert close_m == 1320  # 22:00
+
+
+def test_parse_opening_hours_multi_slot_single_entry_same_as_string():
+    # A list with one slot must equal the string form
+    assert _parse_opening_hours(["09:00-18:00"]) == _parse_opening_hours("09:00-18:00")
+
+
+def test_parse_opening_hours_empty_list_returns_24h():
+    assert _parse_opening_hours([]) == (0, 1439)
+
+
 # ── unit tests: transit-aware distribute ─────────────────────────────────────
 
 def test_distribute_days_transit_aware_fits_one_day():
@@ -293,7 +309,7 @@ async def test_budget_exceeded_adds_warning():
 async def test_onemap_network_failure_raises_no_route():
     # Network errors swallowed per-mode by _fetch_all_alternatives.
     # Long-distance pair with all modes failing → NoRouteError raised.
-    ids = ["gardens-by-the-bay", "sentosa-universal-studios"]  # ≈5km → PT needed
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]  # ≈5.4km → PT needed
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
@@ -319,9 +335,9 @@ async def test_short_distance_no_route_falls_back_to_haversine():
 
 @pytest.mark.asyncio
 async def test_long_distance_no_route_raises():
-    # gardens-by-the-bay → sentosa-universal-studios ≈ 5km ≥ 1.5km → PT mode
+    # gardens-by-the-bay-supertree-grove → universal-studios-singapore ≈ 5.4km ≥ 1.5km → PT mode
     # PT NoRouteError must NOT fall back to haversine walk — must raise
-    ids = ["gardens-by-the-bay", "sentosa-universal-studios"]
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
@@ -357,8 +373,8 @@ async def test_short_distance_leg_has_walk_transport_mode():
 
 @pytest.mark.asyncio
 async def test_long_distance_leg_has_metro_transport_mode():
-    """gardens-by-the-bay → sentosa-universal-studios ≈ 5km >= 1.5km → leg.transport_mode 'METRO'."""
-    ids = ["gardens-by-the-bay", "sentosa-universal-studios"]
+    """gardens-by-the-bay-supertree-grove → universal-studios-singapore ≈ 5.4km >= 1.5km → leg.transport_mode 'METRO'."""
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
     with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
         result = await plan_trip("t-pt", ids, 1, 999.0, False, None)
     assert result.days[0].legs[0].transport_mode == "METRO"
@@ -366,10 +382,10 @@ async def test_long_distance_leg_has_metro_transport_mode():
 
 @pytest.mark.asyncio
 async def test_best_time_no_warning_when_arrival_in_window():
-    # gardens: arrival 09:00 ∈ [08:00, 11:00] → OK
-    # After dwell 180 min → 12:00, travel 10 min → arrive marina at 12:10
-    # marina best_time 10:00–22:00 → 12:10 ∈ window → OK
-    ids = ["gardens-by-the-bay", "marina-bay-sands"]
+    # merlion-park: dwell 30 min, opens 24h → arrival 09:00, leaves 09:30
+    # asian-civilisations-museum: dwell 120 min, travel 10 min → arrives 09:40, leaves 11:40
+    # total activity = 160 min → no overfull (700 < 1050) and no underfull (160 > 120)
+    ids = ["merlion-park", "asian-civilisations-museum"]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
@@ -472,9 +488,9 @@ async def test_gemini_resolves_ambiguous_name_to_curated_id():
     with patch("app.services.gemini.parse_places_input", new_callable=AsyncMock, return_value=["Marina Bay Sands"]):
         with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=_mock_route()):
             result = await plan_trip("t-gem1", [known_id, "marina bay sands hotel"], 1, 999.0, False, None)
-    # "marina bay sands hotel" should have been resolved to "marina-bay-sands"
+    # "marina bay sands hotel" resolves to "marina-bay-sands-skypark" in new dataset
     place_ids = {p.id for p in result.places}
-    assert "marina-bay-sands" in place_ids
+    assert "marina-bay-sands-skypark" in place_ids
 
 
 @pytest.mark.asyncio

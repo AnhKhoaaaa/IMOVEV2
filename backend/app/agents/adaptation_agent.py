@@ -349,19 +349,54 @@ def _compute_centroid(place_ids: list[str]) -> tuple[float, float] | None:
     return sum(lat for lat, _ in coords) / len(coords), sum(lng for _, lng in coords) / len(coords)
 
 
+def _is_open_now(place: dict) -> bool:
+    """Return False if the place is provably closed right now. Fails open on parse errors."""
+    now_dt = datetime.now()
+    now_str = now_dt.strftime("%H:%M")
+    day_name = now_dt.strftime("%A")  # e.g. "Monday"
+
+    close_days = place.get("close_days") or []
+    if day_name in close_days:
+        return False
+
+    opening_hours = place.get("opening_hours")
+    if not opening_hours:
+        return True
+    slots: list[str] = opening_hours if isinstance(opening_hours, list) else [opening_hours]
+
+    for slot in slots:
+        parts = slot.split("-")
+        if len(parts) != 2:
+            return True  # unparseable — fail open
+        start, end = parts[0].strip(), parts[1].strip()
+        if start == "00:00" and end in ("23:59", "24:00"):
+            return True
+        # Midnight-crossing slot (e.g. "19:00-02:00")
+        if end < start:
+            if now_str >= start or now_str <= end:
+                return True
+        else:
+            if start <= now_str <= end:
+                return True
+    return False
+
+
 def _nearest_indoor(lat: float, lng: float, exclude_ids: set[str]) -> dict | None:
-    """Find nearest indoor place within 5 km from the curated places dataset.
+    """Find nearest open indoor place within 5 km from the curated places dataset.
 
     exclude_ids must include the current outdoor place being swapped AND all places
     already in the plan — this prevents two outdoor places from mapping to the same
     indoor target, and prevents suggesting a place the user is already visiting.
 
     Haversine is computed once per candidate (stored as tuple) to avoid redundant calls.
+    Only places currently open (per opening_hours + close_days) are considered.
     """
     with_dist = [
         (p, _haversine_km(lat, lng, p["lat"], p["lng"]))
         for p in get_all_places().values()
-        if not p["is_outdoor"] and p["id"] not in exclude_ids
+        if not p["is_outdoor"]
+        and p["id"] not in exclude_ids
+        and _is_open_now(p)
     ]
     in_range = [(p, d) for p, d in with_dist if d < 5.0]
     if not in_range:
@@ -392,11 +427,19 @@ async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
         if p.id in swap_map
     ]
 
-    # Rebuild places with swaps
-    new_places_raw = [swap_map.get(p.id, None) or {"id": p.id, "name": p.name, "lat": p.lat, "lng": p.lng,
-                                                     "dwell_minutes": p.dwell_minutes, "best_time_start": p.best_time_start,
-                                                     "best_time_end": p.best_time_end, "category": p.category,
-                                                     "is_outdoor": p.is_outdoor} for p in plan.places]
+    # Rebuild places with swaps — kept places pulled from _PLACES to preserve all
+    # fields (opening_hours, close_days, description, etc.). Inline dict is a
+    # last-resort fallback for places not in the curated dataset (e.g. test fixtures).
+    _all_places = get_all_places()
+    new_places_raw = [
+        swap_map.get(p.id) or _all_places.get(p.id) or {
+            "id": p.id, "name": p.name, "lat": p.lat, "lng": p.lng,
+            "dwell_minutes": p.dwell_minutes, "best_time_start": p.best_time_start,
+            "best_time_end": p.best_time_end, "category": p.category,
+            "is_outdoor": p.is_outdoor,
+        }
+        for p in plan.places
+    ]
 
     # Build lookup from the new (post-swap) places list for leg recalculation
     effective_place_lookup: dict[str, dict] = {p["id"]: p for p in new_places_raw}
