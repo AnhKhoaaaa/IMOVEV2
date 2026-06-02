@@ -382,15 +382,26 @@ def _is_open_now(place: dict) -> bool:
 
 
 def _nearest_indoor(lat: float, lng: float, exclude_ids: set[str]) -> dict | None:
-    """Find nearest open indoor place within 5 km from the curated places dataset.
+    """Find nearest open indoor place within 5 km.
 
-    exclude_ids must include the current outdoor place being swapped AND all places
-    already in the plan — this prevents two outdoor places from mapping to the same
-    indoor target, and prevents suggesting a place the user is already visiting.
+    Primary path: Supabase PostGIS RPC `find_nearest_indoor` — single DB call,
+    KNN index scan, opening-hours check inside the DB. Returns 0 or 1 row.
 
-    Haversine is computed once per candidate (stored as tuple) to avoid redundant calls.
-    Only places currently open (per opening_hours + close_days) are considered.
+    Fallback path: in-memory haversine scan over the local JSON dataset, used
+    when Supabase is unavailable (supabase is None) or the RPC raises.
     """
+    if supabase:
+        try:
+            result = supabase.rpc("find_nearest_indoor", {
+                "input_lat": lat,
+                "input_lng": lng,
+                "exclude_ids": list(exclude_ids),
+            }).execute()
+            return result.data[0] if result.data else None
+        except Exception as exc:
+            log.warning("find_nearest_indoor RPC failed, falling back to haversine: %s", exc)
+
+    # Fallback: haversine loop over local JSON (covers supabase=None and RPC errors)
     with_dist = [
         (p, _haversine_km(lat, lng, p["lat"], p["lng"]))
         for p in get_all_places().values()
