@@ -28,21 +28,24 @@ def test_search_finds_by_name():
     resp = client.get("/places/search", params={"q": "marina"})
     assert resp.status_code == 200
     names = [p["name"] for p in resp.json()]
-    assert "Marina Bay Sands" in names
+    # New dataset has "Marina Bay Sands – SkyPark Observation Deck" etc.
+    assert any("Marina Bay Sands" in n for n in names)
 
 
 def test_search_case_insensitive():
     resp = client.get("/places/search", params={"q": "GARDENS"})
     assert resp.status_code == 200
     names = [p["name"] for p in resp.json()]
-    assert "Gardens by the Bay" in names
+    # New dataset splits Gardens by the Bay into Supertree Grove, Flower Dome, etc.
+    assert any("Gardens by the Bay" in n for n in names)
 
 
 def test_search_finds_by_category():
-    resp = client.get("/places/search", params={"q": "nature"})
+    resp = client.get("/places/search", params={"q": "ATTRACTION"})
     assert resp.status_code == 200
-    names = [p["name"] for p in resp.json()]
-    assert "Gardens by the Bay" in names
+    data = resp.json()
+    assert len(data) > 0
+    assert all(p["category"] == "ATTRACTION" for p in data)
 
 
 def test_search_no_match_returns_empty_list():
@@ -53,7 +56,8 @@ def test_search_no_match_returns_empty_list():
 
 @pytest.mark.asyncio
 async def test_ai_suggest_returns_place_ids():
-    expected = ["gardens-by-the-bay", "merlion-park"]
+    # Use real IDs from the new dataset — validation filters out unknown ones
+    expected = ["merlion-park", "artscience-museum"]
     with patch("app.agents.planning_agent.suggest_places", new_callable=AsyncMock,
                return_value=expected):
         resp = client.post("/places/ai-suggest", json={
@@ -63,6 +67,19 @@ async def test_ai_suggest_returns_place_ids():
         })
     assert resp.status_code == 200
     assert resp.json()["suggested_place_ids"] == expected
+
+
+@pytest.mark.asyncio
+async def test_ai_suggest_filters_hallucinated_ids():
+    """Gemini may return stale or invented IDs — only valid curated IDs pass through."""
+    with patch("app.agents.planning_agent.suggest_places", new_callable=AsyncMock,
+               return_value=["merlion-park", "gardens-by-the-bay", "nonexistent-xyz"]):
+        resp = client.post("/places/ai-suggest", json={})
+    assert resp.status_code == 200
+    result = resp.json()["suggested_place_ids"]
+    assert result == ["merlion-park"]          # only the valid ID survives
+    assert "gardens-by-the-bay" not in result  # old renamed ID filtered out
+    assert "nonexistent-xyz" not in result     # hallucinated ID filtered out
 
 
 @pytest.mark.asyncio

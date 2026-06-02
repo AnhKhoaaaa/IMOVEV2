@@ -174,7 +174,7 @@ async def test_poll_weather_low_rain_no_alert():
 
 @pytest.mark.asyncio
 async def test_poll_weather_high_rain_with_outdoor_places_inserts_alert():
-    outdoor_place_id = "gardens-by-the-bay"  # is_outdoor=True in _PLACES
+    outdoor_place_id = "gardens-by-the-bay-supertree-grove"  # is_outdoor=True in _PLACES
     # places_data now includes trip_id because poll_weather_alerts uses a bulk IN query
     sb = _make_supabase_mock(
         trips=[{"id": "trip-1"}],
@@ -284,27 +284,29 @@ async def test_adapt_trip_weather_swap_outdoor_to_indoor():
 # ── _nearest_indoor ───────────────────────────────────────────────────────────
 
 def test_nearest_indoor_finds_within_2km():
-    # Gardens by the Bay (outdoor) at 1.2816, 103.8636 — marina-bay-sands (indoor) ~0.33 km away
-    result = _nearest_indoor(1.2816, 103.8636, exclude_ids={"gardens-by-the-bay"})
+    # Merlion Park (outdoor) at 1.28681, 103.85453 — fullerton-hotel-singapore (indoor) ~0.18 km away
+    result = _nearest_indoor(1.28681, 103.85453, exclude_ids={"merlion-park"})
     assert result is not None
     assert result["is_outdoor"] is False
 
 
 def test_nearest_indoor_excludes_self():
-    result = _nearest_indoor(1.2834, 103.8607, exclude_ids={"marina-bay-sands"})
-    assert result is None or result["id"] != "marina-bay-sands"
+    # From Merlion Park area, excluding the nearest indoor (fullerton-hotel-singapore)
+    # must force a different indoor result.
+    result = _nearest_indoor(1.28681, 103.85453, exclude_ids={"fullerton-hotel-singapore"})
+    assert result is None or result["id"] != "fullerton-hotel-singapore"
 
 
 def test_nearest_indoor_excludes_already_chosen_target():
     """Bug #2: if the nearest indoor is already in the plan, it must be skipped."""
-    # From Gardens by the Bay coords, marina-bay-sands is nearest indoor (~0.33 km).
+    # From Merlion Park coords, fullerton-hotel-singapore is nearest indoor (~0.18 km).
     # Passing it in exclude_ids must force the function to return the *next* nearest instead.
-    first = _nearest_indoor(1.2816, 103.8636, exclude_ids={"gardens-by-the-bay"})
+    first = _nearest_indoor(1.28681, 103.85453, exclude_ids={"merlion-park"})
     assert first is not None
     first_id = first["id"]
 
     # Now exclude that first result too — function must return a different place
-    second = _nearest_indoor(1.2816, 103.8636, exclude_ids={"gardens-by-the-bay", first_id})
+    second = _nearest_indoor(1.28681, 103.85453, exclude_ids={"merlion-park", first_id})
     assert second is None or second["id"] != first_id
 
 

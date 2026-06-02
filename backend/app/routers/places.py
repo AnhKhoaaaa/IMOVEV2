@@ -4,11 +4,13 @@ import pathlib
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from app.models.place import Place
+from app.agents.planning_agent import _normalise_place
 
 router = APIRouter()
 
-_PLACES_PATH = pathlib.Path(__file__).parent.parent / "data" / "places.json"
-_CURATED: list[Place] = [Place(**p) for p in json.loads(_PLACES_PATH.read_text())]
+_PLACES_PATH = pathlib.Path(__file__).parent.parent / "data" / "singapore_places.json"
+_raw_places = json.loads(_PLACES_PATH.read_text(encoding="utf-8"))
+_CURATED: list[Place] = [Place(**_normalise_place(p)) for p in _raw_places]
 
 
 @router.get("/curated", response_model=list[Place])
@@ -21,7 +23,9 @@ async def search_places(q: str = Query(..., min_length=1)):
     q_lower = q.lower()
     return [
         p for p in _CURATED
-        if q_lower in p.name.lower() or q_lower in p.category.lower()
+        if q_lower in p.name.lower()
+        or q_lower in p.category.lower()
+        or any(q_lower in kw.lower() for kw in (p.search_keywords or []))
     ]
 
 
@@ -33,6 +37,9 @@ class AiSuggestRequest(BaseModel):
 
 @router.post("/ai-suggest")
 async def ai_suggest_places(body: AiSuggestRequest):
-    from app.agents.planning_agent import suggest_places
+    from app.agents.planning_agent import suggest_places, get_all_places
     place_ids = await suggest_places(body.num_days, body.travel_styles, body.group_type)
-    return {"suggested_place_ids": place_ids}
+    # Filter out hallucinated or stale IDs — only return IDs that exist in the
+    # curated dataset so downstream plan_trip never hits PlaceDataMissingError.
+    known = get_all_places()
+    return {"suggested_place_ids": [pid for pid in place_ids if pid in known]}

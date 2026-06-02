@@ -20,29 +20,44 @@ from app.models.trip import (
 from app.models.place import Place
 from app.models.preferences import UserPreferenceProfile, ContextSnapshot
 
-_PLACES_PATH = Path(__file__).parent.parent / "data" / "places.json"
+_PLACES_PATH = Path(__file__).parent.parent / "data" / "singapore_places.json"
 
 
 def _validate_time(t: str, place_id: str, field: str) -> None:
-    """Raise ValueError at startup if a time string in places.json is malformed."""
+    """Raise ValueError at startup if a time string in the data file is malformed."""
     parts = t.split(":")
     if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
-        raise ValueError(f"places.json [{place_id}] invalid {field}: '{t}' — expected HH:MM")
+        raise ValueError(f"singapore_places.json [{place_id}] invalid {field}: '{t}' — expected HH:MM")
+
+
+def _normalise_place(p: dict) -> dict:
+    """Map singapore_places.json schema → internal schema expected by all agents.
+    Only transformation: suggested_duration_minutes → dwell_minutes.
+    best_time_start / best_time_end are pre-enriched directly in the JSON.
+    """
+    return {
+        **p,
+        "dwell_minutes": p.get("suggested_duration_minutes", 60),
+    }
 
 
 # Load and validate once at import time — bad data surfaces at startup, not runtime.
 with open(_PLACES_PATH, encoding="utf-8") as _f:
     _raw: list[dict] = json.load(_f)
 
-_REQUIRED_KEYS = {"id", "name", "lat", "lng", "category", "is_outdoor", "dwell_minutes", "best_time_start", "best_time_end"}
+_REQUIRED_KEYS = {
+    "id", "name", "lat", "lng", "category", "is_outdoor",
+    "suggested_duration_minutes", "opening_hours",
+    "best_time_start", "best_time_end",
+}
 for _p in _raw:
     missing = _REQUIRED_KEYS - set(_p.keys())
     if missing:
-        raise RuntimeError(f"places.json entry '{_p.get('id', '?')}' missing required keys: {missing}")
+        raise RuntimeError(f"singapore_places.json entry '{_p.get('id', '?')}' missing required keys: {missing}")
     _validate_time(_p["best_time_start"], _p["id"], "best_time_start")
     _validate_time(_p["best_time_end"], _p["id"], "best_time_end")
 
-_PLACES: dict[str, dict] = {p["id"]: p for p in _raw}
+_PLACES: dict[str, dict] = {p["id"]: _normalise_place(p) for p in _raw}
 del _raw
 
 
@@ -54,6 +69,10 @@ def get_curated_place(place_id: str) -> dict | None:
 def get_all_places() -> dict:
     """Public accessor for the full _PLACES dict — use instead of importing _PLACES directly."""
     return _PLACES
+
+
+# Re-exported so tests can patch at app.agents.planning_agent.suggest_places
+from app.services.gemini import suggest_places  # noqa: E402
 
 # Map OneMap transit modes to TransportMode labels
 _MODE_MAP: dict[str, str] = {"SUBWAY": "METRO", "TRAM": "METRO", "BUS": "BUS", "WALK": "WALK"}
@@ -198,10 +217,10 @@ def _day_bucketed_greedy(
     return [d for d in day_groups if d], extra_warnings
 
 
-def _parse_opening_hours(s: str) -> tuple[int, int]:
-    """Parse "HH:MM-HH:MM" or "24h" → (open_min, close_min) since midnight."""
+def _parse_single_slot(s: str) -> tuple[int, int]:
+    """Parse a single 'HH:MM-HH:MM' or '24h' string → (open_min, close_min)."""
     if not s or s.strip().lower() == "24h":
-        return 0, 1439  # 00:00–23:59
+        return 0, 1439
     parts = s.strip().split("-")
     if len(parts) != 2:
         return 0, 1439
@@ -209,6 +228,23 @@ def _parse_opening_hours(s: str) -> tuple[int, int]:
         return _parse_hhmm(parts[0].strip()), _parse_hhmm(parts[1].strip())
     except (ValueError, IndexError):
         return 0, 1439
+
+
+def _parse_opening_hours(s: str | list[str]) -> tuple[int, int]:
+    """Parse "HH:MM-HH:MM", "24h", or list thereof → (open_min, close_min) since midnight.
+
+    For a list of slots, returns (earliest open, latest close) across all slots —
+    the widest reachable window. This prevents falsely excluding places with split
+    hours (e.g. hawker centres closed for lunch, temples with two prayer windows).
+    Scheduling during an inter-slot gap is possible but rare; _is_open_now() in
+    the adaptation agent provides real-time accuracy during active trips.
+    """
+    if isinstance(s, list):
+        if not s:
+            return 0, 1439
+        opens_closes = [_parse_single_slot(slot) for slot in s]
+        return min(o for o, _ in opens_closes), max(c for _, c in opens_closes)
+    return _parse_single_slot(s)
 
 
 def _distribute_days(
