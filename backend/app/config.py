@@ -23,5 +23,9 @@ class Settings(BaseSettings):
     # Optional: production frontend URL for CORS (e.g. https://imove.vercel.app)
     frontend_url: Optional[str] = None
 
+    # Optional: Unsplash image seeding (seed_images.py only — not used at runtime)
+    # Demo key: 50 req/hr. Production key: 5,000 req/hr (free, apply at unsplash.com/developers)
+    unsplash_access_key: Optional[str] = None
+
 
 settings = Settings()
