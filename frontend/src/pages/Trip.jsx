@@ -1,555 +1,876 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { AlertTriangle, X, ArrowLeft, Maximize2, Minimize2, Map, WifiOff, Settings, CheckCircle } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import {
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle,
+  ChevronDown,
+  Clock,
+  FileText,
+  GripVertical,
+  Loader2,
+  MapPin,
+  Navigation2,
+  Plus,
+  Route,
+  Search,
+  Settings,
+  Sparkles,
+  Trash2,
+  Wallet,
+  WifiOff,
+  X,
+} from 'lucide-react'
+import { api } from '../services/api'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useAuth } from '../contexts/AuthContext'
-import { buildPlacesById } from '../lib/tripUtils'
-import { api } from '../services/api'
-import DayPlan from '../components/planner/DayPlan'
-import OverviewTab from '../components/planner/OverviewTab'
-import SummaryTab from '../components/planner/SummaryTab'
-import TripMap from '../components/map/TripMap'
-import TripSetupModal from '../components/planner/TripSetupModal'
-import DisruptionSimulator from '../components/adaptation/DisruptionSimulator'
-import AlertBanner from '../components/adaptation/AlertBanner'
-import { Skeleton } from '../components/ui/skeleton'
-import { Alert, AlertDescription } from '../components/ui/alert'
+import { buildOrderedPlaces, buildPlacesById } from '../lib/tripUtils'
+import { availableModesForLeg, normalizeTransportMode, transportMeta } from '../lib/transport'
 import { cn } from '../lib/utils'
-import { Plus, Loader2 } from 'lucide-react'
+import TripMap from '../components/map/TripMap'
+import AlertBanner from '../components/adaptation/AlertBanner'
+import TripSetupModal from '../components/planner/TripSetupModal'
+import SummaryTab from '../components/planner/SummaryTab'
+import PlaceSearch from '../components/planner/PlaceSearch'
+import BusArrivalPanel from '../components/transit/BusArrivalPanel'
 
-function haversineMeters(a, b) {
-  const R = 6371000
-  const φ1 = (a.lat * Math.PI) / 180, φ2 = (b.lat * Math.PI) / 180
-  const Δφ = ((b.lat - a.lat) * Math.PI) / 180, Δλ = ((b.lng - a.lng) * Math.PI) / 180
-  const x = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))
+function getSessionId() {
+  try { return localStorage.getItem('session_id') } catch { return null }
 }
 
-/* ── Day pill ────────────────────────────────────────────────────── */
-const DayPill = ({ active, onClick, children, kind, pulse }) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      'relative inline-flex items-center gap-1.5 rounded-full h-8 px-3.5 text-[12.5px] font-semibold transition border whitespace-nowrap',
-      active
-        ? (kind === 'overview' || kind === 'summary'
-          ? 'bg-slate-900 border-slate-900 text-white'
-          : 'bg-indigo-600 border-indigo-600 text-white')
-        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900'
-    )}
-  >
-    {children}
-    {pulse && (
-      <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5">
-        <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-      </span>
-    )}
-  </button>
-)
+function formatDuration(value) {
+  if (value == null) return 'Flexible'
+  if (value < 60) return `${value} min`
+  return `${Math.floor(value / 60)}h ${value % 60}m`
+}
 
-/* ── Skeleton ────────────────────────────────────────────────────── */
-function PanelSkeleton() {
+function formatCost(value) {
+  return value != null ? `S$${Number(value).toFixed(2)}` : 'S$0.00'
+}
+
+function dayStats(day) {
+  const legs = day?.legs ?? []
+  return {
+    duration: legs.reduce((sum, leg) => sum + (leg.duration_minutes ?? 0), 0),
+    cost: legs.reduce((sum, leg) => sum + (leg.cost_sgd ?? 0), 0),
+    distance: legs.reduce((sum, leg) => sum + (leg.distance_km ?? 0), 0),
+  }
+}
+
+function timelineForDay(day, placesById) {
+  const legs = day?.legs ?? []
+  if (!legs.length) return []
+  const items = []
+  const seen = new Set()
+  legs.forEach((leg, index) => {
+    const from = placesById[leg.from_place_id]
+    const to = placesById[leg.to_place_id]
+    if (from && !seen.has(from.id)) {
+      seen.add(from.id)
+      items.push({ type: 'place', place: from, incomingLeg: null, outgoingLeg: leg })
+    }
+    items.push({ type: 'leg', leg, from, to, index })
+    if (to && !seen.has(to.id)) {
+      seen.add(to.id)
+      items.push({ type: 'place', place: to, incomingLeg: leg, outgoingLeg: legs[index + 1] ?? null })
+    }
+  })
+  return items
+}
+
+function TransportBadge({ mode }) {
+  const meta = transportMeta(mode)
+  const Icon = meta.Icon
   return (
-    <div className="space-y-3" aria-label="Loading trip" aria-busy="true">
-      <Skeleton className="h-20 w-full rounded-2xl" />
-      <Skeleton className="h-20 w-full rounded-2xl" />
-      <Skeleton className="h-16 w-3/4 rounded-2xl" />
+    <span className={cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-bold', meta.tone)}>
+      <Icon size={12} />
+      {meta.label}
+    </span>
+  )
+}
+
+function PlaceCard({ place, onRemove }) {
+  return (
+    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex gap-4">
+        <div className="h-24 w-28 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+          {place.image_url ? (
+            <img
+              src={place.image_url}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={(event) => { event.currentTarget.style.display = 'none' }}
+            />
+          ) : (
+            <div className="grid h-full w-full place-items-center text-blue-500">
+              <MapPin size={22} />
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate font-display text-[17px] font-extrabold text-slate-950">{place.name}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-md bg-blue-50 px-2 py-1 text-[11px] font-bold capitalize text-blue-700">
+                  {place.category || 'place'}
+                </span>
+                <span className="rounded-md bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-500">
+                  {place.dwell_minutes ?? place.suggested_duration_minutes ?? 60} min
+                </span>
+                {place.close_days?.length > 0 && (
+                  <span className="rounded-md bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700">
+                    Closed {place.close_days.join(', ')}
+                  </span>
+                )}
+              </div>
+            </div>
+            {onRemove && (
+              <button
+                onClick={onRemove}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-300 hover:bg-red-50 hover:text-red-500"
+                title="Remove place"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+          {place.description && (
+            <p className="mt-3 line-clamp-2 text-[13px] leading-6 text-slate-500">{place.description}</p>
+          )}
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[12px] text-slate-500">
+            {place.formatted_address && (
+              <p className="truncate"><MapPin size={12} className="mr-1 inline text-slate-400" />{place.formatted_address}</p>
+            )}
+            {place.best_time_start && (
+              <p><Clock size={12} className="mr-1 inline text-slate-400" />Best {place.best_time_start}-{place.best_time_end}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWarning }) {
+  const [open, setOpen] = useState(false)
+  const [savingMode, setSavingMode] = useState(null)
+  const [compare, setCompare] = useState(null)
+  const [compareLoading, setCompareLoading] = useState(false)
+  const meta = transportMeta(leg.transport_mode)
+
+  const changeMode = async (mode) => {
+    if (!tripId || !leg.id || savingMode) return
+    setSavingMode(mode)
+    try {
+      const result = tripStarted && position
+        ? await api.switchLegNow(tripId, leg.id, { new_mode: mode, current_lat: position.lat, current_lng: position.lng })
+        : await api.updateLeg(tripId, leg.id, { transport_mode: mode })
+      if (result?.warnings?.length) onWarning?.(result.warnings.join(' '))
+      await onUpdated?.()
+    } catch (err) {
+      onWarning?.(err.message)
+    } finally {
+      setSavingMode(null)
+    }
+  }
+
+  const loadCompare = async () => {
+    if (!from || !to) return
+    setCompareLoading(true)
+    try {
+      setCompare(await api.compareRoutes(from.lat, from.lng, to.lat, to.lng))
+    } catch (err) {
+      onWarning?.(err.message)
+    } finally {
+      setCompareLoading(false)
+    }
+  }
+
+  return (
+    <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="mb-2 flex items-center gap-2">
+            <TransportBadge mode={leg.transport_mode} />
+            <span className="text-[12px] font-semibold text-slate-400">
+              {from?.name ?? 'Origin'} to {to?.name ?? 'Destination'}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
+              <Clock size={12} /> {formatDuration(leg.duration_minutes)}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
+              <Wallet size={12} /> {formatCost(leg.cost_sgd)}
+            </span>
+            {leg.distance_km != null && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
+                <Route size={12} /> {Number(leg.distance_km).toFixed(1)} km
+              </span>
+            )}
+            {leg.is_estimated && (
+              <span className="rounded-md bg-amber-50 px-2 py-1 text-[12px] font-bold text-amber-700">Estimated</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="relative">
+            <button
+              onClick={() => setOpen((value) => !value)}
+              className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700"
+            >
+              {savingMode ? <Loader2 size={13} className="animate-spin" /> : <meta.Icon size={13} />}
+              Change
+              <ChevronDown size={12} />
+            </button>
+            {open && (
+              <div className="absolute right-0 top-10 z-30 w-44 overflow-hidden rounded-md border border-slate-200 bg-white shadow-pop">
+                {availableModesForLeg(leg).map((option) => (
+                  <button
+                    key={option.mode}
+                    onClick={() => { setOpen(false); changeMode(option.mode) }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-bold text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <option.Icon size={14} />
+                    {option.label}
+                    {normalizeTransportMode(leg.transport_mode) === option.mode && <CheckCircle size={13} className="ml-auto text-emerald-600" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setOpen(false)}
+            className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:text-blue-700"
+            title="Drag handle"
+          >
+            <GripVertical size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={() => setOpen(false)}
+          className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-50"
+        >
+          {leg.instructions?.length ? `${leg.instructions.length} instructions` : 'No instructions'}
+        </button>
+        <button
+          onClick={loadCompare}
+          disabled={compareLoading}
+          className="rounded-md border border-blue-100 bg-blue-50 px-3 py-1.5 text-[12px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+        >
+          {compareLoading ? 'Comparing...' : 'Compare modes'}
+        </button>
+      </div>
+
+      {(leg.instructions?.length > 0 || leg.sub_legs?.length > 0 || compare || leg.first_bus_stop_code) && (
+        <div className="mt-3 space-y-3">
+          {leg.instructions?.length > 0 && (
+            <div className="rounded-md border border-slate-200 bg-white p-3">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">Instructions</p>
+              <ol className="space-y-1 text-[12px] text-slate-600">
+                {leg.instructions.slice(0, 6).map((item, index) => (
+                  <li key={index}>{index + 1}. {item}</li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {leg.sub_legs?.length > 0 && (
+            <div className="rounded-md border border-slate-200 bg-white p-3">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">Transit details</p>
+              <div className="space-y-2">
+                {leg.sub_legs.map((sub, index) => (
+                  <div key={index} className="flex items-center gap-2 text-[12px] text-slate-600">
+                    <TransportBadge mode={sub.mode} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {sub.route ? `${sub.route}: ` : ''}{sub.from_name} to {sub.to_name}
+                    </span>
+                    <span className="shrink-0 font-bold">{sub.duration_minutes} min</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {leg.first_bus_stop_code && normalizeTransportMode(leg.transport_mode) === 'BUS' && (
+            <BusArrivalPanel stopCode={leg.first_bus_stop_code} />
+          )}
+
+          {compare && (
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(compare).map(([key, value]) => (
+                <div key={key} className="rounded-md border border-slate-200 bg-white p-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
+                  <p className="mt-1 text-[13px] font-extrabold text-slate-900">
+                    {value.available ? formatDuration(value.duration_minutes) : 'Unavailable'}
+                  </p>
+                  {value.available && <p className="text-[11px] text-slate-500">{formatCost(value.fare_sgd)}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function Overview({ trip, placesById, onSelectDay, onAddPlace, onRemovePlace, onReorder, onOptimize }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="font-display text-[24px] font-extrabold text-slate-950">Overview</h2>
+          <p className="mt-1 text-[13px] text-slate-500">Review warnings, free-time gaps, and daily route structure.</p>
+        </div>
+        <button
+          onClick={onOptimize}
+          className="flex h-10 items-center gap-2 rounded-md bg-slate-900 px-4 text-[13px] font-bold text-white hover:bg-slate-800"
+        >
+          <Sparkles size={15} /> Optimise
+        </button>
+      </div>
+
+      {trip.warnings?.length > 0 && (
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="flex gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <div className="space-y-1">
+              {trip.warnings.map((warning, index) => (
+                <p key={index} className="text-[13px] font-semibold text-amber-800">{warning}</p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {trip.gap_notifications?.length > 0 && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+          <p className="mb-3 text-[12px] font-bold uppercase tracking-wide text-blue-700">Schedule gaps</p>
+          <div className="space-y-2">
+            {trip.gap_notifications.map((gap, index) => (
+              <div key={index} className="rounded-md bg-white px-3 py-2 text-[13px] text-blue-900 shadow-sm">
+                <span className="font-bold">Day {gap.day_index + 1} · {gap.gap_start}-{gap.gap_end}</span>
+                <span className="text-blue-700"> · {gap.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4">
+        {(trip.days ?? []).map((day) => {
+          const items = timelineForDay(day, placesById).filter((item) => item.type === 'place')
+          const stats = dayStats(day)
+          return (
+            <section key={day.day} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <button onClick={() => onSelectDay(day.day)} className="text-left">
+                  <h3 className="font-display text-[18px] font-extrabold text-slate-950">Day {day.day}</h3>
+                  <p className="mt-1 text-[12px] text-slate-500">
+                    {items.length} stops · {formatDuration(stats.duration)} · {formatCost(stats.cost)}
+                  </p>
+                </button>
+                <button
+                  onClick={() => onAddPlace(day.day)}
+                  className="grid h-8 w-8 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  title="Add place"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              {items.length ? (
+                <div className="space-y-2">
+                  {items.map((item, index) => (
+                    <div key={item.place.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-slate-700">{item.place.name}</span>
+                      <button
+                        onClick={() => onReorder(day.day, items.map((entry) => entry.place.id), index, -1)}
+                        disabled={index === 0}
+                        className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                      >
+                        Up
+                      </button>
+                      <button
+                        onClick={() => onReorder(day.day, items.map((entry) => entry.place.id), index, 1)}
+                        disabled={index === items.length - 1}
+                        className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                      >
+                        Down
+                      </button>
+                      <button
+                        onClick={() => onRemovePlace(item.place.id)}
+                        className="text-slate-300 hover:text-red-500"
+                        title="Remove"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-[13px] text-slate-400">
+                  Empty day
+                </div>
+              )}
+            </section>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
-/* ── Main ────────────────────────────────────────────────────────── */
+function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onStart, onArrive, onAddPlace }) {
+  const items = timelineForDay(day, placesById)
+  const activeLeg = day?.legs?.[activeLegIndex]
+  const activeFrom = activeLeg ? placesById[activeLeg.from_place_id] : null
+  const activeTo = activeLeg ? placesById[activeLeg.to_place_id] : null
+
+  if (tripStarted && activeLeg) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="font-display text-[24px] font-extrabold text-slate-950">Active leg</h2>
+            <p className="mt-1 text-[13px] text-slate-500">Route from your current progress through Day {day.day}.</p>
+          </div>
+          <button
+            onClick={onArrive}
+            className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-bold text-white hover:bg-emerald-500"
+          >
+            <CheckCircle size={15} /> Arrived
+          </button>
+        </div>
+        <div className="grid grid-cols-[1fr_1.2fr_1fr] gap-4">
+          <PlaceCard place={activeFrom} />
+          <LegCard
+            leg={activeLeg}
+            from={activeFrom}
+            to={activeTo}
+            tripId={tripId}
+            tripStarted
+            position={position}
+            onUpdated={onUpdated}
+            onWarning={onWarning}
+          />
+          <PlaceCard place={activeTo} onRemove={() => onRemovePlace(activeTo.id)} />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="font-display text-[24px] font-extrabold text-slate-950">Day {day.day}</h2>
+          <p className="mt-1 text-[13px] text-slate-500">Alternating place and route cards with live transport details.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onAddPlace(day.day)}
+            className="flex h-10 items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-4 text-[13px] font-bold text-blue-700 hover:bg-blue-100"
+          >
+            <Plus size={15} /> Add place
+          </button>
+          <button
+            onClick={() => onStart(day.day)}
+            className="flex h-10 items-center gap-2 rounded-md bg-slate-900 px-4 text-[13px] font-bold text-white hover:bg-slate-800"
+          >
+            <Navigation2 size={15} /> Start
+          </button>
+        </div>
+      </div>
+
+      {items.length ? (
+        <div className="space-y-3">
+          {items.map((item, index) => item.type === 'place' ? (
+            <PlaceCard
+              key={`place-${item.place.id}`}
+              place={item.place}
+              onRemove={() => onRemovePlace(item.place.id)}
+            />
+          ) : (
+            <LegCard
+              key={`leg-${item.leg.id}-${index}`}
+              leg={item.leg}
+              from={item.from}
+              to={item.to}
+              tripId={tripId}
+              tripStarted={false}
+              position={position}
+              onUpdated={onUpdated}
+              onWarning={onWarning}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
+          <MapPin className="mx-auto h-7 w-7 text-slate-300" />
+          <p className="mt-2 text-[14px] font-bold text-slate-600">No route legs in this day</p>
+          <button
+            onClick={() => onAddPlace(day.day)}
+            className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white"
+          >
+            <Plus size={15} /> Add place
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Trip() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const { state: navState } = location
   const { user } = useAuth()
-  const authUserId = user?.id ?? null
-  const { trip, loading, error, refresh, isOffline } = useTrip(id, authUserId)
-  const { trips: savedTrips, save: saveTrip } = useSavedTrips(authUserId)
+  const { trip, loading, error, refresh, isOffline } = useTrip(id, user?.id ?? null)
+  const { trips: savedTrips, save: saveTrip } = useSavedTrips(user?.id ?? null)
   const { alerts, dismiss } = useAlerts(id)
   const { position } = useGeolocation()
   const lastLocationSent = useRef(0)
 
-  // ── Pending save (navigated from Planner before saving) ───────
-  // Persisted in sessionStorage so a page refresh doesn't orphan the trip.
   const pendingKey = `imove_pending_${id}`
   const [pendingSave, setPendingSave] = useState(() => {
-    if (navState?.pendingSave) {
-      try { sessionStorage.setItem(pendingKey, JSON.stringify(navState.pendingSave)) } catch {}
-      return navState.pendingSave
+    if (location.state?.pendingSave) {
+      sessionStorage.setItem(pendingKey, JSON.stringify(location.state.pendingSave))
+      return location.state.pendingSave
     }
     try {
       const stored = sessionStorage.getItem(pendingKey)
       return stored ? JSON.parse(stored) : null
     } catch { return null }
   })
-
-  // ── Navigation state ──────────────────────────────────────────
-  const [tab, setTab] = useState(navState?.pendingSave ? 'd1' : (navState?.autoStart ? 'd1' : 'overview'))
-  const [mode, setMode] = useState('split')
-  const [dismissedWarnings, setDismissedWarnings] = useState(false)
-  const [showMobileMap, setShowMobileMap] = useState(false)
-
-  // ── Active leg / trip started state ───────────────────────────
-  const [tripStarted, setTripStarted] = useState(navState?.autoStart ?? false)
-  const [activeDayNum, setActiveDayNum] = useState(1)
+  const [activeTab, setActiveTab] = useState('overview')
+  const [selectedDay, setSelectedDay] = useState(1)
+  const [tripStarted, setTripStarted] = useState(!!location.state?.autoStart)
   const [activeLegIndex, setActiveLegIndex] = useState(0)
-  const [weatherAlert, setWeatherAlert] = useState(null)
-  const [transitAlert, setTransitAlert] = useState(null)
-  const [transitVariant, setTransitVariant] = useState('mrt')
-
-  // ── Edit setup modal ──────────────────────────────────────────
   const [setupOpen, setSetupOpen] = useState(false)
-  const [savedConfirm, setSavedConfirm] = useState(false)
-  const [dayMutating, setDayMutating] = useState(false)
-  const [virtualStartLeg, setVirtualStartLeg] = useState(null)
+  const [addDayFor, setAddDayFor] = useState(null)
+  const [uiWarning, setUiWarning] = useState(null)
+  const [mutating, setMutating] = useState(false)
 
-  // P6-BUG-6: derive from savedTrips so auth changes and saves auto-update
-  // without a second getSavedTrips call.
-  const savedMeta = useMemo(
-    () => savedTrips.find((t) => t.id === id) ?? null,
-    [savedTrips, id]
+  const savedMeta = useMemo(() => savedTrips.find((item) => item.id === id), [savedTrips, id])
+  const placesById = useMemo(() => buildPlacesById(trip?.places ?? []), [trip])
+  const currentDay = useMemo(
+    () => trip?.days?.find((day) => day.day === selectedDay) ?? trip?.days?.[0],
+    [trip, selectedDay]
   )
+  const mapLegs = activeTab === 'overview'
+    ? trip?.days?.flatMap((day) => day.legs ?? []) ?? []
+    : activeTab === 'summary'
+      ? trip?.days?.flatMap((day) => day.legs ?? []) ?? []
+      : currentDay?.legs ?? []
+  const mapPlaces = useMemo(() => {
+    if (!trip) return []
+    if (activeTab === 'overview' || activeTab === 'summary') return trip.places ?? []
+    return buildOrderedPlaces(trip.places ?? [], currentDay?.legs ?? []).ordered
+  }, [trip, currentDay, activeTab])
 
-  // ── Optimization log (for SummaryTab) ─────────────────────────
-  const [optimizationLog, setOptimizationLog] = useState([])
-
-  // Auto-switch to active day tab when trip starts and data loads
   useEffect(() => {
-    if (tripStarted && trip) {
-      const firstDay = trip.days?.[0]?.day ?? 1
-      setActiveDayNum(firstDay)
-      setTab(`d${firstDay}`)
-    }
-  }, [tripStarted, trip?.days?.length]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!trip?.days?.length) return
+    if (!trip.days.some((day) => day.day === selectedDay)) setSelectedDay(trip.days[0].day)
+  }, [trip, selectedDay])
 
-  // Virtual start leg: when trip starts, check GPS distance to Stop 1
   useEffect(() => {
-    if (!tripStarted || !position || !trip) return
-    const currentDay = trip.days.find((d) => d.day === activeDayNum)
-    const firstLeg = currentDay?.legs?.[0]
-    if (!firstLeg) return
-    const stop1 = placesById[firstLeg.from_place_id]
-    if (!stop1) return
-    const dist = haversineMeters(position, { lat: stop1.lat, lng: stop1.lng })
-    if (dist < 1000) { setVirtualStartLeg(null); return }
-    api.compareRoutes(position.lat, position.lng, stop1.lat, stop1.lng)
-      .then((result) => setVirtualStartLeg({ toPlace: stop1, routeComparison: result }))
-      .catch(() => setVirtualStartLeg(null))
-  }, [tripStarted]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Send position to backend at most once per 30 s for proximity-based LTA alerts
-  useEffect(() => {
-    if (!position || !id) return
+    if (!tripStarted || !position || !id) return
     const now = Date.now()
     if (now - lastLocationSent.current < 30000) return
     lastLocationSent.current = now
-    api.updateLocation(id, { lat: position.lat, lng: position.lng }).catch(() => {})
-  }, [position, id])
+    api.updateLocation(id, { ...position, session_id: getSessionId() }).catch(() => {})
+  }, [tripStarted, position, id])
 
-  // ── Arrive handler ────────────────────────────────────────────
-  const handleArrive = useCallback(() => {
-    if (!trip) return
-    const currentDay = trip.days.find((d) => d.day === activeDayNum)
-    if (!currentDay) return
+  const selectDayTab = (dayNum) => {
+    setSelectedDay(dayNum)
+    setActiveTab(`day-${dayNum}`)
+  }
 
-    setWeatherAlert(null)
-    setTransitAlert(null)
-    setTransitVariant('mrt')
-
-    if (activeLegIndex < currentDay.legs.length - 1) {
-      setActiveLegIndex((i) => i + 1)
-    } else {
-      const nextDay = trip.days.find((d) => d.day === activeDayNum + 1)
-      if (nextDay) {
-        const next = activeDayNum + 1
-        setActiveDayNum(next)
-        setActiveLegIndex(0)
-        setTab(`d${next}`)
-      } else {
-        setTripStarted(false)
-        setTab('summary')
-      }
+  const mutate = async (fn) => {
+    if (mutating) return
+    setMutating(true)
+    setUiWarning(null)
+    try {
+      const result = await fn()
+      await refresh(result?.days ? result : undefined)
+    } catch (err) {
+      setUiWarning(err.message)
+    } finally {
+      setMutating(false)
     }
-  }, [trip, activeDayNum, activeLegIndex])
+  }
 
-  // ── Disruption handlers ───────────────────────────────────────
-  const handleWeatherDisrupt = useCallback(() => {
-    if (!trip) return
-    const currentDay = trip.days.find((d) => d.day === activeDayNum)
-    const activeLeg = currentDay?.legs[activeLegIndex]
-    if (!activeLeg) return
-    const placesById = buildPlacesById(trip.places)
-    const fromPlace = placesById[activeLeg.from_place_id]
-    const toPlace = placesById[activeLeg.to_place_id]
-    setWeatherAlert({
-      legIndex: activeLegIndex,
-      attractionName: toPlace?.name ?? 'your next stop',
-      swapName: fromPlace?.is_outdoor === false ? fromPlace.name : 'ArtScience Museum',
-    })
-  }, [trip, activeDayNum, activeLegIndex])
+  const addDay = () => mutate(() => api.addDay(id))
+  const removeDay = (dayNum) => mutate(() => api.removeDay(id, dayNum))
+  const optimize = () => mutate(() => api.optimizeRoute(id))
+  const removePlace = (placeId) => mutate(() => api.removePlaceFromDay(id, placeId))
+  const addPlace = (place, day) => mutate(() => api.addPlaceToDay(id, { place_id: place.id, day }))
+  const reorder = (day, ids, index, direction) => {
+    const target = index + direction
+    if (target < 0 || target >= ids.length) return
+    const next = [...ids]
+    const [moved] = next.splice(index, 1)
+    next.splice(target, 0, moved)
+    mutate(() => api.reorderPlaces(id, day, next))
+  }
 
-  const handleTransitDisrupt = useCallback(() => {
-    setTransitAlert({ legIndex: activeLegIndex })
-  }, [activeLegIndex])
-
-  const handleResetTrip = useCallback(() => {
-    setTripStarted(false)
+  const startDay = (dayNum) => {
+    setTripStarted(true)
+    setSelectedDay(dayNum)
     setActiveLegIndex(0)
-    setActiveDayNum(1)
-    setWeatherAlert(null)
-    setTransitAlert(null)
-    setTransitVariant('mrt')
-  }, [])
+    setActiveTab(`day-${dayNum}`)
+    api.checkAlerts(id, { session_id: getSessionId() }).catch(() => {})
+  }
 
-  const handleSwitchToBus = useCallback(() => {
-    setTransitVariant('bus')
-    setTransitAlert(null)
-    setOptimizationLog((log) => [
-      ...log,
-      {
-        type: 'transit_reroute',
-        title: 'Switched to Bus Route',
-        detail: 'MRT disruption — rerouted via Bus 7',
-        time: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' }),
-      },
-    ])
-  }, [])
-
-  const handleApproveSwap = useCallback(() => {
-    if (!weatherAlert) return
-    setOptimizationLog((log) => [
-      ...log,
-      {
-        type: 'weather_swap',
-        title: `Venue swap: ${weatherAlert.attractionName} → ${weatherAlert.swapName}`,
-        detail: 'Heavy rain forecast — moved to indoor venue',
-        time: new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit' }),
-      },
-    ])
-    setWeatherAlert(null)
-  }, [weatherAlert])
-
-  // ── Save setup ────────────────────────────────────────────────
-  // P6-BUG-1: use hook saveTrip (carries authUserId) not api.saveTrip directly.
-  // savedMeta is derived from savedTrips so it updates automatically after save.
-  const handleSaveSetup = useCallback((updatedMeta) => {
-    saveTrip(id, { ...savedMeta, ...updatedMeta })
-  }, [saveTrip, savedMeta, id])
-
-  const placesById = useMemo(
-    () => buildPlacesById(trip?.places ?? []),
-    [trip]
-  )
-
-  const mapLegs = useMemo(() => {
-    if (!trip) return []
-    // Active leg mode: show only the current active leg on map
-    if (tripStarted) {
-      const currentDay = trip.days.find((d) => d.day === activeDayNum)
-      const activeLeg = currentDay?.legs[activeLegIndex]
-      return activeLeg ? [activeLeg] : []
+  const arrive = () => {
+    const day = trip?.days?.find((item) => item.day === selectedDay)
+    if (!day) return
+    if (activeLegIndex < (day.legs?.length ?? 0) - 1) {
+      setActiveLegIndex((value) => value + 1)
+      return
     }
-    if (tab === 'overview' || tab === 'summary') return trip.days.flatMap((d) => d.legs)
-    const dayNum = parseInt(tab.replace('d', ''), 10)
-    return trip.days.find((d) => d.day === dayNum)?.legs ?? []
-  }, [trip, tab, tripStarted, activeDayNum, activeLegIndex])
+    const nextDay = trip.days.find((item) => item.day === selectedDay + 1)
+    if (nextDay) {
+      setSelectedDay(nextDay.day)
+      setActiveLegIndex(0)
+      setActiveTab(`day-${nextDay.day}`)
+    } else {
+      setTripStarted(false)
+      setActiveTab('summary')
+    }
+  }
 
-  const hasAlertZone = isOffline || alerts.length > 0 || (!dismissedWarnings && (trip?.warnings?.length ?? 0) > 0)
+  if (loading) {
+    return (
+      <main className="grid min-h-[calc(100vh-56px)] place-items-center bg-slate-50">
+        <Loader2 className="h-7 w-7 animate-spin text-blue-600" />
+      </main>
+    )
+  }
 
-  return (
-    <div className="h-screen w-full flex bg-slate-50 overflow-hidden">
-
-      {/* Left panel */}
-      <main className={cn(
-        'bg-white border-r border-slate-200 overflow-hidden flex flex-col transition-all',
-        mode === 'expanded' ? 'basis-full max-w-full' : 'lg:basis-[58%] lg:max-w-[58%]',
-        showMobileMap ? 'hidden lg:flex' : 'flex w-full'
-      )}>
-
-        {/* Alert zone */}
-        {hasAlertZone && (
-          <div className="shrink-0 space-y-2 border-b border-slate-100 bg-white px-4 py-2">
-            {isOffline && (
-              <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
-                <WifiOff className="h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-                <p className="text-xs font-medium text-amber-800">
-                  Offline Mode — Displaying scheduled fallback itinerary
-                </p>
-              </div>
-            )}
-            {alerts.map((a) => (
-              <AlertBanner key={a.id} alert={a} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
-            ))}
-            {!dismissedWarnings && (trip?.warnings?.length ?? 0) > 0 && (
-              <Alert variant="warning" className="relative pr-10">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>{trip.warnings.join(' · ')}</AlertDescription>
-                <button
-                  onClick={() => setDismissedWarnings(true)}
-                  className="absolute right-3 top-3 opacity-60 hover:opacity-100"
-                  aria-label="Dismiss warnings"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </Alert>
-            )}
-          </div>
-        )}
-
-        {/* Sticky header */}
-        <div className="sticky top-0 z-30 bg-white/85 backdrop-blur border-b border-slate-200/70">
-          {/* Trip title row */}
-          <div className="flex items-center justify-between px-5 py-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                onClick={() => navigate('/')}
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-slate-100 transition"
-                aria-label="Back"
-              >
-                <ArrowLeft size={16} />
-              </button>
-              <div className="min-w-0">
-                <p className="font-display font-bold text-[15px] text-slate-900 truncate">
-                  {savedMeta?.name ?? 'Singapore Trip'}
-                </p>
-                {trip && (
-                  <p className="text-[12px] text-slate-400">
-                    {trip.days?.length ?? 0} days · {trip.places?.length ?? 0} stops
-                    {tripStarted && (
-                      <span className="ml-1.5 inline-flex items-center gap-1 text-emerald-600 font-semibold">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-                        Live
-                      </span>
-                    )}
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {/* Edit setup button */}
-              <button
-                onClick={() => setSetupOpen(true)}
-                className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                title="Edit setup"
-              >
-                <Settings size={14} />
-              </button>
-              <button
-                onClick={() => setMode((m) => m === 'expanded' ? 'split' : 'expanded')}
-                className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                title={mode === 'expanded' ? 'Show map' : 'Expand panel'}
-              >
-                {mode === 'expanded' ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-              </button>
-            </div>
-          </div>
-
-          {/* Day pills */}
-          <div className="px-5 pb-3 overflow-x-auto scroll-thin">
-            <div className="flex items-center gap-1.5 min-w-max">
-              <DayPill active={tab === 'overview'} onClick={() => setTab('overview')} kind="overview">
-                Overview
-              </DayPill>
-              {(trip?.days ?? []).map((d) => (
-                <DayPill
-                  key={d.day}
-                  active={tab === `d${d.day}`}
-                  onClick={() => setTab(`d${d.day}`)}
-                  pulse={tripStarted && d.day === activeDayNum}
-                >
-                  Day {d.day}
-                  {!tripStarted && (trip?.days?.length ?? 0) > 1 && (
-                    <span
-                      role="button"
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        if (dayMutating) return
-                        setDayMutating(true)
-                        try { const r = await api.removeDay(id, d.day); await refresh(r?.days ? r : undefined) }
-                        catch (err) { console.error('removeDay failed:', err); await refresh() }
-                        finally { setDayMutating(false) }
-                      }}
-                      className="ml-1 inline-grid h-4 w-4 place-items-center rounded-full hover:bg-red-100 hover:text-red-500 transition"
-                    >
-                      <X size={9} />
-                    </span>
-                  )}
-                </DayPill>
-              ))}
-              <DayPill active={tab === 'summary'} onClick={() => setTab('summary')} kind="summary">
-                Summary
-              </DayPill>
-              <button
-                onClick={async () => {
-                  if (dayMutating) return
-                  setDayMutating(true)
-                  try { const r = await api.addDay(id); await refresh(r?.days ? r : undefined) }
-                  catch (err) { console.error('addDay failed:', err); await refresh() }
-                  finally { setDayMutating(false) }
-                }}
-                disabled={dayMutating || tripStarted}
-                className="ml-1 grid h-8 w-8 place-items-center rounded-full border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/40 transition disabled:opacity-40"
-                title="Add day"
-              >
-                {dayMutating ? <Loader2 size={11} className="animate-spin" /> : <Plus size={13} />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab content */}
-        <div className="flex-1 overflow-y-auto scroll-thin px-5 py-5">
-          {loading && <PanelSkeleton />}
-
-          {error && !loading && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                Could not load trip: {String(error?.message ?? error)}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {trip && !loading && (
-            <>
-              {tab === 'overview' && (
-                <OverviewTab
-                  trip={trip}
-                  savedMeta={savedMeta}
-                  onJumpDay={(dayNum) => setTab(`d${dayNum}`)}
-                  onOptimize={tripStarted ? undefined : async () => { const r = await api.optimizeRoute(id); await refresh(r?.days ? r : undefined) }}
-                />
-              )}
-
-              {(trip?.days ?? []).map((d) =>
-                tab === `d${d.day}` ? (
-                  <div key={d.day}>
-                    {pendingSave && (
-                      <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                        <p className="text-[12px] font-medium text-emerald-700">
-                          Review your days, then save from Summary
-                        </p>
-                        <button
-                          onClick={() => setTab('summary')}
-                          className="shrink-0 text-[12px] font-bold text-emerald-700 hover:text-emerald-900 transition"
-                        >
-                          Save →
-                        </button>
-                      </div>
-                    )}
-                    <DayPlan
-                      day={d.day}
-                      legs={d.legs}
-                      placesById={placesById}
-                      tripId={id}
-                      onLegUpdated={refresh}
-                      isActiveDay={tripStarted && d.day === activeDayNum}
-                      activeLegIndex={activeLegIndex}
-                      position={position}
-                      onArrive={handleArrive}
-                      weatherAlert={weatherAlert}
-                      transitAlert={transitAlert}
-                      transitVariant={transitVariant}
-                      onSwitchToBus={handleSwitchToBus}
-                      onApproveSwap={handleApproveSwap}
-                      onDismissWeather={() => setWeatherAlert(null)}
-                      onDismissTransit={() => setTransitAlert(null)}
-                      virtualStartLeg={tripStarted && d.day === activeDayNum ? virtualStartLeg : null}
-                      onVirtualArrive={() => setVirtualStartLeg(null)}
-                    />
-                  </div>
-                ) : null
-              )}
-
-              {tab === 'summary' && (
-                <SummaryTab
-                  trip={trip}
-                  optimizationLog={optimizationLog}
-                  pendingSave={pendingSave}
-                  onSave={(name) => {
-                    // isDraft: false graduates the trip from draft → dates re-compute correctly
-                    const meta = { ...pendingSave, name, isDraft: false }
-                    saveTrip(id, meta)
-                    setPendingSave(null)
-                    try { sessionStorage.removeItem(pendingKey) } catch {}
-                    setSavedConfirm(true)
-                  }}
-                />
-              )}
-            </>
-          )}
+  if (error || !trip) {
+    return (
+      <main className="grid min-h-[calc(100vh-56px)] place-items-center bg-slate-50 px-6">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-700">
+          Could not load trip: {String(error?.message ?? 'Trip not found')}
         </div>
       </main>
+    )
+  }
 
-      {/* Right panel — map */}
-      {mode !== 'expanded' && (
-        <aside className={cn(
-          'p-3 sticky top-0 h-screen',
-          'hidden lg:flex lg:basis-[42%] lg:max-w-[42%]',
-          showMobileMap ? 'flex w-full' : ''
-        )}>
-          {trip ? (
-            <TripMap places={trip.places} legs={mapLegs} />
-          ) : (
-            <div className="h-full w-full rounded-2xl bg-slate-100 animate-pulse" aria-hidden="true" />
-          )}
-        </aside>
-      )}
-
-      {/* Mobile map FAB */}
-      <button
-        onClick={() => setShowMobileMap((v) => !v)}
-        className="lg:hidden fixed bottom-4 right-4 z-50 inline-flex items-center gap-2 h-11 px-4 rounded-full bg-indigo-600 text-white font-semibold text-[13px] shadow-pop"
-      >
-        {showMobileMap
-          ? <><ArrowLeft size={14} /> Itinerary</>
-          : <><Map size={14} /> Map</>
-        }
-      </button>
-
-      {/* Save confirmation overlay */}
-      {savedConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-[min(360px,calc(100vw-32px))] rounded-2xl bg-white p-6 shadow-pop space-y-4">
-            <div className="text-center">
-              <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-emerald-100">
-                <CheckCircle size={24} className="text-emerald-600" />
-              </div>
-              <p className="font-display font-bold text-[18px] text-slate-900">Itinerary saved!</p>
-              <p className="text-[13px] text-slate-500 mt-1">Your trip has been saved successfully.</p>
+  return (
+    <main className="flex h-[calc(100vh-56px)] flex-col overflow-hidden bg-white">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
+        <div className="flex items-center justify-between gap-6">
+          <div className="flex min-w-0 items-center gap-4">
+            <button onClick={() => navigate('/')} className="grid h-9 w-9 place-items-center rounded-md text-slate-500 hover:bg-slate-100">
+              <ArrowLeft size={17} />
+            </button>
+            <div className="min-w-0">
+              <h1 className="truncate font-display text-[22px] font-extrabold text-slate-950">
+                {savedMeta?.name ?? pendingSave?.name ?? 'Singapore Trip'}
+              </h1>
+              <p className="mt-1 text-[12px] font-semibold text-slate-400">
+                {trip.days?.length ?? 0} days · {trip.places?.length ?? 0} places
+                {tripStarted && <span className="ml-2 text-emerald-600">Live</span>}
+              </p>
             </div>
+          </div>
+
+          <nav className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
             <button
-              onClick={() => navigate('/')}
-              className="w-full h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
+              onClick={() => setActiveTab('overview')}
+              className={cn('h-9 rounded-md px-3 text-[13px] font-bold', activeTab === 'overview' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
             >
-              Go to Home
+              Overview
+            </button>
+            {(trip.days ?? []).map((day) => (
+              <div key={day.day} className="flex items-center">
+                <button
+                  onClick={() => selectDayTab(day.day)}
+                  className={cn('h-9 rounded-md px-3 text-[13px] font-bold', selectedDay === day.day && activeTab.startsWith('day-') ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+                >
+                  Day {day.day}
+                </button>
+                {(trip.days?.length ?? 0) > 1 && !tripStarted && (
+                  <button
+                    onClick={() => removeDay(day.day)}
+                    className="mr-1 grid h-7 w-7 place-items-center rounded text-slate-300 hover:bg-red-50 hover:text-red-500"
+                    title="Remove day"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              onClick={() => setActiveTab('summary')}
+              className={cn('h-9 rounded-md px-3 text-[13px] font-bold', activeTab === 'summary' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+            >
+              Summary
+            </button>
+          </nav>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <button onClick={addDay} disabled={tripStarted || mutating} className="grid h-9 w-9 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" title="Add day">
+              {mutating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+            </button>
+            <button onClick={optimize} disabled={tripStarted || mutating} className="grid h-9 w-9 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" title="Optimise">
+              <Sparkles size={15} />
+            </button>
+            <button onClick={() => setSetupOpen(true)} className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50" title="Edit setup">
+              <Settings size={15} />
             </button>
           </div>
         </div>
+      </header>
+
+      {(isOffline || alerts.length > 0 || uiWarning) && (
+        <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
+          {isOffline && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
+              <WifiOff size={15} /> Offline mode. Showing cached itinerary.
+            </div>
+          )}
+          {uiWarning && (
+            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-700">
+              <AlertCircle size={15} /> {uiWarning}
+              <button onClick={() => setUiWarning(null)} className="ml-auto"><X size={14} /></button>
+            </div>
+          )}
+          {alerts.map((alert) => (
+            <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+          ))}
+        </section>
       )}
 
-      {/* Trip Setup Modal */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(560px,0.92fr)_minmax(460px,1.08fr)] overflow-hidden">
+        <section className="min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
+          {activeTab === 'overview' && (
+            <Overview
+              trip={trip}
+              placesById={placesById}
+              onSelectDay={selectDayTab}
+              onAddPlace={setAddDayFor}
+              onRemovePlace={removePlace}
+              onReorder={reorder}
+              onOptimize={optimize}
+            />
+          )}
+
+          {activeTab.startsWith('day-') && currentDay && (
+            <DayView
+              day={currentDay}
+              placesById={placesById}
+              tripId={id}
+              tripStarted={tripStarted && currentDay.day === selectedDay}
+              position={position}
+              activeLegIndex={activeLegIndex}
+              onUpdated={refresh}
+              onWarning={setUiWarning}
+              onRemovePlace={removePlace}
+              onStart={startDay}
+              onArrive={arrive}
+              onAddPlace={setAddDayFor}
+            />
+          )}
+
+          {activeTab === 'summary' && (
+            <SummaryTab
+              trip={trip}
+              pendingSave={pendingSave}
+              optimizationLog={(trip.warnings ?? []).map((warning) => ({ title: warning, type: 'mode_change' }))}
+              onSave={(name) => {
+                const meta = { ...pendingSave, name }
+                saveTrip(id, meta)
+                setPendingSave(null)
+                sessionStorage.removeItem(pendingKey)
+              }}
+              onDelete={async () => {
+                if (!window.confirm('Delete this trip permanently?')) return
+                try {
+                  await api.deleteTrip(id)
+                  api.deleteSavedTrip(id, user?.id ?? null)
+                  navigate('/')
+                } catch (e) {
+                  setUiWarning(e.message)
+                }
+              }}
+            />
+          )}
+        </section>
+
+        <aside className="min-h-0 bg-slate-100 p-4">
+          <div className="h-full overflow-hidden rounded-lg border border-slate-200 bg-white p-3 shadow-card">
+            <TripMap places={mapPlaces} legs={mapLegs} userPosition={tripStarted ? position : null} />
+          </div>
+        </aside>
+      </div>
+
       <TripSetupModal
         open={setupOpen}
         savedMeta={savedMeta}
         onClose={() => setSetupOpen(false)}
-        onSave={handleSaveSetup}
+        onSave={async (meta) => {
+          saveTrip(id, { ...savedMeta, ...meta })
+          if (!trip?.places?.length) return
+          setMutating(true)
+          setUiWarning(null)
+          try {
+            await api.planTrip(id, {
+              place_ids: trip.places.map((p) => p.id),
+              optimize_order: true,
+              preferences: {
+                budget_sgd: meta.budget_sgd ?? savedMeta?.budget_sgd ?? 100,
+                travel_styles: meta.styles ?? [],
+                group_type: meta.companion ?? 'solo',
+              },
+            })
+            await refresh()
+          } catch (e) {
+            setUiWarning(e.message)
+          } finally {
+            setMutating(false)
+          }
+        }}
       />
 
-      {/* Disruption Simulator (debug overlay, active leg mode only) */}
-      {tripStarted && (
-        <DisruptionSimulator
-          onWeatherDisrupt={handleWeatherDisrupt}
-          onTransitDisrupt={handleTransitDisrupt}
-          onResetTrip={handleResetTrip}
-        />
+      {addDayFor && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40">
+          <div className="h-full w-[460px] overflow-y-auto bg-white p-6 shadow-pop">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">Add place</p>
+                <h2 className="font-display text-[24px] font-extrabold text-slate-950">Day {addDayFor}</h2>
+              </div>
+              <button onClick={() => setAddDayFor(null)} className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-slate-100">
+                <X size={18} />
+              </button>
+            </div>
+            <PlaceSearch
+              addedIds={new Set((trip.places ?? []).map((place) => place.id))}
+              onAdd={async (place) => {
+                await addPlace(place, addDayFor)
+                setAddDayFor(null)
+              }}
+            />
+          </div>
+        </div>
       )}
-    </div>
+    </main>
   )
 }

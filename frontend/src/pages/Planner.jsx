@@ -1,668 +1,490 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  MapPin, Sparkles, AlertCircle, Loader2, Navigation2, Calendar, Clock,
-  ChevronDown, Plus, X, ChevronLeft, Pencil,
+  AlertCircle,
+  Calendar,
+  Check,
+  ChevronLeft,
+  Clock,
+  Loader2,
+  MapPin,
+  Navigation2,
+  Pencil,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
 } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
-import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
-import { Alert, AlertDescription } from '../components/ui/alert'
 import PlaceSearch from '../components/planner/PlaceSearch'
+import PlaceBrowser from '../components/planner/PlaceBrowser'
 
-/* ── Constants ───────────────────────────────────────────────────── */
 const COMPANIONS = [
-  { id: 'solo',    emoji: '🚶' },
-  { id: 'family',  emoji: '👨‍👩‍👧‍👦' },
-  { id: 'couple',  emoji: '💑' },
-  { id: 'friends', emoji: '👬' },
-  { id: 'elderly', emoji: '👵' },
-]
-const STYLES = [
-  { id: 'cultural',   emoji: '🎭' },
-  { id: 'classic',    emoji: '🌟' },
-  { id: 'nature',     emoji: '🌿' },
-  { id: 'cityscape',  emoji: '🏙️' },
-  { id: 'historical', emoji: '🏛️' },
-]
-const PACES = [
-  { id: 'ambitious', emoji: '📅', budget: 35,  walk: 5  },
-  { id: 'moderate',  emoji: '⚖️', budget: 60,  walk: 15 },
-  { id: 'relaxed',   emoji: '🌴', budget: 100, walk: 30 },
+  { id: 'solo', label: 'Solo' },
+  { id: 'couple', label: 'Couple' },
+  { id: 'family', label: 'Family' },
+  { id: 'friends', label: 'Friends' },
 ]
 
-/* ── Helpers ─────────────────────────────────────────────────────── */
+const STYLES = [
+  { id: 'nature', label: 'Nature' },
+  { id: 'food', label: 'Food' },
+  { id: 'heritage', label: 'Heritage' },
+  { id: 'shopping', label: 'Shopping' },
+  { id: 'nightlife', label: 'Nightlife' },
+]
+
 const generateId = () =>
   typeof crypto?.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 
-function haversineKm(a, b) {
-  if (!a?.lat || !b?.lat) return 5
-  const R = 6371
-  const dLat = (b.lat - a.lat) * Math.PI / 180
-  const dLng = (b.lng - a.lng) * Math.PI / 180
-  const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))
+function endDate(startDate, numDays) {
+  if (!startDate) return null
+  const date = new Date(startDate)
+  date.setDate(date.getDate() + Math.max(0, numDays - 1))
+  return date.toISOString().slice(0, 10)
 }
 
-function dist(a, b) {
-  const R = 6371, dLat = (b.lat - a.lat) * Math.PI / 180, dLng = (b.lng - a.lng) * Math.PI / 180
-  const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x))
-}
-
-function selectPlaces(allPlaces, styles, numDays, pace) {
-  const styleToCategory = {
-    cultural: ['museum', 'heritage'], classic: ['landmark'],
-    nature: ['nature'], cityscape: ['landmark', 'entertainment'], historical: ['heritage', 'museum'],
-  }
-  const preferredCats = [...new Set(styles.flatMap((s) => styleToCategory[s] ?? []))]
-  const maxPlaces = Math.min(6, Math.max(3, numDays * 2))
-  const MIN_KM = 1.0
-  const sorted = [...allPlaces].sort((a, b) => {
-    const aP = preferredCats.includes(a.category) ? 0 : 1
-    const bP = preferredCats.includes(b.category) ? 0 : 1
-    if (aP !== bP) return aP - bP
-    if (pace === 'relaxed') return (a.is_outdoor ? 1 : 0) - (b.is_outdoor ? 1 : 0)
-    return 0
-  })
-  const selected = []
-  for (const p of sorted) {
-    if (selected.length >= maxPlaces) break
-    if (!selected.some((s) => dist(p, s) < MIN_KM)) selected.push(p)
-  }
-  return selected.map((p) => p.id)
-}
-
-/* ── Sub-components ──────────────────────────────────────────────── */
-
-const Chip = ({ active, onClick, children }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      'inline-flex items-center gap-2 rounded-full border px-3.5 h-9 text-[13.5px] font-medium transition whitespace-nowrap',
-      active
-        ? 'border-indigo-300 bg-indigo-50 text-indigo-900 ring-1 ring-indigo-200'
-        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-    )}
-  >
-    {children}
-  </button>
-)
-
-function PlaceRow({ place, index, onRemove }) {
-  const { t } = useT()
+function Chip({ active, children, onClick }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 group">
-      <span className="text-[11px] font-bold text-slate-400 w-4 shrink-0 tabular-nums">{index + 1}</span>
-      <MapPin size={13} className="text-slate-400 shrink-0" />
-      <span className="flex-1 text-[13px] font-medium text-slate-800 truncate">{place.name}</span>
-      {place.category && (
-        <span className="text-[10.5px] text-slate-400 capitalize shrink-0 hidden sm:block">{place.category}</span>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'h-9 rounded-md border px-3 text-[13px] font-bold transition',
+        active
+          ? 'border-blue-200 bg-blue-600 text-white shadow-card'
+          : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'
       )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function PlaceMiniCard({ place, onRemove }) {
+  return (
+    <div className="group flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="h-14 w-16 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+        {place.image_url ? (
+          <img
+            src={place.image_url}
+            alt=""
+            className="h-full w-full object-cover"
+            onError={(event) => { event.currentTarget.style.display = 'none' }}
+          />
+        ) : (
+          <div className="grid h-full w-full place-items-center text-blue-500">
+            <MapPin size={18} />
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-extrabold text-slate-900">{place.name}</p>
+        <p className="mt-0.5 truncate text-[11px] font-semibold capitalize text-slate-400">
+          {place.category || 'place'} · {place.dwell_minutes ?? place.suggested_duration_minutes ?? 60} min
+        </p>
+        {place.formatted_address && (
+          <p className="mt-1 truncate text-[11px] text-slate-500">{place.formatted_address}</p>
+        )}
+      </div>
       <button
         type="button"
         onClick={onRemove}
-        className="grid h-5 w-5 place-items-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 opacity-0 group-hover:opacity-100 transition shrink-0"
-        aria-label={t('noPlacesTitle')}
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+        title="Remove"
       >
-        <X size={11} />
+        <Trash2 size={13} />
       </button>
     </div>
   )
 }
 
-/* ── Main ────────────────────────────────────────────────────────── */
-export default function Planner() {
-  const navigate = useNavigate()
-  const { t } = useT()
-  const { user: authUser } = useAuth() ?? {}
-
-  const [planMode, setPlanMode] = useState(null)
-
-  /* ── Shared ────────────────────────── */
-  const [loading, setLoading]       = useState(false)
-  const [submitError, setSubmitError] = useState(null)
-
-  /* ── Manual state ──────────────────── */
-  const [tripName, setTripName]             = useState('')
-  const [manFlexible, setManFlexible]       = useState(true)
-  const [manStartDate, setManStartDate]     = useState('')
-  const [manNumDays, setManNumDays]         = useState(3)
-  const [builder, setBuilder]   = useState({ places: [] })
-  const [showSearch, setShowSearch] = useState(false)
-
-  const addPlace = (place) => {
-    if (builder.places.some(p => p.id === place.id)) return
-    setBuilder(prev => ({ places: [...prev.places, place] }))
-  }
-
-  const removePlace = (idx) => {
-    setBuilder(prev => ({ places: prev.places.filter((_, i) => i !== idx) }))
-  }
-
-  const submitManual = async () => {
-    if (builder.places.length === 0) { setSubmitError(t('addAtLeastOne')); return }
-    setLoading(true); setSubmitError(null)
-    try {
-      const sessionId = localStorage.getItem('session_id') ?? generateId()
-      localStorage.setItem('session_id', sessionId)
-
-      const trip = await api.createTrip({ session_id: sessionId, num_days: manNumDays, budget_sgd: 60 })
-      await api.planTrip(trip.trip_id, {
-        place_ids: builder.places.map(p => p.id),
-        optimize_order: false,
-        preferences: {
-          prefer_mrt: true,
-          max_walk_minutes: 20,
-          travel_styles: [],
-          group_type: 'solo',
-        },
-      })
-      const draftName = tripName.trim() || 'Singapore Trip'
-      const draftMeta = { name: draftName, startDate: manFlexible ? null : manStartDate, numDays: manNumDays, isDraft: true }
-      // Auto-save as draft immediately — trip survives tab close before user hits Save
-      api.saveTrip(trip.trip_id, draftMeta, authUser?.id ?? null)
-      navigate(`/trip/${trip.trip_id}`, {
-        state: { pendingSave: { name: draftName, startDate: manFlexible ? null : manStartDate, numDays: manNumDays } },
-      })
-    } catch (e) {
-      setSubmitError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  /* ── AI state ──────────────────────── */
-  const [aiStartDate, setAiStartDate]       = useState('')
-  const [aiFlexible, setAiFlexible]         = useState(false)
-  const [aiNumDays, setAiNumDays]           = useState(3)
-  const [companion, setCompanion]           = useState('solo')
-  const [travelStyles, setTravelStyles]     = useState([])
-  const [pace, setPace]                     = useState('moderate')
-  const [prefsOpen, setPrefsOpen]           = useState(true)
-
-  const toggleStyle = (id) =>
-    setTravelStyles(p => p.includes(id) ? p.filter(s => s !== id) : [...p, id])
-
-  const paceConfig = PACES.find(p => p.id === pace) ?? PACES[1]
-  const aiCanSubmit = !loading && (aiFlexible || aiStartDate !== '')
-
-  const submitAI = async () => {
-    setLoading(true); setSubmitError(null)
-    try {
-      const sessionId = localStorage.getItem('session_id') ?? generateId()
-      localStorage.setItem('session_id', sessionId)
-      const allPlaces = await api.getCuratedPlaces()
-      const placeIds = selectPlaces(allPlaces, travelStyles, aiNumDays, pace)
-      const trip = await api.createTrip({ session_id: sessionId, num_days: aiNumDays, budget_sgd: paceConfig.budget })
-      await api.planTrip(trip.trip_id, {
-        place_ids: placeIds,
-        optimize_order: true,
-        preferences: {
-          prefer_mrt: true,
-          max_walk_minutes: paceConfig.walk,
-          travel_styles: travelStyles,
-          group_type: companion,
-        },
-      })
-      const draftStartDate = aiFlexible || !aiStartDate ? null : aiStartDate
-      const draftMeta = { name: 'Singapore Trip', startDate: draftStartDate, numDays: aiNumDays, isDraft: true }
-      // Auto-save as draft immediately — trip survives tab close before user hits Save
-      api.saveTrip(trip.trip_id, draftMeta, authUser?.id ?? null)
-      navigate(`/trip/${trip.trip_id}`, {
-        state: { pendingSave: { name: 'Singapore Trip', startDate: draftStartDate, numDays: aiNumDays } },
-      })
-    } catch (e) {
-      setSubmitError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  /* ── Mode chooser ───────────────────────────────────────────────── */
-  if (planMode === null) {
+function SelectedList({ places, onRemove }) {
+  if (!places.length) {
     return (
-      <div className="min-h-screen bg-slate-50 py-10">
-        <div className="w-[min(480px,calc(100vw-32px))] mx-auto px-4 sm:px-0 space-y-5">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white shadow-pop mb-4">
-              <Navigation2 size={22} strokeWidth={2.5} />
-            </div>
-            <h1 className="font-display font-extrabold text-[28px] text-slate-900 leading-tight">
-              {t('planYourTrip')}
-            </h1>
-            <p className="text-[14px] text-slate-500 mt-1.5">{t('choosePlanMethod')}</p>
-          </div>
-
-          {/* PRIMARY: Manual */}
-          <button
-            onClick={() => setPlanMode('manual')}
-            className="w-full rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 p-px shadow-pop group"
-          >
-            <div className="rounded-[calc(1rem-1px)] bg-white p-5 text-left hover:bg-indigo-50/30 transition">
-              <div className="flex items-start gap-4">
-                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white">
-                  <Pencil size={18} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-display font-bold text-[17px] text-slate-900">
-                      {t('buildYourselfTitle')}
-                    </span>
-                    <span className="rounded-full bg-indigo-100 text-indigo-700 text-[10.5px] font-bold px-2 h-5 inline-flex items-center">
-                      {t('recommendedBadge')}
-                    </span>
-                  </div>
-                  <p className="text-[13px] text-slate-500 leading-relaxed">
-                    {t('buildYourselfDesc')}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {[t('tag_freeChoice'), t('tag_transport'), t('tag_customizable')].map(tag => (
-                      <span key={tag} className="text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full px-2 h-5 inline-flex items-center font-medium">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="text-indigo-400 group-hover:translate-x-0.5 transition-transform shrink-0 mt-1">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-              </div>
-            </div>
-          </button>
-
-          {/* SECONDARY: AI */}
-          <button
-            onClick={() => setPlanMode('ai')}
-            className="w-full rounded-2xl border border-slate-200 bg-white p-5 text-left hover:border-slate-300 hover:bg-slate-50/50 transition group shadow-card"
-          >
-            <div className="flex items-start gap-4">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600 group-hover:bg-fuchsia-50 group-hover:text-fuchsia-600 transition">
-                <Sparkles size={18} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-display font-bold text-[17px] text-slate-900 mb-1">
-                  {t('planWithAITitle')}
-                </div>
-                <p className="text-[13px] text-slate-500 leading-relaxed">
-                  {t('planWithAIDesc')}
-                </p>
-              </div>
-              <div className="text-slate-300 group-hover:translate-x-0.5 transition-transform shrink-0 mt-1">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-            </div>
-          </button>
-        </div>
+      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+        <MapPin className="mx-auto h-7 w-7 text-slate-300" />
+        <p className="mt-2 text-[13px] font-bold text-slate-600">No places selected yet</p>
+        <p className="mt-1 text-[12px] text-slate-400">Search or browse all places to stage your itinerary.</p>
       </div>
     )
   }
 
-  /* ── Shared header wrapper ──────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-slate-50 py-8">
-      <div className="w-[min(520px,calc(100vw-32px))] mx-auto px-4 sm:px-0">
+    <div className="space-y-2">
+      {places.map((place) => (
+        <PlaceMiniCard key={place.id} place={place} onRemove={() => onRemove(place.id)} />
+      ))}
+    </div>
+  )
+}
 
-        {/* Back link */}
-        <button
-          onClick={() => { setPlanMode(null); setSubmitError(null) }}
-          className="inline-flex items-center gap-1.5 text-[13px] text-slate-500 hover:text-slate-700 mb-4 transition"
-        >
-          <ChevronLeft size={14} />
-          {t('changeMethod')}
-        </button>
+export default function Planner() {
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const [mode, setMode] = useState(null)
+  const [placesById, setPlacesById] = useState({})
+  const [placesLoading, setPlacesLoading] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [selected, setSelected] = useState([])
+  const [tripName, setTripName] = useState('Singapore Trip')
+  const [numDays, setNumDays] = useState(3)
+  const [budget, setBudget] = useState(60)
+  const [flexible, setFlexible] = useState(true)
+  const [startDate, setStartDate] = useState('')
+  const [groupType, setGroupType] = useState('solo')
+  const [travelStyles, setTravelStyles] = useState(['heritage'])
+  const [suggestState, setSuggestState] = useState('idle')
+  const [error, setError] = useState(null)
+  const [creating, setCreating] = useState(false)
 
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-card overflow-hidden">
+  useEffect(() => {
+    document.body.classList.add('planner-choice-immersive')
+    return () => document.body.classList.remove('planner-choice-immersive')
+  }, [])
 
-          {/* ── MANUAL MODE ─────────────────────────────────────── */}
-          {planMode === 'manual' && (
-            <>
-              {/* Header */}
-              <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 px-5 pt-5 pb-6">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide font-semibold text-white/70 mb-1">{t('manualHeaderLabel')}</div>
-                    <div className="font-display font-extrabold text-[26px] text-white leading-none">Singapore</div>
-                    <div className="text-[13px] text-white/75 mt-2">{t('manualHeaderSub')}</div>
-                  </div>
-                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/20 border border-white/30">
-                    <Pencil size={16} className="text-white" />
-                  </div>
-                </div>
+  useEffect(() => {
+    setPlacesLoading(true)
+    api.getCuratedPlaces()
+      .then((places) => setPlacesById(Object.fromEntries((places ?? []).map((place) => [place.id, place]))))
+      .catch(() => setPlacesById({}))
+      .finally(() => setPlacesLoading(false))
+  }, [])
+
+  const selectedIds = useMemo(() => selected.map((place) => place.id), [selected])
+
+  const addPlace = (place) => {
+    if (!place?.id || selectedIds.includes(place.id)) return
+    setSelected((items) => [...items, place])
+  }
+
+  const removePlace = (placeId) => {
+    setSelected((items) => items.filter((place) => place.id !== placeId))
+  }
+
+  const togglePlace = (place) => {
+    if (selectedIds.includes(place.id)) removePlace(place.id)
+    else addPlace(place)
+  }
+
+  const toggleStyle = (style) => {
+    setTravelStyles((items) => items.includes(style) ? items.filter((item) => item !== style) : [...items, style])
+  }
+
+  const suggestPlaces = async () => {
+    setSuggestState('thinking')
+    setError(null)
+    try {
+      const response = await api.suggestPlaces({
+        num_days: numDays,
+        travel_styles: travelStyles,
+        group_type: groupType,
+      })
+      const ids = response?.suggested_place_ids ?? []
+      const next = ids.map((id) => placesById[id]).filter(Boolean)
+      setSelected(next)
+      setSuggestState('done')
+    } catch (err) {
+      setError(err.message)
+      setSuggestState('error')
+    }
+  }
+
+  const createPlan = async () => {
+    if (selected.length < 2) {
+      setError('Please select at least 2 places before generating a plan.')
+      return
+    }
+    setCreating(true)
+    setError(null)
+    try {
+      const sessionId = localStorage.getItem('session_id') ?? generateId()
+      localStorage.setItem('session_id', sessionId)
+      const body = {
+        session_id: sessionId,
+        num_days: numDays,
+        budget_sgd: Number(budget),
+        start_date: flexible ? null : startDate || null,
+        end_date: flexible || !startDate ? null : endDate(startDate, numDays),
+      }
+      const trip = await api.createTrip(body)
+      await api.planTrip(trip.trip_id, {
+        place_ids: selected.map((place) => place.id),
+        optimize_order: true,
+        preferences: {
+          budget_sgd: Number(budget),
+          travel_styles: travelStyles,
+          group_type: groupType,
+        },
+      })
+      navigate(`/trip/${trip.trip_id}`, {
+        state: {
+          pendingSave: {
+            name: tripName.trim() || 'Singapore Trip',
+            startDate: flexible ? null : startDate || null,
+            numDays,
+          },
+        },
+      })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  if (!mode) {
+    return (
+      <main className="planner-choice-shell -mt-14 min-h-screen pt-24">
+        <div className="planner-choice-frame mx-auto w-[min(980px,calc(100vw-48px))]">
+          <div className="mb-8 max-w-2xl text-white">
+            <p className="text-[12px] font-bold uppercase tracking-wide text-white/75">IMOVE planner</p>
+            <h1 className="mt-2 font-display text-[54px] font-extrabold leading-none">Build your Singapore route</h1>
+            <p className="mt-4 text-[15px] leading-7 text-white/75">
+              Start from your own places or let AI shortlist transport-friendly stops from the curated Singapore dataset.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-5">
+            <button
+              type="button"
+              onClick={() => setMode('manual')}
+              className="rounded-lg border border-white/40 bg-white/90 p-6 text-left shadow-pop backdrop-blur transition hover:-translate-y-0.5 hover:bg-white"
+            >
+              <div className="grid h-12 w-12 place-items-center rounded-lg bg-blue-600 text-white">
+                <Pencil size={20} />
               </div>
-
-              <div className="px-5 pb-5 pt-5 space-y-6">
-
-                {/* Trip basics */}
-                <section className="space-y-4">
-                  <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500">{t('tripInfoSection')}</p>
-
-                  {/* Trip name */}
-                  <div>
-                    <label className="text-[12px] font-semibold text-slate-600 block mb-1.5">{t('tripNameLabel')}</label>
-                    <input
-                      type="text"
-                      value={tripName}
-                      onChange={e => setTripName(e.target.value)}
-                      placeholder={t('tripNamePlaceholder')}
-                      className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
-                    />
-                  </div>
-
-                  {/* Date toggle */}
-                  <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50 gap-1">
-                    {[
-                      { id: true,  label: t('flexibleLabel'), icon: <Clock size={13} /> },
-                      { id: false, label: t('specificDatesLabel'), icon: <Calendar size={13} /> },
-                    ].map(({ id, label, icon }) => (
-                      <button
-                        key={String(id)}
-                        type="button"
-                        onClick={() => setManFlexible(id)}
-                        className={cn(
-                          'flex-1 h-9 rounded-lg text-[13px] font-medium transition inline-flex items-center justify-center gap-1.5',
-                          manFlexible === id
-                            ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                            : 'text-slate-500 hover:text-slate-700'
-                        )}
-                      >
-                        {icon} {label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {!manFlexible ? (
-                    <input
-                      type="date"
-                      value={manStartDate}
-                      onChange={e => setManStartDate(e.target.value)}
-                      className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:border-indigo-400"
-                    />
-                  ) : (
-                    <p className="text-[12.5px] text-slate-500 italic px-1">{t('flexibleHint')}</p>
-                  )}
-
-                  {/* Duration */}
-                  <div className="flex items-center justify-between">
-                    <p className="text-[13px] font-medium text-slate-700">{t('numDaysLabel')}</p>
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setManNumDays(n => Math.max(1, n - 1))}
-                        className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold"
-                      >−</button>
-                      <div className="h-11 w-20 rounded-xl border border-slate-200 bg-slate-50/40 grid place-items-center">
-                        <span className="font-display font-bold text-[22px] text-slate-900 tabular-nums">{manNumDays}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setManNumDays(n => Math.min(14, n + 1))}
-                        className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold"
-                      >+</button>
-                    </div>
-                  </div>
-                </section>
-
-                {/* Place builder */}
-                <section>
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500">
-                      {t('placesSection', builder.places.length)}
-                    </p>
-                    {builder.places.length > 0 && (
-                      <span className="text-[11px] text-slate-400">
-                        {t('clickToChange')}
-                      </span>
-                    )}
-                  </div>
-
-                  {builder.places.length === 0 ? (
-                    <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 py-8 text-center">
-                      <MapPin size={24} className="mx-auto text-slate-300 mb-2" />
-                      <p className="text-[13px] font-medium text-slate-500">{t('noPlacesTitle')}</p>
-                      <p className="text-[12px] text-slate-400 mt-0.5">{t('noPlacesHint')}</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-0">
-                      {builder.places.map((place, i) => (
-                        <PlaceRow
-                          key={place.id}
-                          place={place}
-                          index={i}
-                          onRemove={() => removePlace(i)}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Search panel */}
-                  {showSearch ? (
-                    <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[12px] font-semibold text-indigo-700">{t('searchPlaceTitle')}</span>
-                        <button
-                          type="button"
-                          onClick={() => setShowSearch(false)}
-                          className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:bg-slate-200"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                      <PlaceSearch
-                        onAdd={addPlace}
-                        addedIds={new Set(builder.places.map(p => p.id))}
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setShowSearch(true)}
-                      className="mt-3 w-full h-10 rounded-xl border-2 border-dashed border-slate-300 text-[13px] font-semibold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition inline-flex items-center justify-center gap-2"
-                    >
-                      <Plus size={14} /> {t('addPlaceBtn')}
-                    </button>
-                  )}
-                </section>
-
-                {/* Error */}
-                {submitError && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{submitError}</AlertDescription>
-                  </Alert>
-                )}
-
-                {/* CTA */}
-                <button
-                  onClick={submitManual}
-                  disabled={loading || builder.places.length === 0}
-                  className="w-full h-14 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[16px] shadow-pop hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-                >
-                  {loading
-                    ? <><Loader2 size={18} className="animate-spin" /> {t('creatingTrip')}</>
-                    : <><Navigation2 size={18} /> {t('createTripBtn', builder.places.length)}</>
-                  }
-                </button>
-                {builder.places.length === 0 && !loading && (
-                  <p className="text-center text-[12px] text-slate-400 -mt-4">
-                    {t('addAtLeastOne')}
-                  </p>
-                )}
-
+              <h2 className="mt-5 font-display text-[24px] font-extrabold text-slate-950">Manual planner</h2>
+              <p className="mt-2 text-[14px] leading-6 text-slate-500">Search, browse, and stage every place yourself before generating the route.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('ai')}
+              className="rounded-lg border border-white/40 bg-white/88 p-6 text-left shadow-pop backdrop-blur transition hover:-translate-y-0.5 hover:bg-white"
+            >
+              <div className="grid h-12 w-12 place-items-center rounded-lg bg-slate-900 text-white">
+                <Sparkles size={20} />
               </div>
-            </>
-          )}
+              <h2 className="mt-5 font-display text-[24px] font-extrabold text-slate-950">AI suggestion</h2>
+              <p className="mt-2 text-[14px] leading-6 text-slate-500">Choose your travel style, get a shortlist, edit it, then generate the plan.</p>
+            </button>
+          </div>
+        </div>
+      </main>
+    )
+  }
 
-          {/* ── AI MODE ─────────────────────────────────────────── */}
-          {planMode === 'ai' && (
-            <>
-              {/* Gradient header */}
-              <div className="bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900 px-5 pt-5 pb-6">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide font-semibold text-white/60 mb-1">{t('aiHeaderLabel')}</div>
-                    <div className="font-display font-extrabold text-[28px] text-white leading-none">Singapore</div>
-                    <div className="text-[13px] text-white/65 mt-2">{t('aiHeaderSub')}</div>
-                  </div>
-                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 border border-white/20">
-                    <Sparkles size={18} className="text-white" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-5 pb-5 pt-5 space-y-6">
-
-                {/* Dates */}
-                <section>
-                  <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500 mb-3">{t('whenGoingLabel')}</p>
-                  <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50 gap-1 mb-4">
-                    {[
-                      { id: false, label: t('specificDatesLabel'), icon: <Calendar size={13} /> },
-                      { id: true,  label: t('flexibleLabel'),      icon: <Clock size={13} /> },
-                    ].map(({ id, label, icon }) => (
-                      <button
-                        key={String(id)}
-                        type="button"
-                        onClick={() => setAiFlexible(id)}
-                        className={cn(
-                          'flex-1 h-9 rounded-lg text-[13px] font-medium transition inline-flex items-center justify-center gap-1.5',
-                          aiFlexible === id
-                            ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                            : 'text-slate-500 hover:text-slate-700'
-                        )}
-                      >
-                        {icon} {label}
-                      </button>
-                    ))}
-                  </div>
-                  {!aiFlexible ? (
-                    <input
-                      type="date"
-                      value={aiStartDate}
-                      onChange={e => setAiStartDate(e.target.value)}
-                      className="flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:border-indigo-400 mb-4"
-                    />
-                  ) : (
-                    <p className="text-[12.5px] text-slate-500 italic px-1 mb-4">
-                      {t('flexibleDatesHint')}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <p className="text-[13px] font-medium text-slate-700">{t('numDaysLabel')}</p>
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => setAiNumDays(n => Math.max(1, n - 1))} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold">−</button>
-                      <div className="h-11 w-20 rounded-xl border border-slate-200 bg-slate-50/40 grid place-items-center">
-                        <span className="font-display font-bold text-[22px] text-slate-900 tabular-nums">{aiNumDays}</span>
-                      </div>
-                      <button onClick={() => setAiNumDays(n => Math.min(7, n + 1))} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold">+</button>
-                    </div>
-                  </div>
-                </section>
-
-                {/* Preferences — collapsible */}
-                <section>
-                  <button
-                    type="button"
-                    onClick={() => setPrefsOpen(o => !o)}
-                    className="w-full flex items-center justify-between text-left mb-3"
-                  >
-                    <p className="text-[12px] uppercase tracking-wide font-semibold text-slate-500">{t('preferencesLabel')}</p>
-                    <ChevronDown size={14} className={cn('text-slate-400 transition-transform', prefsOpen && 'rotate-180')} />
-                  </button>
-
-                  {prefsOpen && (
-                    <div className="space-y-5 animate-fade-up">
-                      <div>
-                        <p className="text-[11.5px] font-semibold text-slate-500 mb-2">{t('travellingWithLabel')}</p>
-                        <div className="flex flex-wrap gap-2">
-                          {COMPANIONS.map(({ id, emoji }) => (
-                            <Chip key={id} active={companion === id} onClick={() => setCompanion(id)}>
-                              <span className="text-[15px] leading-none">{emoji}</span>
-                              <span>{t(`comp_${id}`)}</span>
-                            </Chip>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[11.5px] font-semibold text-slate-500 mb-2">{t('travelStyleLabel')}</p>
-                        <div className="flex flex-wrap gap-2">
-                          {STYLES.map(({ id, emoji }) => (
-                            <Chip key={id} active={travelStyles.includes(id)} onClick={() => toggleStyle(id)}>
-                              <span className="text-[15px] leading-none">{emoji}</span>
-                              <span>{t(`style_${id}`)}</span>
-                            </Chip>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[11.5px] font-semibold text-slate-500 mb-2">{t('tripPaceLabel')}</p>
-                        <div className="flex gap-2">
-                          {PACES.map(({ id, emoji, budget, walk }) => (
-                            <button
-                              key={id}
-                              type="button"
-                              onClick={() => setPace(id)}
-                              className={cn(
-                                'flex-1 flex flex-col items-center gap-1 rounded-xl border py-3 px-2 text-[13px] font-medium transition',
-                                pace === id
-                                  ? 'border-indigo-300 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-200'
-                                  : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
-                              )}
-                            >
-                              <span className="text-[20px]">{emoji}</span>
-                              <span>{t(`pace_${id}`)}</span>
-                              <span className="text-[10px] text-slate-400 tabular-nums">≤S${budget} · {walk}m walk</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </section>
-
-                <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 px-4 py-3 flex items-start gap-3">
-                  <Sparkles size={15} className="text-fuchsia-500 mt-0.5 shrink-0" />
-                  <p className="text-[12.5px] text-fuchsia-800 leading-relaxed">
-                    {t('aiHint')}
-                  </p>
-                </div>
-
-                {submitError && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{submitError}</AlertDescription>
-                  </Alert>
-                )}
-
-                <button
-                  onClick={submitAI}
-                  disabled={!aiCanSubmit}
-                  className="w-full h-14 rounded-2xl bg-gradient-to-r from-slate-700 to-slate-900 text-white font-display font-bold text-[16px] shadow-pop hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-                >
-                  {loading
-                    ? <><Loader2 size={18} className="animate-spin" /> {t('planningBtn')}</>
-                    : <><Sparkles size={18} /> {t('planWithAIBtn')}</>
-                  }
-                </button>
-                {!aiCanSubmit && !loading && (
-                  <p className="text-center text-[12px] text-slate-400">
-                    {aiFlexible ? '' : t('selectStartDate')}
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-
+  return (
+    <main className="min-h-[calc(100vh-56px)] bg-slate-50">
+      <div className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setMode(null)}
+              className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              title="Back"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <div>
+              <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{mode === 'manual' ? 'Manual' : 'AI'} planner</p>
+              <h1 className="font-display text-[26px] font-extrabold text-slate-950">Create Singapore itinerary</h1>
+            </div>
+          </div>
+          <button
+            onClick={createPlan}
+            disabled={creating || selected.length < 2}
+            className="flex h-11 items-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white shadow-card hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {creating ? <Loader2 size={16} className="animate-spin" /> : <Navigation2 size={16} />}
+            Generate plan
+          </button>
         </div>
       </div>
-    </div>
+
+      <div className="mx-auto grid max-w-7xl grid-cols-[380px_1fr_360px] gap-6 px-6 py-6">
+        <aside className="space-y-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+            <h2 className="font-display text-[16px] font-extrabold text-slate-950">Trip setup</h2>
+            <div className="mt-4 space-y-4">
+              <label className="block">
+                <span className="text-[12px] font-bold text-slate-500">Trip name</span>
+                <input
+                  value={tripName}
+                  onChange={(event) => setTripName(event.target.value)}
+                  className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-[12px] font-bold text-slate-500">Days</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="14"
+                    value={numDays}
+                    onChange={(event) => setNumDays(Number(event.target.value))}
+                    className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[12px] font-bold text-slate-500">Budget SGD</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={budget}
+                    onChange={(event) => setBudget(Number(event.target.value))}
+                    className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
+                  />
+                </label>
+              </div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-1">
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    onClick={() => setFlexible(true)}
+                    className={cn('h-9 rounded text-[13px] font-bold', flexible ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+                  >
+                    <Clock size={13} className="mr-1 inline" /> Flexible
+                  </button>
+                  <button
+                    onClick={() => setFlexible(false)}
+                    className={cn('h-9 rounded text-[13px] font-bold', !flexible ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+                  >
+                    <Calendar size={13} className="mr-1 inline" /> Dates
+                  </button>
+                </div>
+              </div>
+              {!flexible && (
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
+                />
+              )}
+            </div>
+          </section>
+
+          {mode === 'ai' && (
+            <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+              <h2 className="font-display text-[16px] font-extrabold text-slate-950">AI inputs</h2>
+              <div className="mt-4 space-y-5">
+                <div>
+                  <p className="mb-2 text-[12px] font-bold text-slate-500">Travelling with</p>
+                  <div className="flex flex-wrap gap-2">
+                    {COMPANIONS.map((item) => (
+                      <Chip key={item.id} active={groupType === item.id} onClick={() => setGroupType(item.id)}>
+                        {item.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-[12px] font-bold text-slate-500">Styles</p>
+                  <div className="flex flex-wrap gap-2">
+                    {STYLES.map((item) => (
+                      <Chip key={item.id} active={travelStyles.includes(item.id)} onClick={() => toggleStyle(item.id)}>
+                        {item.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={suggestPlaces}
+                  disabled={suggestState === 'thinking' || placesLoading}
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-slate-900 text-[13px] font-bold text-white hover:bg-slate-800 disabled:opacity-60"
+                >
+                  {suggestState === 'thinking' ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                  {suggestState === 'done' ? 'Regenerate shortlist' : 'Suggest places'}
+                </button>
+              </div>
+            </section>
+          )}
+        </aside>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="font-display text-[18px] font-extrabold text-slate-950">Selected shortlist</h2>
+              <p className="mt-1 text-[13px] text-slate-500">{selected.length} places staged for planning</p>
+            </div>
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="flex h-10 items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 text-[13px] font-bold text-blue-700 hover:bg-blue-100"
+            >
+              <Search size={14} /> Browse all
+            </button>
+          </div>
+
+          {suggestState === 'thinking' && (
+            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <div className="flex items-center gap-3">
+                <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                <div>
+                  <p className="text-[13px] font-bold text-blue-900">AI is matching your style to Singapore POIs</p>
+                  <p className="text-[12px] text-blue-700">Filtering curated places, balancing distance, and preparing a shortlist.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {suggestState === 'done' && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-[13px] font-bold text-emerald-700">
+              <Check size={15} /> AI shortlist loaded. Edit it before generating the plan.
+            </div>
+          )}
+
+          <SelectedList places={selected} onRemove={removePlace} />
+        </section>
+
+        <aside className="space-y-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
+            <h2 className="font-display text-[16px] font-extrabold text-slate-950">Quick search</h2>
+            <div className="mt-3">
+              <PlaceSearch onAdd={addPlace} addedIds={new Set(selectedIds)} />
+            </div>
+          </section>
+
+          {error && (
+            <section className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <div className="flex gap-2">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <p className="text-[13px] font-semibold text-red-700">{error}</p>
+              </div>
+            </section>
+          )}
+        </aside>
+      </div>
+
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40">
+          <div className="h-full w-[560px] overflow-y-auto bg-white p-6 shadow-pop">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">Browse all</p>
+                <h2 className="font-display text-[24px] font-extrabold text-slate-950">Curated Singapore POIs</h2>
+              </div>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <PlaceBrowser selectedIds={selectedIds} onToggle={togglePlace} />
+            <button
+              onClick={() => setDrawerOpen(false)}
+              className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
+            >
+              <Plus size={15} /> Use selected places
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
   )
 }

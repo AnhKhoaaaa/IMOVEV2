@@ -155,7 +155,7 @@ export default function DayPlan({
           {timeline.map((item, i) => (
             <Fragment key={`${item.type}-${i}`}>
               {item.type === 'place' ? (
-                <SortablePlaceWrapper id={item.data.id} dragDisabled={isActiveDay || reordering}>
+                <SortablePlaceWrapper id={item.data.id} dragDisabled={!tripId || isActiveDay || reordering}>
                 <div className="relative group/place">
                   <PlaceCard
                     place={item.data}

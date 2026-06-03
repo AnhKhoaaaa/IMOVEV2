@@ -4,6 +4,26 @@ import { api } from '../../services/api'
 import { cn } from '../../lib/utils'
 
 const TYPE_CONFIG = {
+  train_delay: {
+    Icon: AlertTriangle,
+    containerClass: 'bg-red-50 border-red-200',
+    iconClass: 'text-red-500',
+    badgeClass: 'bg-red-100 text-red-700',
+    textClass: 'text-red-900',
+    label: 'Train Delay',
+    btnClass: 'border-red-300 text-red-700 hover:bg-red-100',
+    showAdapt: true,
+  },
+  bus_cancellation: {
+    Icon: AlertTriangle,
+    containerClass: 'bg-red-50 border-red-200',
+    iconClass: 'text-red-500',
+    badgeClass: 'bg-red-100 text-red-700',
+    textClass: 'text-red-900',
+    label: 'Bus Cancellation',
+    btnClass: 'border-red-300 text-red-700 hover:bg-red-100',
+    showAdapt: true,
+  },
   transport_alert: {
     Icon: AlertTriangle,
     containerClass: 'bg-red-50 border-red-200',
@@ -62,11 +82,13 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
   const [proposal, setProposal] = useState(null)   // AdaptResponse from /adapt
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState(null)
+  const [feedbackSent, setFeedbackSent] = useState(false)
 
   useEffect(() => {
     setAdaptError(null)
     setProposal(null)
     setAcceptError(null)
+    setFeedbackSent(false)
   }, [alert.id])
 
   const handleAdapt = async () => {
@@ -102,6 +124,19 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
     ? { cost: proposal.delta_transit_cost, time: proposal.delta_active_time, walk: proposal.delta_walking_distance }
     : null
 
+  const sendFeedback = async (rating) => {
+    setFeedbackSent(true)
+    try {
+      await api.submitFeedback({
+        trip_id: tripId,
+        rating,
+        comment: rating >= 4 ? 'Helpful alert' : 'Not helpful alert',
+      })
+    } catch {
+      setFeedbackSent(false)
+    }
+  }
+
   return (
     <div role="alert" className={cn('rounded-2xl border p-4 flex gap-3 animate-slide-up', containerClass)}>
       <Icon className={cn('h-5 w-5 shrink-0 mt-0.5', iconClass)} aria-hidden="true" />
@@ -112,6 +147,15 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
         </span>
         <p className={cn('text-sm mt-1.5 leading-relaxed', textClass)}>{alert.message}</p>
 
+        {proposal?.changes?.length > 0 && (
+          <ul className="mt-2 space-y-0.5">
+            {proposal.changes.map((change, i) => (
+              <li key={i} className={cn('text-xs leading-relaxed', textClass)}>
+                • {change}
+              </li>
+            ))}
+          </ul>
+        )}
         {delta && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             <DeltaPill value={delta.cost} unit=" SGD" positiveIsBad={true} />
@@ -130,7 +174,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
                 btnClass
               )}
             >
-              {adapting ? 'Fetching...' : 'Update Plan'}
+              {adapting ? 'Fetching...' : 'Preview swap'}
             </button>
           )}
           {showAdapt && proposal && (
@@ -142,7 +186,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
                 btnClass
               )}
             >
-              {accepting ? 'Applying...' : 'Accept Changes'}
+              {accepting ? 'Applying...' : 'Accept'}
             </button>
           )}
           <button
@@ -155,6 +199,26 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
           >
             {proposal ? 'Discard' : showAdapt ? 'Dismiss' : 'Got it'}
           </button>
+          {!feedbackSent ? (
+            <>
+              <button
+                onClick={() => sendFeedback(5)}
+                className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}
+              >
+                Helpful
+              </button>
+              <button
+                onClick={() => sendFeedback(1)}
+                className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}
+              >
+                Not helpful
+              </button>
+            </>
+          ) : (
+            <span className="inline-flex items-center rounded-lg bg-white/60 px-3 py-1.5 text-xs font-semibold text-slate-500">
+              Feedback sent
+            </span>
+          )}
         </div>
 
         {adaptError && (

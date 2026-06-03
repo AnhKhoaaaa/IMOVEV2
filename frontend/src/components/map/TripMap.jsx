@@ -3,23 +3,38 @@ import polylineCodec from '@mapbox/polyline'
 import { useEffect, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
+import { normalizeTransportMode, transportMeta } from '../../lib/transport'
 
 const MODE_STYLE = {
+  METRO: { color: '#2563eb', dashArray: null },
   MRT:   { color: '#6366f1', dashArray: null },
   LRT:   { color: '#7c3aed', dashArray: null },
   BUS:   { color: '#10b981', dashArray: null },
   WALK:  { color: '#f97316', dashArray: '5,5' },
-  DRIVE: { color: '#8b5cf6', dashArray: null },
   CYCLE: { color: '#0d9488', dashArray: '8,4' },
 }
 
-// Coerce to safe integer to prevent HTML injection via L.divIcon template string.
-function numberIcon(n) {
-  const safe = String(Math.trunc(Number(n)))
+const CATEGORY_DOT_COLORS = {
+  food:          '#f97316',
+  dining:        '#f97316',
+  nature:        '#10b981',
+  park:          '#10b981',
+  culture:       '#7c3aed',
+  heritage:      '#7c3aed',
+  museum:        '#7c3aed',
+  shopping:      '#3b82f6',
+  landmark:      '#6366f1',
+  attraction:    '#6366f1',
+  entertainment: '#f43f5e',
+  beach:         '#0d9488',
+}
+
+function categoryIcon(category) {
+  const color = CATEGORY_DOT_COLORS[category?.toLowerCase()] ?? '#64748b'
   return L.divIcon({
-    html: `<div style="background:#6366f1;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid #fff;box-shadow:0 2px 6px rgba(99,102,241,0.4)">${safe}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
+    html: `<div style="width:22px;height:22px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.28)"></div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
     className: '',
   })
 }
@@ -52,10 +67,6 @@ function FitBounds({ positions }) {
   return null
 }
 
-const MODE_LABELS = {
-  MRT: 'MRT', LRT: 'LRT', BUS: 'Bus', WALK: 'Walk', DRIVE: 'Drive', CYCLE: 'Cycle',
-}
-
 export default function TripMap({ places, legs, userPosition }) {
   const { ordered, byId } = useMemo(
     () => places?.length ? buildOrderedPlaces(places, legs ?? []) : { ordered: [], byId: {} },
@@ -66,7 +77,7 @@ export default function TripMap({ places, legs, userPosition }) {
     [ordered]
   )
   const presentModes = useMemo(
-    () => [...new Set((legs ?? []).map((l) => l.transport_mode?.toUpperCase()).filter((m) => m && MODE_STYLE[m]))],
+    () => [...new Set((legs ?? []).map((l) => normalizeTransportMode(l.transport_mode)).filter((m) => m && MODE_STYLE[m]))],
     [legs]
   )
 
@@ -89,7 +100,7 @@ export default function TripMap({ places, legs, userPosition }) {
                 ) : (
                   <span className="inline-block w-5 h-1.5 rounded-full" style={{ background: style.color }} />
                 )}
-                <span className="text-slate-700">{MODE_LABELS[mode] ?? mode}</span>
+                <span className="text-slate-700">{transportMeta(mode).label}</span>
               </div>
             )
           })}
@@ -102,12 +113,31 @@ export default function TripMap({ places, legs, userPosition }) {
         />
         <FitBounds positions={allPositions} />
 
-        {ordered.map((place, i) => (
-          <Marker key={place.id} position={[place.lat, place.lng]} icon={numberIcon(i + 1)}>
-            <Popup>
-              <strong>{place.name}</strong><br />
-              Dwell: {place.dwell_minutes} min<br />
-              {place.best_time_start && `Best: ${place.best_time_start}–${place.best_time_end}`}
+        {ordered.map((place) => (
+          <Marker key={place.id} position={[place.lat, place.lng]} icon={categoryIcon(place.category)}>
+            <Popup minWidth={200} maxWidth={240}>
+              {place.image_url && (
+                <img
+                  src={place.image_url}
+                  alt=""
+                  style={{ height: 110, objectFit: 'cover', display: 'block', margin: '-13px -20px 10px', width: 'calc(100% + 40px)' }}
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
+              )}
+              <div style={{ padding: '0 2px 2px' }}>
+                <p style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', margin: '0 0 3px' }}>{place.name}</p>
+                {place.category && (
+                  <p style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, margin: '0 0 4px', textTransform: 'capitalize' }}>
+                    {place.category}
+                  </p>
+                )}
+                {place.dwell_minutes > 0 && (
+                  <p style={{ fontSize: 12, color: '#475569', margin: '0 0 2px' }}>⏱ {place.dwell_minutes} min visit</p>
+                )}
+                {place.best_time_start && (
+                  <p style={{ fontSize: 12, color: '#92400e', margin: 0 }}>☀ Best: {place.best_time_start}–{place.best_time_end}</p>
+                )}
+              </div>
             </Popup>
           </Marker>
         ))}
@@ -116,7 +146,7 @@ export default function TripMap({ places, legs, userPosition }) {
           const from = byId[leg.from_place_id]
           const to = byId[leg.to_place_id]
           if (!from || !to) return null
-          const style = MODE_STYLE[leg.transport_mode] ?? MODE_STYLE.DRIVE
+          const style = MODE_STYLE[normalizeTransportMode(leg.transport_mode)] ?? MODE_STYLE.METRO
           // Decode real polyline when available; fall back to straight line
           let positions
           try {

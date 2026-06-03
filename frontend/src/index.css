@@ -47,6 +47,59 @@
       linear-gradient(90deg, rgba(56, 114, 224, 0.06) 1px, transparent 1px);
     background-size: 28px 28px;
   }
+  .home-dark-grid {
+    background:
+      radial-gradient(circle at 13% 18%, rgba(37, 99, 235, 0.22), transparent 32%),
+      radial-gradient(circle at 78% 10%, rgba(14, 165, 233, 0.18), transparent 34%),
+      radial-gradient(circle at 62% 82%, rgba(16, 185, 129, 0.12), transparent 28%),
+      linear-gradient(rgba(148, 163, 184, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.055) 1px, transparent 1px);
+    background-size: auto, auto, auto, 56px 56px, 56px 56px;
+  }
+  .home-hero-map {
+    background:
+      linear-gradient(rgba(125, 211, 252, 0.09) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(125, 211, 252, 0.08) 1px, transparent 1px),
+      radial-gradient(circle at 20% 72%, rgba(34, 211, 238, 0.28), transparent 22%),
+      radial-gradient(circle at 76% 32%, rgba(96, 165, 250, 0.3), transparent 24%),
+      linear-gradient(135deg, #0f172a 0%, #10233d 48%, #07111f 100%);
+    background-size: 24px 24px, 24px 24px, auto, auto, auto;
+  }
+  .home-card-map {
+    background:
+      radial-gradient(circle at 18% 24%, rgba(56, 189, 248, 0.34), transparent 24%),
+      radial-gradient(circle at 86% 16%, rgba(59, 130, 246, 0.28), transparent 24%),
+      radial-gradient(circle at 70% 82%, rgba(16, 185, 129, 0.22), transparent 24%),
+      linear-gradient(rgba(255, 255, 255, 0.075) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.065) 1px, transparent 1px),
+      linear-gradient(135deg, #10233f 0%, #0f172a 54%, #050b14 100%);
+    background-size: auto, auto, auto, 30px 30px, 30px 30px, auto;
+  }
+  .planner-choice-shell {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background-image:
+      linear-gradient(180deg, rgba(15, 23, 42, 0.12), rgba(15, 23, 42, 0.02) 42%, rgba(15, 23, 42, 0.16)),
+      url('/beach.jpg');
+    background-position: center;
+    background-size: cover;
+  }
+  .planner-choice-frame {
+    position: relative;
+    z-index: 1;
+  }
+  body.planner-choice-immersive header {
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(8px) saturate(1.05);
+    -webkit-backdrop-filter: blur(8px) saturate(1.05);
+  }
+  body.planner-choice-immersive header a,
+  body.planner-choice-immersive header button,
+  body.planner-choice-immersive header span {
+    text-shadow: 0 1px 12px rgba(255, 255, 255, 0.55);
+  }
   .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
   .scroll-thin::-webkit-scrollbar-thumb { background: rgba(15,23,42,.12); border-radius: 999px; }
   .scroll-thin::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,.22); }
@@ -61,5 +114,14 @@
   0%   { opacity: 0; transform: translateY(10px) scale(0.98); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
+@keyframes planner-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
 .animate-fade-up  { animation: fade-up  280ms cubic-bezier(.2,.7,.2,1) both; }
 .animate-slide-up { animation: slide-up 220ms cubic-bezier(.2,.7,.2,1) both; }
+.planner-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.07) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: planner-shimmer 4s ease-in-out infinite;
+}

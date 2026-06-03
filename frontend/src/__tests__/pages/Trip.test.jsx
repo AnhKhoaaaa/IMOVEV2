@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { BrowserRouter } from 'react-router-dom'
 import Trip from '../../pages/Trip'
 
@@ -22,10 +22,14 @@ vi.mock('../../hooks/useAlerts', () => ({
 vi.mock('../../hooks/useGeolocation', () => ({
   useGeolocation: () => ({ position: null, error: null }),
 }))
-vi.mock('../../components/planner/DayPlan', () => ({
-  default: ({ day, legs, tripId }) => (
-    <div data-testid={`day-${day}`} data-trip-id={tripId}>{legs.length} legs</div>
-  ),
+vi.mock('../../services/api', () => ({
+  api: {
+    updateLeg: vi.fn(() => Promise.resolve({})),
+    addDay: vi.fn(() => Promise.resolve({ days: [] })),
+    removeDay: vi.fn(() => Promise.resolve({ days: [] })),
+    optimizeRoute: vi.fn(() => Promise.resolve({ days: [] })),
+    updateLocation: vi.fn(() => Promise.resolve({})),
+  },
 }))
 vi.mock('../../components/adaptation/AlertBanner', () => ({
   default: ({ alert }) => <div data-testid="alert-banner">{alert.message}</div>,
@@ -37,11 +41,25 @@ vi.mock('../../components/map/TripMap', () => ({
 import { useTrip } from '../../hooks/useTrip'
 import { useSavedTrips } from '../../hooks/useSavedTrips'
 import { useAuth } from '../../contexts/AuthContext'
+import { api } from '../../services/api'
 
 const makeTrip = (overrides = {}) => ({
   id: 'trip-123',
-  days: [{ day: 1, legs: [] }],
-  places: [],
+  days: [{
+    day: 1,
+    legs: [{
+      id: 'leg-1',
+      from_place_id: 'p1',
+      to_place_id: 'p2',
+      transport_mode: 'MRT',
+      duration_minutes: 12,
+      cost_sgd: 1.5,
+    }],
+  }],
+  places: [
+    { id: 'p1', name: 'Marina Bay', lat: 1.283, lng: 103.86, category: 'landmark' },
+    { id: 'p2', name: 'Bugis', lat: 1.300, lng: 103.855, category: 'shopping' },
+  ],
   warnings: [],
   ...overrides,
 })
@@ -61,18 +79,32 @@ describe('Trip page', () => {
     expect(screen.getByText(/Not found/)).toBeInTheDocument()
   })
 
-  it('renders trip days when loaded', () => {
+  it('renders day by day board when loaded', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: 'Day 1' }))
-    expect(screen.getByTestId('day-1')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Day by day/i }))
+    expect(screen.getByRole('button', { name: /Day 1/i })).toBeInTheDocument()
+    expect(screen.getByText('Marina Bay')).toBeInTheDocument()
   })
 
-  it('passes tripId to DayPlan', () => {
+  it('opens map view after selecting a day', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: 'Day 1' }))
-    expect(screen.getByTestId('day-1')).toHaveAttribute('data-trip-id', 'trip-123')
+    fireEvent.click(screen.getByRole('button', { name: /Day by day/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Day 1/i }))
+    expect(screen.getByTestId('trip-map')).toBeInTheDocument()
+  })
+
+  it('allows changing transport mode from day by day', async () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Day by day/i }))
+    fireEvent.click(screen.getByRole('button', { name: /change transport from marina bay to bugis/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Bus/i }))
+
+    await waitFor(() => {
+      expect(api.updateLeg).toHaveBeenCalledWith('trip-123', 'leg-1', { transport_mode: 'BUS' })
+    })
   })
 
   it('does not show warnings banner when warnings is empty', () => {

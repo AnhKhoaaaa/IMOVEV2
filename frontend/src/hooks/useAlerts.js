@@ -8,7 +8,7 @@ export function useAlerts(tripId) {
     if (!tripId) return
     let ignore = false
 
-    supabase.from('lta_alerts').select('*').eq('trip_id', tripId)
+    supabase.from('lta_alerts').select('*').eq('trip_id', tripId).is('resolved_at', null)
       .then(({ data, error }) => {
         if (ignore) return
         if (error) { console.error('useAlerts: initial fetch failed', error); return }
@@ -18,11 +18,21 @@ export function useAlerts(tripId) {
     const channel = supabase
       .channel(`trip-alerts-${tripId}`)
       .on('postgres_changes', {
-        event: 'INSERT',
+        event: '*',
         schema: 'public',
         table: 'lta_alerts',
         filter: `trip_id=eq.${tripId}`,
-      }, (payload) => setAlerts((prev) => [...prev, payload.new]))
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          if (!payload.new.resolved_at) setAlerts((prev) => [...prev, payload.new])
+        } else if (payload.eventType === 'UPDATE') {
+          if (payload.new.resolved_at) {
+            setAlerts((prev) => prev.filter((a) => a.id !== payload.new.id))
+          }
+        } else if (payload.eventType === 'DELETE') {
+          setAlerts((prev) => prev.filter((a) => a.id !== payload.old.id))
+        }
+      })
       .subscribe()
 
     return () => {

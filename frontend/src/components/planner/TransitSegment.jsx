@@ -92,36 +92,30 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
   const grabLink = buildGrabDeepLink(fromPlace, toPlace)
 
   return (
-    <div className="relative pl-12 py-1">
+    <div className="relative pl-12 py-1.5">
       {/* Dashed vertical line */}
       <div className="absolute left-[19px] top-0 bottom-0 w-px border-l border-dashed border-slate-300" />
 
-      <div className="relative">
+      {/* Centered chip */}
+      <div className="relative flex justify-center">
         <button
           onClick={handleOpen}
           disabled={saving}
           className={cn(
-            'group inline-flex items-center gap-2 rounded-full border bg-white px-3 h-8 text-[12.5px] font-medium transition focus-ring shadow-card',
+            'inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[12px] font-medium transition focus-ring shadow-card',
             open
-              ? 'border-indigo-300 ring-2 ring-indigo-100 text-slate-900'
-              : 'border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+              ? 'border-indigo-300 bg-white ring-1 ring-indigo-100 text-slate-900'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
           )}
         >
-          <span className="text-slate-500"><Icon size={13} /></span>
-          <span className="text-slate-900 font-semibold">{label}</span>
-          <span className="text-slate-400">·</span>
-          <span className="tabular-nums">
-            {leg.duration_minutes} min · {formatDist(distM)}
-            {leg.cost_sgd != null && ` · S$${leg.cost_sgd.toFixed(2)}`}
-          </span>
-          {leg.is_estimated && (
-            <span className="text-[10px] font-semibold text-amber-500 uppercase tracking-wide">~ Est.</span>
-          )}
-          <ChevronDown size={12} className={cn('text-slate-400 transition', open && 'rotate-180')} />
+          <Icon size={12} className={open ? 'text-indigo-500' : 'text-slate-400'} />
+          <span className="tabular-nums font-semibold">{leg.duration_minutes} min</span>
+          {leg.is_estimated && <span className="text-[9.5px] font-bold text-amber-500 uppercase">~</span>}
+          <ChevronDown size={11} className={cn('text-slate-400 transition', open && 'rotate-180')} />
         </button>
 
         {open && (
-          <div className="absolute left-0 top-9 z-20 w-[380px] rounded-xl border border-slate-200 bg-white shadow-pop animate-slide-up overflow-hidden">
+          <div className="absolute left-1/2 -translate-x-1/2 top-8 z-20 w-[340px] rounded-xl border border-slate-200 bg-white shadow-pop animate-slide-up overflow-hidden">
             <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
               <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">Choose mode of transport</span>
               {loadingComparison && <Loader2 size={11} className="animate-spin text-slate-400" />}

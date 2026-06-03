@@ -1,380 +1,314 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Navigation2, Sparkles, Plus, Clock, Wallet, Footprints, MapPin, Edit, Trash2 } from 'lucide-react'
-import { useSavedTrips } from '../hooks/useSavedTrips'
-import { formatDateRange, computeTripMetrics } from '../lib/tripUtils'
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarDays,
+  Clock,
+  Loader2,
+  MapPin,
+  Navigation2,
+  Plus,
+  RadioTower,
+  Route,
+  Search,
+  Sparkles,
+  Trash2,
+} from 'lucide-react'
 import { api } from '../services/api'
+import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useAuth } from '../contexts/AuthContext'
-import { useT } from '../contexts/LanguageContext'
+import { formatDateRange } from '../lib/tripUtils'
 import { cn } from '../lib/utils'
 
-/* ── Status meta ─────────────────────────────────────────────────── */
-const STATUS_META = {
-  today:    { dot: 'bg-emerald-500 animate-pulse', pill: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  upcoming: { dot: 'bg-indigo-500',               pill: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
-  draft:    { dot: 'bg-slate-400',                pill: 'bg-slate-100 text-slate-600 border-slate-200' },
-  past:     { dot: 'bg-slate-300',                pill: 'bg-slate-50 text-slate-500 border-slate-200' },
+const FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'today', label: 'Today' },
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'draft', label: 'Drafts' },
+  { id: 'past', label: 'Past' },
+]
+
+const STATUS = {
+  today: { label: 'Today', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500 animate-pulse' },
+  upcoming: { label: 'Upcoming', tone: 'border-blue-200 bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
+  draft: { label: 'Draft', tone: 'border-slate-200 bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
+  past: { label: 'Past', tone: 'border-slate-200 bg-white text-slate-500', dot: 'bg-slate-300' },
 }
 
-const StatusTag = ({ status }) => {
-  const { t } = useT()
-  const m = STATUS_META[status] ?? STATUS_META.draft
-  const labels = {
-    today: t('statusToday'),
-    upcoming: t('filter_Upcoming'),
-    draft: t('filter_Drafts'),
-    past: t('filter_Past'),
-  }
-  return (
-    <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 h-6 text-[11px] font-semibold whitespace-nowrap', m.pill)}>
-      <span className={cn('inline-block h-1.5 w-1.5 rounded-full', m.dot)} />
-      {labels[status] ?? status}
-    </span>
-  )
+function isTodayOrTomorrow(trip) {
+  if (!trip?.startDate) return false
+  const today = new Date()
+  const todayKey = today.toISOString().slice(0, 10)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(today.getDate() + 1)
+  const tomorrowKey = tomorrow.toISOString().slice(0, 10)
+  return trip.startDate === todayKey || trip.startDate === tomorrowKey
 }
 
-/* ── Destination thumbnail ───────────────────────────────────────── */
-const SKYLINE_HEIGHTS = [24, 36, 18, 48, 28, 56, 22, 40, 30]
+function sessionBody() {
+  const sessionId = localStorage.getItem('session_id')
+  return sessionId ? { session_id: sessionId } : {}
+}
 
-const DestinationThumb = ({ trip }) => {
-  const { t } = useT()
-  const dateLabel = formatDateRange(trip.startDate, trip.numDays ?? 1)
+function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
+  const meta = STATUS[trip.status] ?? STATUS.draft
+  const days = hydrated?.days?.length ?? trip.numDays ?? 1
+  const stops = hydrated?.places?.length
+  const warnings = hydrated?.warnings?.length ?? 0
+
   return (
-    <div className="relative h-32 w-full overflow-hidden bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500">
-      <div className="absolute inset-0 opacity-50" style={{
-        backgroundImage: 'radial-gradient(circle at 20% 80%,rgba(255,255,255,.4),transparent 40%),radial-gradient(circle at 80% 20%,rgba(255,255,255,.3),transparent 40%)'
-      }} />
-      <div className="absolute inset-x-0 bottom-0 h-1/2 flex items-end justify-around opacity-30">
-        {SKYLINE_HEIGHTS.map((h, i) => (
-          <div
-            key={i}
-            className="bg-white/40 mix-blend-overlay"
-            style={{ width: 12 + (i % 3) * 4, height: h + (i % 5) * 4 }}
-          />
-        ))}
-      </div>
-      <div className="absolute inset-0 flex items-start justify-between p-4">
-        <div className="text-white">
-          <div className="font-display font-extrabold text-[24px] leading-none drop-shadow-sm">
-            {trip.name ?? 'Singapore'}
-          </div>
-          <div className="text-[12px] text-white/85 mt-1.5">
-            {t('daysUnit', trip.numDays ?? 1)}
-            {trip.startDate ? ` · ${dateLabel}` : ` · ${t('flexibleDates')}`}
-          </div>
-        </div>
-        {dateLabel && (
-          <span className="max-w-[140px] truncate rounded-full bg-white/25 backdrop-blur border border-white/40 px-2 h-6 inline-flex items-center text-[11px] font-medium text-white">
-            {dateLabel}
+    <article className="group rounded-lg border border-slate-200 bg-white p-4 shadow-card transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-pop">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className={cn('inline-flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11px] font-bold', meta.tone)}>
+            <span className={cn('h-1.5 w-1.5 rounded-full', meta.dot)} />
+            {meta.label}
           </span>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ── Stat badge ──────────────────────────────────────────────────── */
-const StatBadge = ({ icon, label, value }) => (
-  <div className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50/60 px-2 h-7 text-[11.5px]">
-    <span className="text-slate-400">{icon}</span>
-    {label && <span className="text-slate-500">{label}</span>}
-    <span className="font-display font-bold text-slate-900 tabular-nums">{value}</span>
-  </div>
-)
-
-/* ── Trip card ───────────────────────────────────────────────────── */
-const TripCard = ({ trip, onOpen, onStart, onDelete, userId }) => {
-  const { t } = useT()
-  const isToday = trip.status === 'today'
-  const metrics = computeTripMetrics(api.getCachedTripData(trip.id, userId))
-
-  return (
-    <div className={cn(
-      'group rounded-2xl bg-white border shadow-card overflow-hidden transition hover:shadow-pop hover:-translate-y-0.5',
-      isToday ? 'border-emerald-300 ring-2 ring-emerald-100' : 'border-slate-200 hover:border-slate-300'
-    )}>
-      <DestinationThumb trip={trip} />
-
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <StatusTag status={trip.status} />
-          <span className="text-[11.5px] text-slate-500 inline-flex items-center gap-1">
-            <Clock size={11} className="text-slate-400" />
-            {t('daysUnit', trip.numDays ?? 1)}
-          </span>
-        </div>
-
-        {metrics ? (
-          <div className="flex flex-wrap gap-1.5">
-            <StatBadge icon={<Clock size={11} />} value={metrics.activeTime} />
-            <StatBadge icon={<Wallet size={11} />} value={metrics.transitCost} />
-            <StatBadge icon={<Footprints size={11} />} value={metrics.walkingDist} />
-            <StatBadge icon={<MapPin size={11} />} value={t('stopsUnit', metrics.stopsCount)} />
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            <StatBadge icon={<MapPin size={11} />} label={t('dest')} value="Singapore" />
-            {trip.savedAt && (
-              <StatBadge
-                icon={<Clock size={11} />}
-                label={t('savedLabel')}
-                value={new Date(trip.savedAt).toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })}
-              />
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 pt-1">
-          <button
-            onClick={onOpen}
-            className="flex-1 h-9 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition focus-ring inline-flex items-center justify-center gap-1.5"
-          >
-            <Edit size={12} /> {t('openBtn')}
-          </button>
-          <button
-            onClick={onDelete}
-            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-400 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition focus-ring shrink-0"
-            aria-label="Delete trip"
-          >
-            <Trash2 size={13} />
-          </button>
-          {isToday && (
-            <button
-              onClick={onStart}
-              className="relative inline-flex items-center justify-center gap-1.5 h-9 rounded-lg px-4 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-display font-bold text-[13px] shadow-card hover:shadow-pop transition focus-ring overflow-hidden"
-            >
-              <span className="absolute inset-0 rounded-lg ring-4 ring-emerald-400/50 animate-ping pointer-events-none" />
-              <Navigation2 size={13} /> {t('startTripBtn')}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ── Today modal ─────────────────────────────────────────────────── */
-const StartTodayModal = ({ trip, onStart, onClose }) => {
-  const { t } = useT()
-  if (!trip) return null
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 backdrop-blur-sm animate-fade-up"
-      onClick={onClose}
-    >
-      <div
-        className="w-[min(440px,calc(100vw-32px))] rounded-2xl bg-white shadow-pop border border-slate-200 overflow-hidden animate-slide-up"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-500" />
-        <div className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="inline-flex items-center gap-2.5">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200">
-                <Navigation2 size={18} />
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-wide font-semibold text-emerald-700 inline-flex items-center gap-1.5">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {t('liveLabel')}
-                </div>
-                <div className="font-display font-extrabold text-[18px] text-slate-900">
-                  {t('startsTodayTitle')}
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="grid h-8 w-8 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
-            >
-              ✕
-            </button>
-          </div>
-          <p className="mt-3 text-[13.5px] text-slate-600 leading-relaxed">
-            {t('startsTodayDesc')}
+          <h2 className="mt-3 truncate font-display text-[20px] font-extrabold text-slate-950">
+            {trip.name ?? 'Singapore Trip'}
+          </h2>
+          <p className="mt-1 text-[12px] text-slate-500">
+            {trip.startDate ? formatDateRange(trip.startDate, trip.numDays ?? 1) : 'Flexible dates'}
           </p>
-          <div className="mt-4 flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="flex-1 h-10 rounded-md border border-slate-200 text-slate-700 font-semibold text-[14px] hover:bg-slate-50 transition"
-            >
-              {t('laterBtn')}
-            </button>
-            <button
-              onClick={onStart}
-              className="flex-1 h-10 rounded-md bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-1.5 hover:shadow-pop transition"
-            >
-              <Navigation2 size={14} /> {t('readyToNavigate')}
-            </button>
-          </div>
+        </div>
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600">
+          <Route size={18} />
         </div>
       </div>
-    </div>
+
+      <div className="mb-4 grid grid-cols-3 gap-2">
+        <div className="rounded-md bg-slate-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Days</p>
+          <p className="mt-1 font-display text-[18px] font-extrabold text-slate-900">{days}</p>
+        </div>
+        <div className="rounded-md bg-slate-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Stops</p>
+          <p className="mt-1 font-display text-[18px] font-extrabold text-slate-900">
+            {loading ? <Loader2 size={16} className="animate-spin" /> : stops ?? '-'}
+          </p>
+        </div>
+        <div className="rounded-md bg-slate-50 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Alerts</p>
+          <p className={cn('mt-1 font-display text-[18px] font-extrabold', warnings ? 'text-amber-600' : 'text-slate-900')}>
+            {warnings}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onOpen(trip)}
+          className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
+        >
+          Open <ArrowRight size={14} />
+        </button>
+        {trip.status === 'today' && (
+          <button
+            onClick={() => onStart(trip)}
+            className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-3 text-[13px] font-bold text-emerald-700 hover:bg-emerald-100"
+          >
+            Start
+          </button>
+        )}
+        <button
+          onClick={() => onDelete(trip)}
+          className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500"
+          title="Delete trip"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </article>
   )
 }
-
-/* ── Main ────────────────────────────────────────────────────────── */
-const FILTERS = ['All', 'Today', 'Upcoming', 'Drafts', 'Past']
-const FILTER_MAP = { All: null, Today: 'today', Upcoming: 'upcoming', Drafts: 'draft', Past: 'past' }
-const STATUS_FOR_FILTER = { Today: 'today', Upcoming: 'upcoming', Drafts: 'draft', Past: 'past' }
 
 export default function Home() {
   const navigate = useNavigate()
-  const { t } = useT()
-  const { user: authUser } = useAuth()
-  const { trips, remove } = useSavedTrips(authUser?.id)
-  const [filter, setFilter] = useState('All')
-  const [modalTrip, setModalTrip] = useState(null)
+  const { user } = useAuth()
+  const { trips, remove } = useSavedTrips(user?.id)
+  const [filter, setFilter] = useState('all')
+  const [search, setSearch] = useState('')
+  const [hydrated, setHydrated] = useState({})
+  const [loadingIds, setLoadingIds] = useState(new Set())
+  const [openingId, setOpeningId] = useState(null)
 
-  const handleDelete = async (trip) => {
-    if (!window.confirm(`Delete "${trip.name ?? 'this trip'}"? This cannot be undone.`)) return
-    try { await api.deleteTrip(trip.id) } catch { /* best-effort — remove locally regardless */ }
+  useEffect(() => {
+    let ignore = false
+    trips.forEach((trip) => {
+      if (!trip.id || hydrated[trip.id] || loadingIds.has(trip.id)) return
+      setLoadingIds((ids) => new Set(ids).add(trip.id))
+      api.getTrip(trip.id)
+        .then((data) => {
+          if (!ignore) setHydrated((current) => ({ ...current, [trip.id]: data }))
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!ignore) {
+            setLoadingIds((ids) => {
+              const next = new Set(ids)
+              next.delete(trip.id)
+              return next
+            })
+          }
+        })
+    })
+    return () => { ignore = true }
+  }, [trips]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredTrips = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return trips.filter((trip) => {
+      const matchesFilter = filter === 'all' || trip.status === filter
+      const matchesSearch = !q || (trip.name ?? '').toLowerCase().includes(q)
+      return matchesFilter && matchesSearch
+    })
+  }, [trips, filter, search])
+
+  const stats = useMemo(() => ({
+    all: trips.length,
+    today: trips.filter((trip) => trip.status === 'today').length,
+    upcoming: trips.filter((trip) => trip.status === 'upcoming').length,
+    draft: trips.filter((trip) => trip.status === 'draft').length,
+    past: trips.filter((trip) => trip.status === 'past').length,
+  }), [trips])
+
+  const primeAlerts = async (trip) => {
+    if (!isTodayOrTomorrow(trip)) return
+    await api.checkAlerts(trip.id, sessionBody()).catch(() => {})
+  }
+
+  const openTrip = async (trip, autoStart = false) => {
+    setOpeningId(trip.id)
+    await primeAlerts(trip)
+    setOpeningId(null)
+    navigate(`/trip/${trip.id}`, { state: autoStart ? { autoStart: true } : undefined })
+  }
+
+  const deleteTrip = async (trip) => {
+    if (!window.confirm(`Delete "${trip.name ?? 'Singapore Trip'}"?`)) return
+    await api.deleteTrip(trip.id).catch(() => {})
     remove(trip.id)
   }
 
-  useEffect(() => {
-    const todayTrip = trips.find((t) => t.status === 'today')
-    if (todayTrip) {
-      const timer = setTimeout(() => setModalTrip(todayTrip), 350)
-      return () => clearTimeout(timer)
-    }
-  }, [trips])
-
-  const statusFilter = FILTER_MAP[filter]
-  const filtered = statusFilter ? trips.filter((t) => t.status === statusFilter) : trips
-
-  const countByStatus = {
-    today: trips.filter((t) => t.status === 'today').length,
-    upcoming: trips.filter((t) => t.status === 'upcoming').length,
-    draft: trips.filter((t) => t.status === 'draft').length,
-    past: trips.filter((t) => t.status === 'past').length,
-  }
-  const todayCount = countByStatus.today
-  const upcomingCount = countByStatus.upcoming
-
   return (
-    <div className="min-h-screen bg-slate-50">
-      <main className="max-w-6xl mx-auto px-6 pt-8 pb-16">
-        {/* Hero header */}
-        <div className="flex items-end justify-between gap-4 flex-wrap mb-8">
+    <main className="min-h-[calc(100vh-56px)] bg-slate-50">
+      <section className="border-b border-slate-200 bg-white">
+        <div className="mx-auto grid max-w-7xl grid-cols-[1fr_360px] gap-8 px-6 py-8">
           <div>
-            <div className="text-[12px] font-semibold uppercase tracking-wide text-slate-500 inline-flex items-center gap-1.5">
-              <Sparkles size={12} className="text-fuchsia-600" /> {t('yourItineraries')}
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide text-blue-700">
+              <Navigation2 size={13} /> IMOVE dashboard
             </div>
-            <h1 className="font-display font-extrabold text-[34px] sm:text-[40px] leading-[1.05] tracking-tight text-slate-900 mt-1">
-              {authUser
-                ? t('welcomeUser', authUser.user_metadata?.username || authUser.email?.split('@')[0])
-                : t('welcomeBack')}
+            <h1 className="font-display text-[44px] font-extrabold leading-tight text-slate-950">
+              Plan, monitor, and adapt Singapore transport trips.
             </h1>
-            <p className="text-[14px] text-slate-500 mt-2">
-              {t('tripsCount', trips.length)}
-              {todayCount > 0 && (
-                <span> · <span className="font-semibold text-emerald-700">{t('happeningToday', todayCount)}</span></span>
-              )}
-              {upcomingCount > 0 && <span> · {t('upcomingCount', upcomingCount)}</span>}
+            <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-500">
+              Manage saved itineraries, start live trips, and prime LTA/weather checks before the route begins.
             </p>
-          </div>
-          <button
-            onClick={() => navigate('/plan')}
-            className="group relative inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[14px] shadow-pop overflow-hidden focus-ring"
-          >
-            <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
-            <Plus size={15} strokeWidth={2.5} /> {t('createNewItinerary')}
-          </button>
-        </div>
-
-        {/* Filter chips with count pills */}
-        <div className="flex items-center gap-2 mb-5 flex-wrap">
-          {FILTERS.map((f) => {
-            const count = STATUS_FOR_FILTER[f] ? countByStatus[STATUS_FOR_FILTER[f]] : null
-            return (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={cn(
-                  'h-8 px-3.5 rounded-full text-[12.5px] font-semibold border transition inline-flex items-center gap-1.5',
-                  filter === f
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                )}
-              >
-                {t(`filter_${f}`)}
-                {count != null && count > 0 && (
-                  <span className={cn(
-                    'grid h-4 min-w-4 px-1 place-items-center rounded-full text-[10px] font-bold tabular-nums',
-                    filter === f ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'
-                  )}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Grid */}
-        {trips.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="grid h-20 w-20 place-items-center rounded-2xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 text-white shadow-pop mb-6">
-              <Navigation2 size={40} />
-            </div>
-            <h2 className="font-display font-bold text-2xl text-slate-900">{t('noTripsTitle')}</h2>
-            <p className="text-slate-500 mt-2 max-w-sm">{t('noTripsDesc')}</p>
-            <button
-              onClick={() => navigate('/plan')}
-              className="mt-6 inline-flex items-center gap-2 h-11 px-8 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 text-white font-display font-bold text-[14px] shadow-pop hover:opacity-90 transition focus-ring"
-            >
-              <Plus size={15} strokeWidth={2.5} /> {t('startPlanning')}
-            </button>
-          </div>
-        ) : (
-          <>
-            {filtered.length === 0 && (
-              <div className="text-center py-16 text-slate-400 text-[14px]">
-                {t('noTripsCategory')}
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map((trip) => (
-                <TripCard
-                  key={trip.id}
-                  trip={trip}
-                  userId={authUser?.id}
-                  onOpen={() => navigate(`/trip/${trip.id}`)}
-                  onStart={() => setModalTrip(trip)}
-                  onDelete={() => handleDelete(trip)}
-                />
-              ))}
-
-              {/* Create card */}
+            <div className="mt-6 flex gap-3">
               <button
                 onClick={() => navigate('/plan')}
-                className="rounded-2xl border-2 border-dashed border-slate-300 bg-white/40 min-h-[280px] grid place-items-center hover:border-indigo-400 hover:bg-indigo-50/30 transition group focus-ring"
+                className="flex h-11 items-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white shadow-card hover:bg-blue-500"
               >
-                <div className="text-center">
-                  <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-indigo-100 to-fuchsia-100 text-indigo-600 group-hover:scale-110 transition mb-2">
-                    <Plus size={18} strokeWidth={2.5} />
-                  </div>
-                  <div className="font-display font-bold text-[15px] text-slate-700 group-hover:text-indigo-700">
-                    {t('planNewTrip')}
-                  </div>
-                  <div className="text-[12px] text-slate-500 mt-0.5">{t('freshItinerary')}</div>
-                </div>
+                <Plus size={16} /> New Trip
+              </button>
+              <button
+                onClick={() => navigate('/settings')}
+                className="flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-5 text-[14px] font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700"
+              >
+                <Sparkles size={16} /> Preferences
               </button>
             </div>
-          </>
-        )}
-      </main>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-md bg-white p-4 shadow-card">
+                <CalendarDays className="h-5 w-5 text-blue-600" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
+                <p className="text-[12px] font-semibold text-slate-400">Today</p>
+              </div>
+              <div className="rounded-md bg-white p-4 shadow-card">
+                <Clock className="h-5 w-5 text-emerald-600" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
+                <p className="text-[12px] font-semibold text-slate-400">Upcoming</p>
+              </div>
+              <div className="rounded-md bg-white p-4 shadow-card">
+                <RadioTower className="h-5 w-5 text-amber-600" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">Live</p>
+                <p className="text-[12px] font-semibold text-slate-400">LTA/weather</p>
+              </div>
+              <div className="rounded-md bg-white p-4 shadow-card">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
+                <p className="text-[12px] font-semibold text-slate-400">Open alerts</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <StartTodayModal
-        trip={modalTrip}
-        onStart={() => {
-          const tripId = modalTrip.id
-          setModalTrip(null)
-          navigate(`/trip/${tripId}`, { state: { autoStart: true } })
-        }}
-        onClose={() => setModalTrip(null)}
-      />
-    </div>
+      <section className="mx-auto max-w-7xl px-6 py-6">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-card">
+            {FILTERS.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setFilter(item.id)}
+                className={cn(
+                  'h-9 rounded-md px-3 text-[13px] font-bold transition',
+                  filter === item.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                )}
+              >
+                {item.label}
+                <span className="ml-1.5 text-[11px] opacity-70">{stats[item.id] ?? stats.all}</span>
+              </button>
+            ))}
+          </div>
+          <div className="relative w-[320px]">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search saved trips"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] outline-none focus:border-blue-400"
+            />
+          </div>
+        </div>
+
+        {filteredTrips.length ? (
+          <div className="grid grid-cols-3 gap-4">
+            {filteredTrips.map((trip) => (
+              <div key={trip.id} className="relative">
+                {openingId === trip.id && (
+                  <div className="absolute inset-0 z-10 grid place-items-center rounded-lg bg-white/70 backdrop-blur-sm">
+                    <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                  </div>
+                )}
+                <TripCard
+                  trip={trip}
+                  hydrated={hydrated[trip.id]}
+                  loading={loadingIds.has(trip.id)}
+                  onOpen={(item) => openTrip(item)}
+                  onStart={(item) => openTrip(item, true)}
+                  onDelete={deleteTrip}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
+            <MapPin className="mx-auto h-8 w-8 text-slate-300" />
+            <h2 className="mt-3 font-display text-[22px] font-extrabold text-slate-950">No trips here</h2>
+            <p className="mt-2 text-[14px] text-slate-500">Create a new itinerary or change the filter.</p>
+            <button
+              onClick={() => navigate('/plan')}
+              className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500"
+            >
+              <Plus size={15} /> New Trip
+            </button>
+          </div>
+        )}
+      </section>
+    </main>
   )
 }
