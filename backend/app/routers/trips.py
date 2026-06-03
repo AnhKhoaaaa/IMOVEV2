@@ -206,17 +206,25 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
     # Update in-memory plan
     _trip_store[trip_id] = _apply_leg_update(plan, leg_id, result.updated_leg)
 
-    # Persist to Supabase with all updated fields (not just transport_mode)
+    # Persist to Supabase with all updated fields (not just transport_mode).
+    # geometry/instructions columns added in migration 011; guard for older schemas.
     if supabase:
         leg = result.updated_leg
-        supabase.table("route_legs").update({
+        base_update = {
             "transport_mode":   leg.transport_mode,
             "duration_minutes": leg.duration_minutes,
             "cost_sgd":         leg.cost_sgd,
             "is_estimated":     leg.is_estimated,
-            "geometry":         leg.geometry,
-            "instructions":     leg.instructions,
-        }).eq("id", leg_id).execute()
+        }
+        try:
+            supabase.table("route_legs").update({
+                **base_update,
+                "geometry":     leg.geometry,
+                "instructions": leg.instructions,
+            }).eq("id", leg_id).execute()
+        except Exception:
+            # geometry/instructions columns not yet in schema — update core fields only
+            supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
 
         supabase.table("trip_feedback").insert({
             "trip_id":       trip_id,
