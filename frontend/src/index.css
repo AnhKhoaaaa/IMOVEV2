@@ -125,3 +125,11 @@
   background-size: 200% 100%;
   animation: planner-shimmer 4s ease-in-out infinite;
 }
+
+@keyframes route-pulse {
+  0%, 100% { opacity: 0.12; }
+  50%       { opacity: 0.42; }
+}
+.active-route-glow {
+  animation: route-pulse 1.8s ease-in-out infinite;
+}
