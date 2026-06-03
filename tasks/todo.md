@@ -3,29 +3,29 @@
 > See `tasks/plan.md` for full context, acceptance criteria, and dependency graph.
 
 ## Phase 0 — Setup
-- [ ] **Task 0** · XS · `config.py` + `.env.example` — add `GOOGLE_PLACES_API_KEY`
+- [x] **Task 0** · XS · `config.py` + `.env.example` — add `GOOGLE_PLACES_API_KEY`
 
 ## Phase 1 — Place ID Discovery
-- [ ] **Task 1** · S · `enrich_places_google.py` — implement `search_place()` + confidence scorer
+- [x] **Task 1** · S · `enrich_places_google.py` — implement `search_place()` + confidence scorer
   - Returns `place_id`, `confidence`, `lat`, `lng`, `is_closed_permanently`
   - `lat`/`lng` always replaces JSON values on `high`/`medium` confidence
 - [ ] **✅ Checkpoint 1** — manually verify 3 place_ids in Google Maps + check lat/lng shift
 
 ## Phase 2 — Data Enrichment Functions
-- [ ] **Task 2** · S · `enrich_places_google.py` — implement `convert_opening_hours(periods)` helper
-  - `tests/test_scripts/test_enrich_helpers.py` — unit tests for all edge cases
-- [ ] **Task 3** · S · `enrich_places_google.py` — implement `fetch_place_details(place_id)`
+- [x] **Task 2** · S · `enrich_places_google.py` — implement `convert_opening_hours(periods)` helper
+  - `tests/test_scripts/test_enrich_helpers.py` — 14 unit tests, all pass ✅
+- [x] **Task 3** · S · `enrich_places_google.py` — implement `fetch_place_details(place_id)`
   - Field mask: `regularOpeningHours,rating,formattedAddress` (no `websiteUri`)
 - [ ] **✅ Checkpoint 2** — test ACM museum (closed Monday), Merlion Park (24h open)
 
 ## Phase 3 — Photo Pipeline
-- [ ] **Task 4** · S · `enrich_places_google.py` — `fetch_photo_name()` + `download_photo()` + `upload_to_supabase()`
+- [x] **Task 4** · S · `enrich_places_google.py` — `fetch_photo_name()` + `download_photo()` + `upload_to_supabase()`
   - All 499 POIs — **replaces existing `image_url` unconditionally**
   - Re-run overwrites Supabase Storage object idempotently
 - [ ] **✅ Checkpoint 3** — 1 photo URL opens in browser; re-run doesn't error
 
 ## Phase 4 — Batch Runner
-- [ ] **Task 5** · M · `enrich_places_google.py` — full orchestrator
+- [x] **Task 5** · M · `enrich_places_google.py` — full orchestrator
   - Flags: `--phase 1|2|3|all`, `--limit N`, `--dry-run`
   - Phase 1 post-step: auto-remove `CLOSED_PERMANENTLY` from JSON → `closed_permanently.txt`
   - Phase 3: **no resume skip** — always re-fetches images
@@ -33,9 +33,9 @@
 - [ ] **✅ Checkpoint 4** — `--phase 1 --limit 10 --dry-run`: inspect output, confirm CLOSED_PERMANENTLY removal logic
 
 ## Phase 5 — DB Sync
-- [ ] **Task 6** · XS · `010_places_google_enrichment.sql` — add `google_place_id TEXT`, `rating FLOAT4` columns
+- [x] **Task 6** · XS · `010_places_google_enrichment.sql` — add `google_place_id TEXT`, `rating FLOAT4` columns
   - **Not adding** `website_uri` or `business_status` to DB
-- [ ] **Task 7** · S · `models/place.py` + `scripts/seed_db.py`
+- [x] **Task 7** · S · `models/place.py` + `scripts/seed_db.py`
   - Add `google_place_id: Optional[str] = None` and `rating: Optional[float] = None`
   - **Not adding** `website_uri` or `business_status` to model
 - [ ] **Task 8** · M · Full run + review logs + `seed_db.py` sync

@@ -1,0 +1,7 @@
+- khi chuyến đi bắt đầu, giao diện active leg phân bố các tab chưa hợp lý, tràn ra khỏi màn hình, hãy bố cục lại phần đó để nằm gọn trong 1/2 màn hình bên trái, phần bên phải là map
+- LTA realtime hiển thị cả tình trạng của những chuyến bus mà lộ trình hiện tại không đi qua, hãy chỉnh sửa để chỉ hiển thị đúng tuyến mà người dùng có liên quan tới, và trên frontend hiện tại chỉ hiển thị: 131 6 min 13 min, người dùng không biết đó là các số gì, cần thêm tiêu đề cột rõ ràng.
+- Đối với các chặn đi MRT nhưng có dùng tới Bus thì cũng cần hiện LTA realtime cho tuyến bus đó.
+- Khi lên plan và khi chuyến đi bắt đầu thì cần hiển thị thêm thời gian tới địa điểm dự tính và thời gian đi khỏi địa điểm đó theo dự tính.
+- Hiển thị thêm cột thời gian bắt đầu và kết thúc của mỗi ngày, cột tổng thời gian di chuyển của mỗi ngày ở tab overview.
+- Khi người dùng điều hỉnh thứ tự địa điểm trong cùng một ngày ở phần overview thì không cần gọi lại API optimize cho mỗi lần bấm, chỉ hiển thị thêm một nút Recalculate Route, người dùng bấm vào thì sẽ gọi OneMap API để vẽ lại lộ trình mới cho các leg bị thay đổi trong ngày hôm đó.
+- Bỏ nút optimize khi start trip
