@@ -419,6 +419,25 @@ async def _get_route_with_fallback(from_p: dict, to_p: dict) -> dict:
     }
 
 
+def _normalize_instructions(raw: list) -> list[str]:
+    """Flatten OneMap's list-of-list instructions into list[str].
+
+    OneMap walking steps arrive as inner lists like:
+      ["Right", "", 352, "...", "walking", "Turn right onto Orchard Rd"]
+    The last string element is the human-readable instruction.
+    Plain strings are passed through unchanged.
+    """
+    result = []
+    for item in raw:
+        if isinstance(item, list):
+            text = next((str(x) for x in reversed(item) if isinstance(x, str) and x), None)
+            if text:
+                result.append(text)
+        elif isinstance(item, str) and item:
+            result.append(item)
+    return result
+
+
 def _to_alternative(route_dict: dict) -> AlternativeRoute:
     """Convert a raw OneMap route dict into an AlternativeRoute model."""
     return AlternativeRoute(
@@ -427,7 +446,7 @@ def _to_alternative(route_dict: dict) -> AlternativeRoute:
         is_estimated=route_dict.get("is_estimated", False),
         geometry=route_dict.get("geometry"),
         geometries=route_dict.get("geometries", []),
-        instructions=route_dict.get("instructions", []),
+        instructions=_normalize_instructions(route_dict.get("instructions", [])),
         distance_km=route_dict.get("distance_km"),
         sub_legs=route_dict.get("sub_legs", []),
     )
@@ -703,7 +722,7 @@ async def plan_trip(
                 cost          = route.get("fare_sgd", 0.0)
                 geometry      = route.get("geometry")
                 geometries    = route.get("geometries", [])
-                instructions  = route.get("instructions", [])
+                instructions  = _normalize_instructions(route.get("instructions", []))
                 distance_km   = route.get("distance_km")
                 is_estimated  = route.get("is_estimated", False)
                 sub_legs_data = route.get("sub_legs", [])
@@ -984,7 +1003,7 @@ async def switch_leg_mode_live(
         "is_estimated":     False,
         "geometry":         route.get("geometry"),
         "geometries":       route.get("geometries", []),
-        "instructions":     route.get("instructions", []),
+        "instructions":     _normalize_instructions(route.get("instructions", [])),
         "distance_km":      route.get("distance_km"),
         "sub_legs":         route.get("sub_legs", []),
         # alternatives: not overwritten — A-based cache remains for PATCH /legs switching
