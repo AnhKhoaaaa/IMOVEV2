@@ -38,3 +38,10 @@ export function availableModesForLeg(leg) {
   const modes = unique.length ? unique : TRANSPORT_OPTIONS.map((item) => item.mode)
   return TRANSPORT_OPTIONS.filter((item) => modes.includes(item.mode))
 }
+
+export function allModesWithAvailability(leg) {
+  const hasAlts = leg?.alternatives && Object.keys(leg.alternatives).length > 0
+  if (!hasAlts) return TRANSPORT_OPTIONS.map((o) => ({ ...o, available: true }))
+  const avail = new Set(Object.keys(leg.alternatives).map(normalizeTransportMode))
+  return TRANSPORT_OPTIONS.map((o) => ({ ...o, available: avail.has(o.mode) }))
+}
