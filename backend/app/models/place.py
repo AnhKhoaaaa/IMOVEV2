@@ -28,3 +28,7 @@ class Place(BaseModel):
 
     # Old schema field — absent in new file; kept optional for legacy trip data
     image_url: Optional[str] = None
+
+    # Google Places API enrichment fields (added by scripts/enrich_places_google.py)
+    google_place_id: Optional[str]   = None
+    rating:          Optional[float] = None
