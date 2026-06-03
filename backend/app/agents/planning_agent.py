@@ -5,9 +5,12 @@ LLM (Gemini) is called ONLY for edge cases not covered by rule-based logic.
 
 import asyncio
 import json
+import logging
 import math
 import uuid
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from app.services import onemap
 from app.services.onemap import NoRouteError
@@ -453,10 +456,11 @@ def _to_alternative(route_dict: dict) -> AlternativeRoute:
 
 
 async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
-    """Fetch PT (mixed), PT bus-only, and Walk routes in parallel.
+    """Fetch PT (mixed), PT bus-only, Walk, and Cycle routes in parallel.
 
-    Returns dict[TransportMode, route_dict] — only populated for available modes.
-    All failures are swallowed; callers decide what to do with an empty/partial result.
+    Returns dict[TransportMode, route_dict] — only populated for modes OneMap can route.
+    PT routes where the itinerary is all-walk are excluded (WALK already covers those).
+    Failures are logged at DEBUG and treated as unavailable.
     """
     async def _safe(mode: str, transit_modes: str | None = None) -> dict | None:
         try:
@@ -468,31 +472,42 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
             )
             r["is_estimated"] = False
             return r
-        except Exception:
+        except Exception as exc:
+            log.debug("OneMap %s route unavailable (%s→%s): %s",
+                      mode, from_p.get("id"), to_p.get("id"), exc)
             return None
 
-    pt_route, bus_route, walk_route = await asyncio.gather(
+    pt_route, bus_route, walk_route, cycle_route = await asyncio.gather(
         _safe("pt"),
         _safe("pt", transit_modes="BUS"),
         _safe("walk"),
+        _safe("cycle"),
     )
 
     result: dict[str, dict] = {}
 
-    # PT mixed → key = primary mode ("METRO" or "BUS")
+    # PT mixed → key = primary transit mode; skip if OneMap returned an all-walk itinerary
     if pt_route:
         primary = _primary_mode(pt_route.get("legs", []))
-        result[primary] = pt_route
+        if primary != "WALK":
+            result[primary] = pt_route
+        else:
+            log.debug("PT route %s→%s is all-walk — no transit available for this pair",
+                      from_p.get("id"), to_p.get("id"))
 
-    # PT bus-only → store as "BUS" only if OneMap actually returned a BUS-primary route
+    # PT bus-only → add as "BUS" only when OneMap actually routes via bus
     if bus_route:
         bus_primary = _primary_mode(bus_route.get("legs", []))
         if bus_primary == "BUS":
-            result["BUS"] = bus_route  # overwrite with more precise bus-only route
+            result["BUS"] = bus_route
 
     # Walk
     if walk_route:
         result["WALK"] = walk_route
+
+    # Cycle — OneMap supports mode="cycle"; always fetch so Cycle is a real option
+    if cycle_route:
+        result["CYCLE"] = cycle_route
 
     return result
 
