@@ -104,6 +104,26 @@ describe('PlaceSearch', () => {
     expect(screen.getByText(/1 result/)).toBeInTheDocument()
   })
 
+  it('falls back to loaded backend places when search endpoint returns no results', async () => {
+    api.searchPlaces.mockResolvedValue([])
+    wrap(<PlaceSearch onAdd={vi.fn()} />)
+    await flush()
+    fireEvent.change(screen.getByPlaceholderText('Search places in Singapore…'), { target: { value: 'Marina' } })
+    await flush()
+    expect(screen.getByText('Marina Bay Sands')).toBeInTheDocument()
+    expect(screen.getByText(/1 result/)).toBeInTheDocument()
+  })
+
+  it('still shows local backend matches when search endpoint fails', async () => {
+    api.searchPlaces.mockRejectedValue(new Error('Search unavailable'))
+    wrap(<PlaceSearch onAdd={vi.fn()} />)
+    await flush()
+    fireEvent.change(screen.getByPlaceholderText('Search places in Singapore…'), { target: { value: 'Gardens' } })
+    await flush()
+    expect(screen.getByText('Gardens by the Bay')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Search unavailable')
+  })
+
   it('clears results when input is emptied', async () => {
     api.searchPlaces.mockResolvedValue([CURATED[0]])
     wrap(<PlaceSearch onAdd={vi.fn()} />)

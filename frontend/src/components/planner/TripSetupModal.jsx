@@ -11,11 +11,11 @@ const COMPANIONS = [
 ]
 
 const STYLES = [
-  { id: 'cultural',   emoji: '🎭', label: 'Cultural' },
-  { id: 'classic',    emoji: '🌟', label: 'Classic' },
-  { id: 'nature',     emoji: '🌿', label: 'Nature' },
-  { id: 'cityscape',  emoji: '🏙️', label: 'Cityscape' },
-  { id: 'historical', emoji: '🏛️', label: 'Historical' },
+  { id: 'nature',    emoji: '🌿', label: 'Nature' },
+  { id: 'food',      emoji: '🍜', label: 'Food' },
+  { id: 'heritage',  emoji: '🏛️', label: 'Heritage' },
+  { id: 'shopping',  emoji: '🛍️', label: 'Shopping' },
+  { id: 'nightlife', emoji: '🌃', label: 'Nightlife' },
 ]
 
 const PACES = [
@@ -227,7 +227,7 @@ export default function TripSetupModal({ open, savedMeta, onClose, onSave }) {
             <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
               <AlertTriangle size={13} className="text-amber-600 mt-0.5 shrink-0" />
               <p className="text-[12px] text-amber-800">
-                Changing dates may shift planned legs. Pacing &amp; Summary will recalculate; existing places stay on their day.
+                Changing dates or styles will re-run route planning. Existing places are kept; legs will be recalculated.
               </p>
             </div>
           )}

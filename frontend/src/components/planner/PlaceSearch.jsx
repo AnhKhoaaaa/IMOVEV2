@@ -64,6 +64,22 @@ function getSpecialBadges(name) {
   return []
 }
 
+function normalizePlaces(value) {
+  if (Array.isArray(value)) return value
+  if (Array.isArray(value?.places)) return value.places
+  if (Array.isArray(value?.items)) return value.items
+  return []
+}
+
+function mergePlaces(primary, fallback) {
+  const seen = new Set()
+  return [...primary, ...fallback].filter((place) => {
+    if (!place?.id || seen.has(place.id)) return false
+    seen.add(place.id)
+    return true
+  })
+}
+
 /* ── Place card ──────────────────────────────────────────────────── */
 function PlaceCard({ place, isAdded, onAdd }) {
   const { t } = useT()
@@ -159,8 +175,8 @@ export default function PlaceSearch({ onAdd, addedIds = new Set() }) {
   // Load curated places on mount for the featured list
   useEffect(() => {
     api.getCuratedPlaces()
-      .then(places => setFeatured(places))
-      .catch(() => {})
+      .then(places => setFeatured(normalizePlaces(places)))
+      .catch((e) => setSearchError(e.message))
       .finally(() => setLoadingFeatured(false))
   }, [])
 
@@ -172,9 +188,10 @@ export default function PlaceSearch({ onAdd, addedIds = new Set() }) {
         setSearchError(null)
         setSearching(true)
         const data = await api.searchPlaces(query)
-        setResults(data)
+        setResults(normalizePlaces(data))
       } catch (e) {
         setSearchError(e.message)
+        setResults([])
       } finally {
         setSearching(false)
       }
@@ -182,8 +199,15 @@ export default function PlaceSearch({ onAdd, addedIds = new Set() }) {
     return () => clearTimeout(timer)
   }, [query])
 
-  const showFeatured = !query.trim()
-  const displayList = showFeatured ? featured : results
+  const trimmedQuery = query.trim().toLowerCase()
+  const showFeatured = !trimmedQuery
+  const localMatches = showFeatured
+    ? []
+    : featured.filter((place) => {
+      const haystack = `${place.name ?? ''} ${place.category ?? ''}`.toLowerCase()
+      return haystack.includes(trimmedQuery)
+    })
+  const displayList = showFeatured ? featured : mergePlaces(results, localMatches)
 
   return (
     <div className="space-y-3">
@@ -211,7 +235,7 @@ export default function PlaceSearch({ onAdd, addedIds = new Set() }) {
           {showFeatured
             ? t('popularPlaces')
             : query.trim() && !searching
-              ? `${results.length} result${results.length !== 1 ? 's' : ''} for "${query}"`
+              ? `${displayList.length} result${displayList.length !== 1 ? 's' : ''} for "${query}"`
               : t('popularPlaces')
           }
         </p>

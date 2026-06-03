@@ -15,16 +15,11 @@ vi.mock('../../hooks/useSavedTrips', () => ({
   useSavedTrips: () => ({ save: vi.fn() }),
 }))
 
-vi.mock('../../contexts/AuthContext', () => ({
-  useAuth: () => ({ user: null }),
-}))
-
 vi.mock('../../services/api', () => ({
   api: {
     createTrip: vi.fn(),
     planTrip: vi.fn(),
     getCuratedPlaces: vi.fn().mockResolvedValue([]),
-    saveTrip: vi.fn(),   // auto-save draft — called after planTrip succeeds
   },
 }))
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Navigation2, User, LogOut, Globe } from 'lucide-react'
+import { Navigation2, User, LogOut, Globe, Settings } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useLang, useT } from '../../contexts/LanguageContext'
 import AuthModal from '../auth/AuthModal'
@@ -44,6 +44,13 @@ export default function Header() {
               className="hidden sm:inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
             >
               {t('newTrip')}
+            </Link>
+            <Link
+              to="/settings"
+              className="hidden sm:grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+              title="Settings"
+            >
+              <Settings className="h-4 w-4" />
             </Link>
 
             {/* Language toggle */}

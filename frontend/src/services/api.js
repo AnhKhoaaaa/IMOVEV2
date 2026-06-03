@@ -1,4 +1,6 @@
-// Empty string → Vite dev proxy handles routing (no CORS issues)
+import { supabase } from '../lib/supabase'
+
+// Empty string -> Vite dev proxy handles routing (no CORS issues)
 // Set VITE_API_BASE_URL=https://your-backend.com for production
 const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -12,10 +14,28 @@ function formatApiError(detail) {
   return JSON.stringify(detail)
 }
 
+async function authHeader() {
+  try {
+    const { data } = await supabase.auth.getSession()
+    const token = data?.session?.access_token
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch {
+    return {}
+  }
+}
+
 async function request(path, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.auth === false ? {} : await authHeader()),
+    ...options.headers,
+  }
+  const requestOptions = { ...options }
+  delete requestOptions.auth
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
+    headers,
+    ...requestOptions,
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -37,9 +57,11 @@ export const api = {
   getTrip: (id) => request(`/trips/${id}`),
   deleteTrip: (id) => request(`/trips/${id}`, { method: 'DELETE' }),
   updateLeg: (tripId, legId, body) => request(`/trips/${tripId}/legs/${legId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  switchLegNow: (tripId, legId, body) => request(`/trips/${tripId}/legs/${legId}/switch-now`, { method: 'POST', body: JSON.stringify(body) }),
   adaptTrip: (id, body) => request(`/trips/${id}/adapt`, { method: 'POST', body: JSON.stringify(body) }),
   acceptSwap: (id, body) => request(`/trips/${id}/accept-swap`, { method: 'POST', body: JSON.stringify(body) }),
   updateLocation: (id, body) => request(`/trips/${id}/location`, { method: 'POST', body: JSON.stringify(body) }),
+  checkAlerts: (id, body) => request(`/trips/${id}/check-alerts`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   optimizeRoute: (id) => request(`/trips/${id}/optimize`, { method: 'POST' }),
   addPlaceToDay: (id, body) => request(`/trips/${id}/places`, { method: 'POST', body: JSON.stringify(body) }),
   removePlaceFromDay: (id, placeId) => request(`/trips/${id}/places/${placeId}`, { method: 'DELETE' }),
@@ -49,6 +71,9 @@ export const api = {
   getBusArrivals: (stopCode) => request(`/transit/bus-arrivals/${encodeURIComponent(stopCode)}`),
   compareRoutes: (fromLat, fromLng, toLat, toLng) =>
     request(`/transit/compare?from_lat=${fromLat}&from_lng=${fromLng}&to_lat=${toLat}&to_lng=${toLng}`),
+  submitFeedback: (body) => request('/alerts/feedback', { method: 'POST', body: JSON.stringify(body) }),
+  getUserPreferences: () => request('/users/me/preferences'),
+  updateUserPreferences: (body) => request('/users/me/preferences', { method: 'PUT', body: JSON.stringify(body) }),
 
   // localStorage trip metadata helpers — per-user isolated via userId key suffix
   saveTrip(tripId, meta, userId) {

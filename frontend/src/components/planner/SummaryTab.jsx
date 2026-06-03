@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap, Navigation2, Save } from 'lucide-react'
+import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap, Navigation2, Save, Trash2 } from 'lucide-react'
 
 function StatCard({ label, value, Icon }) {
   return (
@@ -44,7 +44,7 @@ function LogBadge({ entry }) {
   )
 }
 
-export default function SummaryTab({ trip, optimizationLog = [], pendingSave = null, onSave }) {
+export default function SummaryTab({ trip, optimizationLog = [], pendingSave = null, onSave, onDelete }) {
   const [tripName, setTripName] = useState(pendingSave?.name ?? '')
   const days = trip?.days ?? []
   const allLegs = useMemo(() => days.flatMap((d) => d.legs ?? []), [days])
@@ -201,6 +201,20 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
           </button>
         </div>
       </div>
+
+      {/* Delete trip */}
+      {onDelete && (
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
+          <div className="font-display font-bold text-[14px] text-red-900 mb-1">Danger zone</div>
+          <p className="text-[12px] text-red-700 mb-3">Permanently removes this trip from the database.</p>
+          <button
+            onClick={onDelete}
+            className="h-9 px-4 rounded-lg border border-red-300 bg-white text-[13px] font-semibold text-red-600 hover:bg-red-100 transition inline-flex items-center gap-1.5"
+          >
+            <Trash2 size={13} /> Delete trip
+          </button>
+        </div>
+      )}
     </div>
   )
 }

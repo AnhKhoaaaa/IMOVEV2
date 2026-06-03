@@ -1,129 +1,123 @@
-import { useState } from 'react'
-import { MapPin, ChevronDown, RotateCcw, X, Clock, Sun } from 'lucide-react'
+import { MapPin, ChevronDown, Clock, Sun } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Label } from '../ui/label'
+
+const CATEGORY_COLORS = {
+  food:          'bg-orange-50 text-orange-700 border-orange-200',
+  dining:        'bg-orange-50 text-orange-700 border-orange-200',
+  nature:        'bg-emerald-50 text-emerald-700 border-emerald-200',
+  park:          'bg-emerald-50 text-emerald-700 border-emerald-200',
+  culture:       'bg-violet-50 text-violet-700 border-violet-200',
+  heritage:      'bg-violet-50 text-violet-700 border-violet-200',
+  museum:        'bg-violet-50 text-violet-700 border-violet-200',
+  shopping:      'bg-blue-50 text-blue-700 border-blue-200',
+  landmark:      'bg-indigo-50 text-indigo-700 border-indigo-200',
+  attraction:    'bg-indigo-50 text-indigo-700 border-indigo-200',
+  entertainment: 'bg-rose-50 text-rose-700 border-rose-200',
+  beach:         'bg-teal-50 text-teal-700 border-teal-200',
+}
 
 function formatOpenHours(openingHours) {
   if (!openingHours) return null
   if (openingHours === '24h') return 'Open 24h'
-  // "09:00-12:00 14:00-16:00" → "Open 09:00–12:00, 14:00–16:00"
   return 'Open ' + openingHours.split(' ').map(s => s.replace('-', '–')).join(', ')
 }
 
-function ImageStrip({ imageUrl }) {
-  return (
-    <div className="grid grid-cols-3 gap-1.5 mt-3">
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="relative h-20 rounded-lg overflow-hidden bg-slate-100 border border-slate-200/70">
-          {imageUrl && i === 0 ? (
-            <img
-              src={imageUrl}
-              alt=""
-              referrerPolicy="no-referrer"
-              className="absolute inset-0 w-full h-full object-cover"
-              onError={(e) => { e.currentTarget.style.display = 'none' }}
-            />
-          ) : null}
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200" style={{ zIndex: imageUrl && i === 0 ? -1 : 0 }} />
-          <div className="absolute inset-0 opacity-50" style={{
-            backgroundImage: 'repeating-linear-gradient(45deg,rgba(15,23,42,0.06) 0 6px,transparent 6px 12px)',
-            zIndex: imageUrl && i === 0 ? -1 : 0,
-          }} />
-          {(!imageUrl || i !== 0) && (
-            <div className="absolute bottom-1 left-1.5 text-[9px] font-mono text-slate-500 uppercase tracking-wide">
-              photo {i + 1}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-export default function PlaceCard({ place, index, expanded, onToggle, onDelete, notes, onNotesChange }) {
-  const [menuOpen, setMenuOpen] = useState(false)
-
+export default function PlaceCard({ place, index, expanded, onToggle, notes, onNotesChange }) {
   const openLabel = formatOpenHours(place.opening_hours)
 
   const bestTimeLabel = place.best_time_start
     ? `${place.best_time_start}–${place.best_time_end}`
     : null
 
-  // Format suggested visit duration
   const suggestedLabel = place.dwell_minutes
     ? place.dwell_minutes >= 60
-      ? `${Math.floor(place.dwell_minutes / 60)}–${Math.ceil(place.dwell_minutes / 60) + 1} hr`
+      ? `${Math.floor(place.dwell_minutes / 60)}h ${place.dwell_minutes % 60 > 0 ? `${place.dwell_minutes % 60}m` : ''}`.trim()
       : `${place.dwell_minutes} min`
     : null
 
-  // Category as "area" label
-  const areaLabel = place.category
+  const categoryKey = place.category?.toLowerCase()
+  const categoryLabel = place.category
     ? place.category.charAt(0).toUpperCase() + place.category.slice(1)
     : null
+  const categoryColor = CATEGORY_COLORS[categoryKey] ?? 'bg-slate-50 text-slate-600 border-slate-200'
 
   return (
     <div className="relative pl-12">
-      {/* Dashed vertical line */}
+      {/* Timeline connector */}
       <div className="absolute left-[19px] top-0 bottom-0 w-px border-l border-dashed border-slate-300" />
-      {/* Indigo dot with MapPin */}
-      <div className="absolute left-[10px] top-3 grid h-[22px] w-[22px] place-items-center rounded-full bg-white border-[3px] border-indigo-600 shadow-card">
+      <div className="absolute left-[10px] top-3.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-white border-[3px] border-indigo-600 shadow-card">
         <MapPin size={10} className="text-indigo-600" strokeWidth={3} />
       </div>
 
       <div className={cn(
-        'rounded-2xl border bg-white shadow-card transition',
+        'rounded-2xl border bg-white shadow-card overflow-hidden transition',
         expanded ? 'border-indigo-200 ring-2 ring-indigo-100/60' : 'border-slate-200 hover:border-slate-300'
       )}>
-        <button onClick={onToggle} className="w-full px-4 pt-4 pb-3 text-left focus-ring rounded-2xl">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-display font-bold text-[16px] text-slate-900">
-                  <span className="text-slate-400 mr-1.5 tabular-nums">{index}.</span>
-                  {place.name}
-                </span>
-                {place.is_outdoor && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 h-5 text-[11px] font-semibold text-emerald-700">
-                    Outdoor
-                  </span>
-                )}
-              </div>
-              <div className="mt-1.5 text-[12.5px] text-slate-600 leading-snug">
-                {openLabel && <>{openLabel}</>}
-                {openLabel && suggestedLabel && <span className="text-slate-300 mx-1">|</span>}
-                {suggestedLabel && <>Suggested: {suggestedLabel}</>}
-              </div>
-            </div>
-
-            <div className="relative shrink-0 flex items-center gap-1">
-              {onDelete && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o) }}
-                  className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
-                >
-                  <span className="font-bold tracking-widest text-[14px] leading-none">···</span>
-                </button>
-              )}
-              {menuOpen && onDelete && (
-                <div
-                  className="absolute right-0 top-8 z-10 w-44 rounded-lg border border-slate-200 bg-white shadow-pop overflow-hidden animate-slide-up"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={() => { setMenuOpen(false); onDelete() }}
-                    className="w-full text-left px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 inline-flex items-center gap-2"
-                  >
-                    <X size={12} /> Remove from day
-                  </button>
+        {/* Horizontal card header */}
+        <button onClick={onToggle} className="w-full text-left focus-ring">
+          <div className="flex min-h-[88px]">
+            {/* Photo */}
+            <div className="relative w-[108px] shrink-0 bg-slate-100">
+              {place.image_url ? (
+                <img
+                  src={place.image_url}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-slate-100 to-slate-200">
+                  <div className="absolute inset-0 opacity-40" style={{
+                    backgroundImage: 'repeating-linear-gradient(45deg,rgba(15,23,42,0.07) 0 5px,transparent 5px 10px)',
+                  }} />
                 </div>
               )}
-              <ChevronDown size={14} className={cn('text-slate-400 transition', expanded && 'rotate-180')} />
+            </div>
+
+            {/* Details */}
+            <div className="flex-1 min-w-0 px-3.5 py-3 flex flex-col justify-between">
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-display font-bold text-[15px] text-slate-900 leading-tight">
+                    <span className="text-slate-400 mr-1 tabular-nums text-[13px]">{index}.</span>
+                    {place.name}
+                  </p>
+                  <ChevronDown size={14} className={cn('text-slate-400 transition shrink-0 mt-0.5', expanded && 'rotate-180')} />
+                </div>
+
+                {/* Badges */}
+                <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                  {categoryLabel && (
+                    <span className={cn('inline-flex items-center rounded-full border px-2 h-5 text-[10.5px] font-semibold', categoryColor)}>
+                      {categoryLabel}
+                    </span>
+                  )}
+                  {place.is_outdoor && (
+                    <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 border border-emerald-200 px-2 h-5 text-[10.5px] font-semibold text-emerald-700">
+                      <Sun size={9} className="text-emerald-500" /> Outdoor
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Time info */}
+              <div className="mt-1.5 space-y-0.5">
+                {suggestedLabel && (
+                  <div className="flex items-center gap-1.5 text-[12px] text-slate-600">
+                    <Clock size={11} className="text-slate-400 shrink-0" />
+                    {suggestedLabel}
+                  </div>
+                )}
+                {openLabel && (
+                  <p className="text-[11.5px] text-slate-500 truncate">{openLabel}</p>
+                )}
+              </div>
             </div>
           </div>
-
-          <ImageStrip imageUrl={place.image_url} />
         </button>
 
+        {/* Expanded section */}
         {expanded && (
           <div className="border-t border-slate-100 px-4 py-3 bg-slate-50/40 space-y-2 animate-fade-up">
             {bestTimeLabel && (
@@ -141,13 +135,13 @@ export default function PlaceCard({ place, index, expanded, onToggle, onDelete, 
               className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] placeholder:text-slate-400 focus-ring focus:border-indigo-400 resize-none"
             />
             <div className="flex items-center justify-between text-[11.5px] text-slate-500 pt-1">
-              {areaLabel && (
+              {categoryLabel && (
                 <span className="inline-flex items-center gap-1.5">
                   <MapPin size={11} className="text-slate-400" />
-                  {areaLabel}
+                  {categoryLabel}
                 </span>
               )}
-              <span className="inline-flex items-center gap-1 text-indigo-600 font-medium">
+              <span className="inline-flex items-center gap-1 text-indigo-600 font-medium ml-auto">
                 <MapPin size={11} />
                 {place.lat?.toFixed(4)}°, {place.lng?.toFixed(4)}°
               </span>
