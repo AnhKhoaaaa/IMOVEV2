@@ -176,6 +176,9 @@ def score_alternatives(
             ww * _norm(d["walk"],      min_walk, max_walk)  +
             tw * _norm(d["transfers"], min_xfer, max_xfer)
         )
+        # Soft penalty: user prefers to avoid routes with >1 transfer
+        if profile.constraints.avoid_transfers and int(d["transfers"]) > 1:
+            s = max(0.0, s - 0.30)
         scores.append(ModeScore(
             mode=mode,
             score=round(s, 4),

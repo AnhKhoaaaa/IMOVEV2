@@ -90,7 +90,8 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-_TRAVEL_SPEED_KM_MIN = 0.3   # used only inside greedy for eligibility — never stored
+_TRAVEL_SPEED_KM_MIN = 0.25  # MRT-biased average for Singapore (2–8 km tourist routes); greedy only, never stored
+_MIN_TRANSIT_MIN     = 10   # minimum transit time per leg (waiting + walking to stop)
 _SG_CENTER = {"lat": 1.3521, "lng": 103.8198}
 _AT_ORIGIN_THRESHOLD_KM = 0.2  # 200m — GPS ≤ 200m from from_place → "at origin" fast path
 
@@ -114,53 +115,38 @@ def _classify_place(place: dict) -> str:
     return "overlap"
 
 
-def _pre_assign_evening_places(
-    evening: list[dict],
-    num_days: int,
-    seed_groups: list[list[dict]],
-) -> dict[int, list[dict]]:
-    """Distribute evening places evenly across days, tie-broken by centroid proximity."""
-    result: dict[int, list[dict]] = {i: [] for i in range(num_days)}
+def _assign_evening_to_days(evening: list[dict], day_groups: list[list[dict]]) -> None:
+    """Assign evening places to days after daytime distribution is known.
+
+    Primary criterion : day with least accumulated dwell time (balances total day length).
+    Tie-break          : geographic proximity to the last place of that day.
+    Mutates day_groups in-place.
+    """
     if not evening:
-        return result
-
-    def centroid(places: list[dict]) -> tuple[float, float]:
-        if not places:
-            return (_SG_CENTER["lat"], _SG_CENTER["lng"])
-        return (
-            sum(p["lat"] for p in places) / len(places),
-            sum(p["lng"] for p in places) / len(places),
-        )
-
-    centroids = [centroid(seed_groups[i] if i < len(seed_groups) else []) for i in range(num_days)]
-    cap = math.ceil(len(evening) / num_days)
-
+        return
+    num_days = len(day_groups)
     for ep in evening:
-        sorted_days = sorted(
-            range(num_days),
-            key=lambda i: _haversine_km(ep["lat"], ep["lng"], centroids[i][0], centroids[i][1]),
-        )
-        for day_idx in sorted_days:
-            if len(result[day_idx]) < cap:
-                result[day_idx].append(ep)
-                break
-        else:
-            least_full = min(range(num_days), key=lambda i: len(result[i]))
-            result[least_full].append(ep)
-
-    return result
+        def score(i: int) -> tuple[float, float]:
+            day_dwell = sum(p.get("dwell_minutes", 60) for p in day_groups[i])
+            last = day_groups[i][-1] if day_groups[i] else _SG_CENTER
+            dist = _haversine_km(ep["lat"], ep["lng"], last["lat"], last["lng"])
+            return (day_dwell, dist)
+        best = min(range(num_days), key=score)
+        day_groups[best].append(ep)
 
 
 def _day_bucketed_greedy(
     day_overlap: list[dict],
-    evening_by_day: dict[int, list[dict]],
     num_days: int,
 ) -> tuple[list[list[dict]], list[str]]:
-    """Assign and order places across days in a single time-window-aware greedy pass.
+    """Assign and order daytime places across days using a time-budget greedy pass.
 
-    Replaces both _sort_places_greedy and _distribute_days on the optimize path.
-    Travel-time estimates (haversine / 0.3 km/min) are used only for eligibility
-    checks — they are never stored or returned.
+    Each non-last day stops accepting places once its accumulated dwell time
+    reaches (total_daytime_dwell / num_days).  This prevents day 1 from being
+    over-packed when haversine transit estimates are optimistic.
+
+    Evening places are NOT handled here — call _assign_evening_to_days afterwards
+    so they are balanced against the known daytime dwell of each day.
     """
     START_MIN = 540   # 09:00
     END_MIN   = 1020  # 17:00
@@ -169,16 +155,27 @@ def _day_bucketed_greedy(
     pool = list(day_overlap)
     extra_warnings: list[str] = []
 
+    # Time-based budget: split total daytime dwell evenly across days.
+    # Each non-last day stops when its accumulated dwell reaches this target,
+    # leaving room for later days instead of packing everything into day 1.
+    total_dwell = sum(p.get("dwell_minutes", 60) for p in day_overlap)
+    dwell_budget = total_dwell / num_days if num_days > 1 else float("inf")
+
     anchor = day_overlap[0] if day_overlap else _SG_CENTER
 
     for day_idx in range(num_days):
         clock = START_MIN
         last_pos = day_groups[day_idx - 1][-1] if day_idx > 0 and day_groups[day_idx - 1] else anchor
+        is_last_day = (day_idx == num_days - 1)
+        day_dwell_used = 0.0
 
         while clock < END_MIN and pool:
+            if not is_last_day and day_dwell_used >= dwell_budget:
+                break
+
             candidates = []
             for p in pool:
-                travel_est = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN
+                travel_est = max(_haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN, _MIN_TRANSIT_MIN)
                 arrival    = clock + travel_est
                 dwell      = p.get("dwell_minutes", 60)
                 oh_open, oh_close = _parse_opening_hours(p.get("opening_hours", "24h"))
@@ -188,30 +185,24 @@ def _day_bucketed_greedy(
             if not candidates:
                 # Relax opening_hours; still enforce day-end constraint
                 for p in pool:
-                    t_est = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN
+                    t_est = max(_haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]) / _TRAVEL_SPEED_KM_MIN, _MIN_TRANSIT_MIN)
                     if clock + t_est + p.get("dwell_minutes", 60) <= END_MIN:
                         candidates.append(p)
                 if not candidates:
                     break  # nothing fits today → remaining places flow to next day
 
             pick = min(candidates, key=lambda p: _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]))
-            travel_est = _haversine_km(last_pos["lat"], last_pos["lng"], pick["lat"], pick["lng"]) / _TRAVEL_SPEED_KM_MIN
-            clock += travel_est + pick.get("dwell_minutes", 60)
+            dwell = pick.get("dwell_minutes", 60)
+            travel_est = max(_haversine_km(last_pos["lat"], last_pos["lng"], pick["lat"], pick["lng"]) / _TRAVEL_SPEED_KM_MIN, _MIN_TRANSIT_MIN)
+            clock += travel_est + dwell
+            day_dwell_used += dwell
             day_groups[day_idx].append(pick)
             pool.remove(pick)
             last_pos = pick
 
-        # Evening places: second distance-only greedy pass (17:00–22:00 slot)
-        ev = list(evening_by_day.get(day_idx, []))
-        while ev:
-            pick = min(ev, key=lambda p: _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]))
-            day_groups[day_idx].append(pick)
-            ev.remove(pick)
-            last_pos = pick
-
-    # Overflow: places that didn't fit any day's daytime window
+    # Overflow: places that exceeded all days' time windows
     for p in pool:
-        lightest = min(range(num_days), key=lambda i: len(day_groups[i]))
+        lightest = min(range(num_days), key=lambda i: sum(q.get("dwell_minutes", 60) for q in day_groups[i]))
         day_groups[lightest].append(p)
         extra_warnings.append(
             f"{p['name']}: could not fit in scheduled time window, appended to day {lightest + 1}"
@@ -562,12 +553,12 @@ async def plan_trip(
     # Replaces _sort_places_greedy (step 2) and _distribute_days (step 4) on the optimize path.
     greedy_warnings: list[str] = []
     if optimize_order:
-        classified     = {p["id"]: _classify_place(p) for p in places}
-        day_overlap    = [p for p in places if classified[p["id"]] != "evening"]
-        evening        = [p for p in places if classified[p["id"]] == "evening"]
-        seed_groups    = [day_overlap[i::num_days] for i in range(num_days)]
-        evening_by_day = _pre_assign_evening_places(evening, num_days, seed_groups)
-        day_groups, greedy_warnings = _day_bucketed_greedy(day_overlap, evening_by_day, num_days)
+        classified  = {p["id"]: _classify_place(p) for p in places}
+        day_overlap = [p for p in places if classified[p["id"]] != "evening"]
+        evening     = [p for p in places if classified[p["id"]] == "evening"]
+        day_groups, greedy_warnings = _day_bucketed_greedy(day_overlap, num_days)
+        # Assign evening places after daytime so they balance against known per-day dwell
+        _assign_evening_to_days(evening, day_groups)
     else:
         day_groups = _distribute_days(places, num_days)
 

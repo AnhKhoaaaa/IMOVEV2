@@ -530,12 +530,14 @@ function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, 
   )
 }
 
-function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onAddPlace, startTime }) {
+function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onAddPlace, startTime, gapNotifications = [] }) {
   const items = timelineForDay(day, placesById)
   const activeLeg = day?.legs?.[activeLegIndex]
   const activeFrom = activeLeg ? placesById[activeLeg.from_place_id] : null
   const activeTo = activeLeg ? placesById[activeLeg.to_place_id] : null
   const placeTimes = computePlaceTimes(day, placesById, startTime ?? '09:00')
+  const dayGaps = gapNotifications.filter((g) => g.day_index === day.day - 1)
+  const [gapsOpen, setGapsOpen] = useState(false)
 
   if (tripStarted && activeLeg) {
     return (
@@ -621,6 +623,30 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
           </button>
         </div>
       )}
+
+      {dayGaps.length > 0 && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50">
+          <button
+            onClick={() => setGapsOpen((v) => !v)}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-[12.5px] font-semibold text-blue-700"
+          >
+            <Sparkles size={13} className="shrink-0" />
+            <span>{dayGaps.length} free time gap{dayGaps.length > 1 ? 's' : ''} today</span>
+            <ChevronDown size={13} className={cn('ml-auto transition-transform', gapsOpen && 'rotate-180')} />
+          </button>
+          {gapsOpen && (
+            <div className="space-y-1.5 border-t border-blue-100 px-3 pb-3 pt-2">
+              {dayGaps.map((gap, i) => (
+                <div key={i} className="text-[12px] text-blue-800">
+                  <span className="font-bold tabular-nums">{gap.gap_start}–{gap.gap_end}</span>
+                  <span className="mx-1 text-blue-400">·</span>
+                  <span>{gap.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -649,8 +675,13 @@ export default function Trip() {
   })
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedDay, setSelectedDay] = useState(1)
-  const [tripStarted, setTripStarted] = useState(!!location.state?.autoStart)
-  const [activeLegIndex, setActiveLegIndex] = useState(0)
+  const [tripStarted, setTripStarted] = useState(() => {
+    if (location.state?.autoStart) return true
+    return sessionStorage.getItem(`imove_trip_started_${id}`) === 'true'
+  })
+  const [activeLegIndex, setActiveLegIndex] = useState(
+    () => parseInt(sessionStorage.getItem(`imove_active_leg_${id}`) ?? '0', 10)
+  )
   const [setupOpen, setSetupOpen] = useState(false)
   const [addDayFor, setAddDayFor] = useState(null)
   const [uiWarning, setUiWarning] = useState(null)
@@ -777,6 +808,15 @@ export default function Trip() {
       setTrackingPath(prev => [...prev, [position.lat, position.lng]])
     }
   }, [position, tripStarted])
+
+  // Persist trip navigation state to sessionStorage so refresh restores position
+  useEffect(() => {
+    sessionStorage.setItem(`imove_trip_started_${id}`, String(tripStarted))
+  }, [tripStarted, id])
+
+  useEffect(() => {
+    sessionStorage.setItem(`imove_active_leg_${id}`, String(activeLegIndex))
+  }, [activeLegIndex, id])
 
   const selectDayTab = (dayNum) => {
     setSelectedDay(dayNum)
@@ -936,6 +976,8 @@ export default function Trip() {
     } else {
       setTripStarted(false)
       setActiveTab('summary')
+      sessionStorage.removeItem(`imove_trip_started_${id}`)
+      sessionStorage.removeItem(`imove_active_leg_${id}`)
     }
   }
 
@@ -1128,6 +1170,7 @@ export default function Trip() {
               onMarkArrived={markArrived}
               onAddPlace={setAddDayFor}
               startTime={savedMeta?.startTime ?? '09:00'}
+              gapNotifications={trip.gap_notifications ?? []}
             />
           )}
 

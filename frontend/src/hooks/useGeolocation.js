@@ -13,7 +13,7 @@ export function useGeolocation() {
     watchRef.current = navigator.geolocation.watchPosition(
       (pos) => setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       (err) => setError(err.message),
-      { timeout: 10000, maximumAge: 30000, enableHighAccuracy: false }
+      { timeout: 10000, maximumAge: 5000, enableHighAccuracy: true }
     )
     return () => {
       if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current)

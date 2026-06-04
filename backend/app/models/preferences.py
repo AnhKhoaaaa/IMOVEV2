@@ -13,6 +13,7 @@ class ModeConstraints(BaseModel):
     avoid_metro:      bool = False
     minimize_walking: bool = False   # boost walking_w +0.15 khi tính điểm
     minimize_fee:     bool = False   # boost cost_w    +0.15 khi tính điểm
+    avoid_transfers:  bool = False   # penalise routes with >1 transfer in score_alternatives
 
 
 class UserPreferenceProfile(BaseModel):
