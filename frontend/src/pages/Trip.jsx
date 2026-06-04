@@ -659,7 +659,7 @@ export default function Trip() {
   const { trip, loading, error, refresh, isOffline } = useTrip(id, user?.id ?? null)
   const { trips: savedTrips, save: saveTrip } = useSavedTrips(user?.id ?? null)
   const { alerts, dismiss } = useAlerts(id)
-  const { position } = useGeolocation()
+  const { position, error: geoError } = useGeolocation()
   const lastLocationSent = useRef(0)
 
   const pendingKey = `imove_pending_${id}`
@@ -1088,7 +1088,7 @@ export default function Trip() {
         }
       </div>
 
-      {(isOffline || todayBanner || optimizeMsg || arrivedPending || alerts.length > 0 || uiWarning) && (
+      {(isOffline || todayBanner || optimizeMsg || arrivedPending || (tripStarted && geoError) || alerts.length > 0 || uiWarning) && (
         <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
           {arrivedPending && (
             <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-semibold text-emerald-800">
@@ -1100,6 +1100,13 @@ export default function Trip() {
               >
                 Continue →
               </button>
+            </div>
+          )}
+          {tripStarted && geoError && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
+              <MapPin size={15} className="shrink-0" />
+              GPS unavailable — auto-arrive is off. Tap{' '}
+              <span className="font-bold">Arrived</span> manually when you reach each stop.
             </div>
           )}
           {todayBanner && (

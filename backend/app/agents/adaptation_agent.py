@@ -665,6 +665,14 @@ async def _recalculate_leg(
         duration_minutes=original.duration_minutes,
         cost_sgd=original.cost_sgd,
         is_estimated=True,
+        # Preserve display fields from the original leg — routing geometry is still
+        # approximately valid (same general area, even if from/to slightly changed).
+        first_bus_stop_code=original.first_bus_stop_code,
+        geometry=original.geometry,
+        geometries=original.geometries or [],
+        instructions=original.instructions or [],
+        distance_km=original.distance_km,
+        sub_legs=original.sub_legs or [],
     )
 
 

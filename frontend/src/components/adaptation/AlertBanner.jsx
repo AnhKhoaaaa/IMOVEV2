@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { AlertTriangle, Info, CloudRain, X } from 'lucide-react'
+import { AlertTriangle, Info, CloudRain, X, ArrowRight, Loader2 } from 'lucide-react'
 import { api } from '../../services/api'
 import { cn } from '../../lib/utils'
 
@@ -40,7 +40,7 @@ const TYPE_CONFIG = {
     iconClass: 'text-sky-500',
     badgeClass: 'bg-sky-100 text-sky-700',
     textClass: 'text-sky-900',
-    label: 'Weather Alert',
+    label: 'Weather',
     btnClass: 'border-sky-300 text-sky-700 hover:bg-sky-100',
     showAdapt: true,
   },
@@ -61,25 +61,184 @@ function getSessionId() {
 }
 
 function DeltaPill({ value, unit, positiveIsBad = true }) {
-  if (value === 0) return null
+  if (!value) return null
   const bad = positiveIsBad ? value > 0 : value < 0
   const sign = value > 0 ? '+' : ''
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${bad ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+    <span className={cn(
+      'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold',
+      bad ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+    )}>
       {sign}{value}{unit}
     </span>
   )
 }
 
+// Extract rain % from message text, e.g. "70% chance of rain"
+function parseRainPct(message) {
+  const m = message?.match(/(\d{1,3})\s*%/)
+  return m ? Number(m[1]) : null
+}
+
+// Count outdoor place mentions from message
+function parseOutdoorCount(message) {
+  const m = message?.match(/(\d+)\s+outdoor/i)
+  return m ? Number(m[1]) : null
+}
+
+function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
+  const { containerClass, iconClass, badgeClass, textClass, btnClass } = TYPE_CONFIG.weather_warning
+
+  const [previewing, setPreviewing] = useState(false)
+  const [proposal, setProposal] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [accepting, setAccepting] = useState(false)
+
+  useEffect(() => {
+    setProposal(null)
+    setPreviewing(false)
+    setError(null)
+  }, [alert.id])
+
+  const rainPct = alert.metadata?.rain_probability ?? parseRainPct(alert.message)
+  const outdoorCount = alert.metadata?.outdoor_count ?? parseOutdoorCount(alert.message)
+
+  const handlePreview = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await api.adaptTrip(tripId, { alert_id: alert.id, session_id: getSessionId() })
+      setProposal(result)
+      setPreviewing(true)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAccept = async () => {
+    setAccepting(true)
+    try {
+      const updatedTrip = await api.acceptSwap(tripId, { alert_id: alert.id, session_id: getSessionId() })
+      if (onAdapted) await onAdapted(updatedTrip)
+      onDismiss(alert.id)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  return (
+    <div role="alert" className={cn('rounded-2xl border p-3.5 animate-slide-up', containerClass)}>
+      {/* Compact header row */}
+      <div className="flex items-center gap-2.5">
+        <CloudRain className={cn('h-4 w-4 shrink-0', iconClass)} aria-hidden="true" />
+
+        <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className={cn('text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full', badgeClass)}>
+            Rain
+          </span>
+          {rainPct != null && (
+            <span className={cn('text-sm font-semibold', textClass)}>{rainPct}% chance</span>
+          )}
+          {outdoorCount != null && (
+            <span className="text-sm text-sky-700/70">· {outdoorCount} outdoor stop{outdoorCount !== 1 ? 's' : ''} affected</span>
+          )}
+          {rainPct == null && outdoorCount == null && (
+            <span className={cn('text-sm', textClass)}>Weather may affect outdoor stops</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!previewing && (
+            <button
+              onClick={handlePreview}
+              disabled={loading}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-60',
+                btnClass
+              )}
+            >
+              {loading ? <Loader2 size={11} className="animate-spin" /> : null}
+              {loading ? 'Loading…' : 'Preview swap'}
+            </button>
+          )}
+          <button
+            onClick={() => onDismiss(alert.id)}
+            className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:bg-black/5 transition-colors"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded: swap details */}
+      {previewing && proposal && (
+        <div className="mt-3 pt-3 border-t border-sky-200">
+          {proposal.changes?.length > 0 ? (
+            <ul className="space-y-1 mb-3">
+              {proposal.changes.map((change, i) => (
+                <li key={i} className={cn('flex items-start gap-1.5 text-xs', textClass)}>
+                  <ArrowRight size={11} className="mt-0.5 shrink-0 text-sky-400" />
+                  {change}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-sky-700/70 mb-3">No swaps needed — all stops are indoor-friendly.</p>
+          )}
+
+          {(proposal.delta_transit_cost || proposal.delta_active_time || proposal.delta_walking_distance) && (
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              <DeltaPill value={proposal.delta_transit_cost} unit=" SGD" positiveIsBad />
+              <DeltaPill value={proposal.delta_active_time} unit=" min" positiveIsBad />
+              <DeltaPill value={Math.round(proposal.delta_walking_distance ?? 0)} unit=" m walk" positiveIsBad />
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            {proposal.changes?.length > 0 && (
+              <button
+                onClick={handleAccept}
+                disabled={accepting}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60',
+                  btnClass
+                )}
+              >
+                {accepting ? 'Applying…' : 'Accept swap'}
+              </button>
+            )}
+            <button
+              onClick={() => { setPreviewing(false); setProposal(null) }}
+              className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
+  if (alert.alert_type === 'weather_warning') {
+    return <WeatherAlertBanner alert={alert} tripId={tripId} onDismiss={onDismiss} onAdapted={onAdapted} />
+  }
+
   const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.service_unavailable
   const { Icon, containerClass, iconClass, badgeClass, textClass, label, btnClass, showAdapt } = config
 
-  // Phase 1: fetch tentative proposal
   const [adapting, setAdapting] = useState(false)
   const [adaptError, setAdaptError] = useState(null)
-  // Phase 2: user accepts or discards the proposal
-  const [proposal, setProposal] = useState(null)   // AdaptResponse from /adapt
+  const [proposal, setProposal] = useState(null)
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState(null)
   const [feedbackSent, setFeedbackSent] = useState(false)
@@ -95,8 +254,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
     setAdapting(true)
     setAdaptError(null)
     try {
-      const sessionId = getSessionId()
-      const result = await api.adaptTrip(tripId, { alert_id: alert.id, session_id: sessionId })
+      const result = await api.adaptTrip(tripId, { alert_id: alert.id, session_id: getSessionId() })
       setProposal(result)
     } catch (e) {
       setAdaptError(e.message)
@@ -109,9 +267,8 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
     setAccepting(true)
     setAcceptError(null)
     try {
-      const sessionId = getSessionId()
-      await api.acceptSwap(tripId, { alert_id: alert.id, session_id: sessionId })
-      if (onAdapted) await onAdapted()
+      const updatedTrip = await api.acceptSwap(tripId, { alert_id: alert.id, session_id: getSessionId() })
+      if (onAdapted) await onAdapted(updatedTrip)
       onDismiss(alert.id)
     } catch (e) {
       setAcceptError(e.message)
@@ -150,17 +307,15 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
         {proposal?.changes?.length > 0 && (
           <ul className="mt-2 space-y-0.5">
             {proposal.changes.map((change, i) => (
-              <li key={i} className={cn('text-xs leading-relaxed', textClass)}>
-                • {change}
-              </li>
+              <li key={i} className={cn('text-xs leading-relaxed', textClass)}>• {change}</li>
             ))}
           </ul>
         )}
         {delta && (
           <div className="flex flex-wrap gap-1.5 mt-2">
-            <DeltaPill value={delta.cost} unit=" SGD" positiveIsBad={true} />
-            <DeltaPill value={delta.time} unit=" min" positiveIsBad={true} />
-            <DeltaPill value={Math.round(delta.walk)} unit=" m walk" positiveIsBad={true} />
+            <DeltaPill value={delta.cost} unit=" SGD" positiveIsBad />
+            <DeltaPill value={delta.time} unit=" min" positiveIsBad />
+            <DeltaPill value={Math.round(delta.walk ?? 0)} unit=" m walk" positiveIsBad />
           </div>
         )}
 
@@ -169,10 +324,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
             <button
               onClick={handleAdapt}
               disabled={adapting}
-              className={cn(
-                'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
-                btnClass
-              )}
+              className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60', btnClass)}
             >
               {adapting ? 'Fetching...' : 'Preview swap'}
             </button>
@@ -181,10 +333,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
             <button
               onClick={handleAccept}
               disabled={accepting}
-              className={cn(
-                'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
-                btnClass
-              )}
+              className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60', btnClass)}
             >
               {accepting ? 'Applying...' : 'Accept'}
             </button>
@@ -192,25 +341,16 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
           <button
             onClick={() => onDismiss(alert.id)}
             disabled={adapting || accepting}
-            className={cn(
-              'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
-              btnClass
-            )}
+            className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60', btnClass)}
           >
             {proposal ? 'Discard' : showAdapt ? 'Dismiss' : 'Got it'}
           </button>
           {!feedbackSent ? (
             <>
-              <button
-                onClick={() => sendFeedback(5)}
-                className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}
-              >
+              <button onClick={() => sendFeedback(5)} className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}>
                 Helpful
               </button>
-              <button
-                onClick={() => sendFeedback(1)}
-                className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}
-              >
+              <button onClick={() => sendFeedback(1)} className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}>
                 Not helpful
               </button>
             </>
@@ -221,12 +361,8 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
           )}
         </div>
 
-        {adaptError && (
-          <p className="mt-2 text-xs text-red-600">{adaptError}</p>
-        )}
-        {acceptError && (
-          <p className="mt-2 text-xs text-red-600">{acceptError}</p>
-        )}
+        {adaptError && <p className="mt-2 text-xs text-red-600">{adaptError}</p>}
+        {acceptError && <p className="mt-2 text-xs text-red-600">{acceptError}</p>}
       </div>
 
       <button
