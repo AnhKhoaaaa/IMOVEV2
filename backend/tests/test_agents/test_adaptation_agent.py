@@ -24,6 +24,23 @@ def _make_supabase_mock(trips=None, legs=None, places_data=None, alert=None):
     """Build a mock Supabase client with configurable return data.
     Returns the same table mock object for each table name (cached)."""
     sb = MagicMock()
+    # _nearest_indoor calls supabase.rpc("find_nearest_indoor", ...) directly on the
+    # client (not via .table()). Return a real-looking indoor place dict so that:
+    # (a) poll/check functions see a truthy result and proceed to insert alerts, and
+    # (b) _apply_weather_swap gets a valid string id — not a MagicMock — preventing
+    #     Pydantic ValidationError when building the swapped LegResponse.
+    sb.rpc.return_value.execute.return_value = MagicMock(data=[{
+        "id": "artscience-museum",
+        "name": "ArtScience Museum",
+        "lat": 1.2863,
+        "lng": 103.8593,
+        "is_outdoor": False,
+        "dwell_minutes": 120,
+        "best_time_start": "10:00",
+        "best_time_end": "22:00",
+        "category": "museum",
+        "in_curated_dataset": True,
+    }])
     _cache: dict = {}
 
     def _table(name):
