@@ -7,7 +7,7 @@ from app.agents.planning_agent import (
     switch_leg_mode_live,
     _fetch_all_alternatives,
     _classify_place,
-    _pre_assign_evening_places,
+    _assign_evening_to_days,
     _day_bucketed_greedy,
     _distribute_days,
     _parse_opening_hours,
@@ -89,21 +89,36 @@ def test_day_bucketed_greedy_all_places_placed():
         {"id": "c", "lat": 1.30, "lng": 103.87, "dwell_minutes": 60,
          "best_time_start": "09:00", "best_time_end": "17:00"},
     ]
-    day_groups, warnings = _day_bucketed_greedy(places, {}, num_days=1)
+    day_groups, warnings = _day_bucketed_greedy(places, num_days=1)
     all_ids = [p["id"] for d in day_groups for p in d]
     assert set(all_ids) == {"a", "b", "c"}
     assert warnings == []
 
 
-def test_day_bucketed_greedy_evening_appended_after_day():
+def test_assign_evening_to_days_appended_after_day():
+    """Evening places assigned after daytime greedy — day place must come before evening."""
     day_place = {"id": "d", "lat": 1.28, "lng": 103.85, "dwell_minutes": 60,
                  "best_time_start": "09:00", "best_time_end": "17:00"}
     evening_place = {"id": "e", "lat": 1.29, "lng": 103.86, "dwell_minutes": 90,
                      "best_time_start": "19:00", "best_time_end": "23:00"}
-    day_groups, _ = _day_bucketed_greedy([day_place], {0: [evening_place]}, num_days=1)
+    day_groups, _ = _day_bucketed_greedy([day_place], num_days=1)
+    _assign_evening_to_days([evening_place], day_groups)
     assert len(day_groups) == 1
     ids = [p["id"] for p in day_groups[0]]
     assert ids.index("d") < ids.index("e")  # day place comes before evening place
+
+
+def test_assign_evening_to_days_balances_dwell():
+    """Evening place goes to the day with the least accumulated dwell."""
+    day_heavy = {"id": "a", "lat": 1.28, "lng": 103.85, "dwell_minutes": 180}
+    day_light = {"id": "b", "lat": 1.29, "lng": 103.86, "dwell_minutes": 60}
+    evening   = {"id": "e", "lat": 1.285, "lng": 103.855, "dwell_minutes": 90}
+    # day_groups: day 0 has heavy (180 min), day 1 has light (60 min)
+    day_groups = [[day_heavy], [day_light]]
+    _assign_evening_to_days([evening], day_groups)
+    # Evening should go to day 1 (60 min < 180 min)
+    assert any(p["id"] == "e" for p in day_groups[1])
+    assert all(p["id"] != "e" for p in day_groups[0])
 
 
 def test_distribute_days_single_day():

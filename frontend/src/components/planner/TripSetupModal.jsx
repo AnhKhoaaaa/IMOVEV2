@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Calendar, Clock, AlertTriangle, Check } from 'lucide-react'
+import { X, Calendar, Clock, AlertTriangle, Check, AlarmClock } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 const COMPANIONS = [
@@ -52,6 +52,7 @@ export default function TripSetupModal({ open, savedMeta, onClose, onSave }) {
     companion: 'solo',
     styles: [],
     pace: 'moderate',
+    startTime: '09:00',
   })
 
   useEffect(() => {
@@ -66,6 +67,7 @@ export default function TripSetupModal({ open, savedMeta, onClose, onSave }) {
         companion: savedMeta.companion ?? 'solo',
         styles: savedMeta.styles ?? [],
         pace: savedMeta.pace ?? 'moderate',
+        startTime: savedMeta.startTime ?? '09:00',
       })
     }
   }, [open, savedMeta])
@@ -220,6 +222,23 @@ export default function TripSetupModal({ open, savedMeta, onClose, onSave }) {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Daily start time */}
+          <div>
+            <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-1.5">
+              Daily start time
+            </label>
+            <div className="flex items-center gap-2">
+              <AlarmClock size={14} className="text-slate-400" />
+              <input
+                type="time"
+                value={draft.startTime}
+                onChange={(e) => set('startTime', e.target.value)}
+                className="flex h-9 w-36 rounded-lg border border-slate-200 bg-white px-3 text-[13px] focus:outline-none focus:border-indigo-400"
+              />
+              <span className="text-[12px] text-slate-400">each day</span>
+            </div>
           </div>
 
           {/* Date change warning */}
