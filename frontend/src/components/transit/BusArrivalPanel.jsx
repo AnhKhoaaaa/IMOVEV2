@@ -78,14 +78,17 @@ export default function BusArrivalPanel({ stopCode, serviceFilter }) {
 
   return (
     <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+      <div className="mb-1.5 grid grid-cols-[2.5rem_1fr_auto] gap-2 border-b border-slate-100 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <span>Route</span>
+        <span>Arrivals</span>
+        <span>Load</span>
+      </div>
       <div className="space-y-1.5 mb-2">
         {displayed.map((svc) => {
           const load = LOAD_CONFIG[svc.load] ?? null
           return (
-            <div key={svc.service_no} className="flex items-center gap-3">
-              <span className="w-10 shrink-0 text-xs font-bold text-slate-800">
-                {svc.service_no}
-              </span>
+            <div key={svc.service_no} className="grid grid-cols-[2.5rem_1fr_auto] items-center gap-2">
+              <span className="text-xs font-bold text-slate-800">{svc.service_no}</span>
               <div className="flex items-center gap-2">
                 <ArrivalTime minutes={svc.next_arrival_minutes} />
                 {svc.next_arrival_2_minutes >= 0 && (
@@ -95,12 +98,12 @@ export default function BusArrivalPanel({ stopCode, serviceFilter }) {
                   </>
                 )}
               </div>
-              {load && (
-                <span className={cn('ml-auto flex items-center gap-1 text-[10px] font-medium', load.text)}>
+              {load ? (
+                <span className={cn('flex items-center gap-1 text-[10px] font-medium', load.text)}>
                   <span className={cn('inline-block h-1.5 w-1.5 rounded-full', load.dot)} />
                   {load.label}
                 </span>
-              )}
+              ) : <span />}
             </div>
           )
         })}

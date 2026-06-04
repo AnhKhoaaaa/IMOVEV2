@@ -28,10 +28,13 @@ def test_supabase_schema_ready():
     """Verify all required tables exist (migrations 001 + 002 applied)."""
     from app.database import supabase
 
-    for table in ("trips", "route_legs", "trip_places", "lta_alerts", "trip_feedback", "user_preferences"):
+    for table in ("trips", "route_legs", "trip_places", "lta_alerts", "trip_feedback"):
         result = supabase.table(table).select("id").limit(1).execute()
-        # fix: result is never None — assert on .data which is [] when table is empty
         assert result.data is not None, f"Table '{table}' returned no data object"
+
+    # user_preferences uses user_id as PK (migration 005 dropped the id column)
+    result = supabase.table("user_preferences").select("user_id").limit(1).execute()
+    assert result.data is not None, "Table 'user_preferences' returned no data object"
 
 
 @skip_no_supabase
