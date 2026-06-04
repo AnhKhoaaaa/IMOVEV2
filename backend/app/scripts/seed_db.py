@@ -72,9 +72,6 @@ def _to_row(place: dict) -> dict:
         "is_audited":                  place.get("is_audited"),
         "offset_over_1km":             place.get("offset_over_1km"),
         "image_url":                   place.get("image_url"),
-        # Google Places API enrichment fields (null until enrich_places_google.py has run)
-        "google_place_id":             place.get("google_place_id"),
-        "rating":                      place.get("rating"),
     }
 
 
