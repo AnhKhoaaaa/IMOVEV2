@@ -7,6 +7,7 @@ Adaptation Agent — 100% rule-based code, no LLM.
 import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from app.services import lta, openweather, onemap
 from app.services.openweather import SINGAPORE_LAT, SINGAPORE_LNG
@@ -351,7 +352,7 @@ def _compute_centroid(place_ids: list[str]) -> tuple[float, float] | None:
 
 def _is_open_now(place: dict) -> bool:
     """Return False if the place is provably closed right now. Fails open on parse errors."""
-    now_dt = datetime.now()
+    now_dt = datetime.now(tz=ZoneInfo("Asia/Singapore"))
     now_str = now_dt.strftime("%H:%M")
     day_name = now_dt.strftime("%A")  # e.g. "Monday"
 
