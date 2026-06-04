@@ -86,6 +86,54 @@ export function computeTripMetrics(tripData) {
   }
 }
 
+export function toHHMM(totalMinutes) {
+  const h = Math.floor(totalMinutes / 60) % 24
+  const m = totalMinutes % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+export function parseHHMM(str) {
+  const [h, m] = (str ?? '09:00').split(':').map(Number)
+  return h * 60 + (m ?? 0)
+}
+
+/** Returns { [placeId]: { arrive: 'HH:MM', depart: 'HH:MM' } } based on leg chain + dwell times */
+export function computePlaceTimes(day, placesById, startTime = '09:00') {
+  const legs = day?.legs ?? []
+  if (!legs.length) return {}
+  let cursor = parseHHMM(startTime)
+  const times = {}
+  for (const leg of legs) {
+    if (!times[leg.from_place_id]) {
+      const dwell = placesById[leg.from_place_id]?.dwell_minutes ?? 30
+      times[leg.from_place_id] = { arrive: toHHMM(cursor), depart: toHHMM(cursor + dwell) }
+      cursor += dwell
+    } else {
+      cursor = parseHHMM(times[leg.from_place_id].depart)
+    }
+    cursor += leg.duration_minutes ?? 0
+    if (!times[leg.to_place_id]) {
+      const dwell = placesById[leg.to_place_id]?.dwell_minutes ?? 30
+      times[leg.to_place_id] = { arrive: toHHMM(cursor), depart: toHHMM(cursor + dwell) }
+    }
+  }
+  return times
+}
+
+/**
+ * Haversine distance between two {lat, lng} points, in metres.
+ * Used for GPS arrival detection and tracking-path sampling.
+ */
+export function haversineMeters(a, b) {
+  const R = 6_371_000
+  const φ1 = (a.lat * Math.PI) / 180
+  const φ2 = (b.lat * Math.PI) / 180
+  const Δφ = ((b.lat - a.lat) * Math.PI) / 180
+  const Δλ = ((b.lng - a.lng) * Math.PI) / 180
+  const x = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
+}
+
 export function formatDateRange(startDate, numDays) {
   if (!startDate) return null
   const start = new Date(startDate)

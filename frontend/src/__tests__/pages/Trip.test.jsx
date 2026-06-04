@@ -29,6 +29,7 @@ vi.mock('../../services/api', () => ({
     removeDay: vi.fn(() => Promise.resolve({ days: [] })),
     optimizeRoute: vi.fn(() => Promise.resolve({ days: [] })),
     updateLocation: vi.fn(() => Promise.resolve({})),
+    checkAlerts: vi.fn(() => Promise.resolve({})),
   },
 }))
 vi.mock('../../components/adaptation/AlertBanner', () => ({
@@ -179,5 +180,109 @@ describe('Trip page', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
     expect(screen.getByText('My Singapore Adventure')).toBeInTheDocument()
+  })
+})
+
+// ===========================================================================
+// dev13 feature tests
+// ===========================================================================
+
+/** Trip with 2 legs in day 1 and 3 places. */
+const makeTwoLegTrip = () => ({
+  id: 'trip-123',
+  days: [{
+    day: 1,
+    legs: [
+      { id: 'leg-1', from_place_id: 'p1', to_place_id: 'p2', transport_mode: 'MRT', duration_minutes: 12, cost_sgd: 1.5 },
+      { id: 'leg-2', from_place_id: 'p2', to_place_id: 'p3', transport_mode: 'BUS', duration_minutes: 20, cost_sgd: 1.2 },
+    ],
+  }],
+  places: [
+    { id: 'p1', name: 'Marina Bay', lat: 1.283, lng: 103.860, category: 'landmark' },
+    { id: 'p2', name: 'Bugis',      lat: 1.300, lng: 103.855, category: 'shopping' },
+    { id: 'p3', name: 'Sentosa',    lat: 1.249, lng: 103.830, category: 'attraction' },
+  ],
+  warnings: [],
+})
+
+describe('dev13 — Task 1: no Start button in DayView', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('DayView header has no standalone "Start" button in planning mode', () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    // Two "Day 1" buttons exist (tab nav + overview card) — click the first (tab)
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
+    // There must NOT be a button whose accessible name is exactly "Start"
+    expect(screen.queryByRole('button', { name: /^Start$/ })).not.toBeInTheDocument()
+  })
+
+  it('Start Trip button still exists in Overview', () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    expect(screen.getByRole('button', { name: /Start Trip/i })).toBeInTheDocument()
+  })
+})
+
+describe('dev13 — Task 5: no instructions in LegCard', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('after starting trip the DayView shows no "instructions" text', () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    // Instruction-related text must not appear
+    expect(screen.queryByText(/instructions/i)).not.toBeInTheDocument()
+  })
+
+  it('"Compare modes" button is still present in active leg view', () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    expect(screen.getByRole('button', { name: /Compare modes/i })).toBeInTheDocument()
+  })
+})
+
+describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('clicking Arrived shows the Continue banner', () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
+    expect(screen.getByText(/You've arrived/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
+  })
+
+  it('clicking Arrived does NOT immediately advance the leg', () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    // Single-leg trip — after arriving, should show Continue, NOT jump to Summary
+    fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
+    // Summary tab should NOT have appeared yet
+    expect(screen.queryByText(/Total cost|Total time/i)).not.toBeInTheDocument()
+  })
+
+  it('clicking Continue advances to next leg and hides banner', () => {
+    useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
+    expect(screen.getByText(/You've arrived/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    // Banner dismissed after Continue
+    expect(screen.queryByText(/You've arrived/i)).not.toBeInTheDocument()
+  })
+
+  it('Continue → last leg → no more legs → trip ends (Summary shown)', () => {
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    // After last leg, tripStarted becomes false and Summary tab is active
+    expect(screen.queryByText(/Live/i)).not.toBeInTheDocument()
   })
 })

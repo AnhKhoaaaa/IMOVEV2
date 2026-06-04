@@ -4,7 +4,6 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
-  ArrowRight,
   CheckCircle,
   ChevronDown,
   Clock,
@@ -14,8 +13,8 @@ import {
   MapPin,
   Navigation2,
   Plus,
+  RotateCcw,
   Route,
-  Search,
   Settings,
   Sparkles,
   Trash2,
@@ -29,7 +28,7 @@ import { useAlerts } from '../hooks/useAlerts'
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useAuth } from '../contexts/AuthContext'
-import { buildPlacesById } from '../lib/tripUtils'
+import { buildPlacesById, computePlaceTimes, haversineMeters } from '../lib/tripUtils'
 import { allModesWithAvailability, normalizeTransportMode, transportMeta } from '../lib/transport'
 import { cn } from '../lib/utils'
 import TripMap from '../components/map/TripMap'
@@ -94,7 +93,38 @@ function TransportBadge({ mode }) {
   )
 }
 
-function PlaceCard({ place, onRemove }) {
+function CompactPlaceCard({ place, role, onRemove }) {
+  if (!place) return null
+  const isTo = role === 'to'
+  return (
+    <div className={cn(
+      'flex items-center gap-3 rounded-lg border px-4 py-3',
+      isTo ? 'border-emerald-200 bg-emerald-50' : 'border-blue-100 bg-blue-50'
+    )}>
+      <div className={cn('h-2.5 w-2.5 rounded-full shrink-0', isTo ? 'bg-emerald-500' : 'bg-blue-500')} />
+      <div className="min-w-0 flex-1">
+        <p className={cn('text-[10.5px] font-bold uppercase tracking-wide', isTo ? 'text-emerald-600' : 'text-blue-500')}>
+          {isTo ? 'Destination' : 'Starting from'}
+        </p>
+        <p className="font-display font-bold text-[15px] text-slate-900 truncate">{place.name}</p>
+        {(place.dwell_minutes ?? 0) > 0 && (
+          <p className="text-[11.5px] text-slate-500 mt-0.5">⏱ {place.dwell_minutes} min visit</p>
+        )}
+      </div>
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          className="shrink-0 grid h-7 w-7 place-items-center rounded text-slate-300 hover:text-red-500"
+          title="Remove"
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function PlaceCard({ place, onRemove, arriveAt, departAt }) {
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex gap-4">
@@ -123,6 +153,11 @@ function PlaceCard({ place, onRemove }) {
                 <span className="rounded-md bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-500">
                   {place.dwell_minutes ?? place.suggested_duration_minutes ?? 60} min
                 </span>
+                {arriveAt && (
+                  <span className="rounded-md bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-500 tabular-nums">
+                    <Clock size={10} className="inline mr-0.5" />{arriveAt} – {departAt}
+                  </span>
+                )}
                 {place.close_days?.length > 0 && (
                   <span className="rounded-md bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700">
                     Closed {place.close_days.join(', ')}
@@ -271,12 +306,6 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
         <>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
-              onClick={() => setOpen(false)}
-              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:bg-slate-50"
-            >
-              {leg.instructions?.length ? `${leg.instructions.length} instructions` : 'No instructions'}
-            </button>
-            <button
               onClick={loadCompare}
               disabled={compareLoading}
               className="rounded-md border border-blue-100 bg-blue-50 px-3 py-1.5 text-[12px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
@@ -285,19 +314,8 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
             </button>
           </div>
 
-          {(leg.instructions?.length > 0 || leg.sub_legs?.length > 0 || compare || leg.first_bus_stop_code) && (
+          {(leg.sub_legs?.length > 0 || compare || leg.first_bus_stop_code) && (
             <div className="mt-3 space-y-3">
-              {leg.instructions?.length > 0 && (
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">Instructions</p>
-                  <ol className="space-y-1 text-[12px] text-slate-600">
-                    {leg.instructions.slice(0, 6).map((item, index) => (
-                      <li key={index}>{index + 1}. {item}</li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-
               {leg.sub_legs?.length > 0 && (
                 <div className="rounded-md border border-slate-200 bg-white p-3">
                   <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">Transit details</p>
@@ -316,8 +334,24 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
               )}
 
               {leg.first_bus_stop_code && normalizeTransportMode(leg.transport_mode) === 'BUS' && (
-                <BusArrivalPanel stopCode={leg.first_bus_stop_code} />
+                <BusArrivalPanel
+                  stopCode={leg.first_bus_stop_code}
+                  serviceFilter={leg.sub_legs?.find((s) => s.mode === 'BUS')?.route ?? null}
+                />
               )}
+
+              {normalizeTransportMode(leg.transport_mode) !== 'BUS' &&
+                (leg.sub_legs ?? [])
+                  .filter((sub) => sub.mode === 'BUS' && sub.from_stop_code)
+                  .map((sub, i) => (
+                    <div key={i} className="mt-2">
+                      <p className="mb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
+                        Bus {sub.route}{sub.from_name ? ` — ${sub.from_name}` : ''}
+                      </p>
+                      <BusArrivalPanel stopCode={sub.from_stop_code} serviceFilter={sub.route ?? null} />
+                    </div>
+                  ))
+              }
 
               {compare && (
                 <div className="grid grid-cols-3 gap-2">
@@ -340,7 +374,7 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
   )
 }
 
-function Overview({ trip, placesById, onSelectDay, onAddPlace, onRemovePlace, onReorder, onOptimize, onStartTrip }) {
+function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, onRemovePlace, onReorder, onRecalculate, onOptimize, onStartTrip, tripStarted, startTime }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -348,22 +382,24 @@ function Overview({ trip, placesById, onSelectDay, onAddPlace, onRemovePlace, on
           <h2 className="font-display text-[24px] font-extrabold text-slate-950">Overview</h2>
           <p className="mt-1 text-[13px] text-slate-500">Review warnings, free-time gaps, and daily route structure.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onOptimize}
-            className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 hover:bg-slate-50"
-          >
-            <Sparkles size={15} /> Optimise
-          </button>
-          {onStartTrip && (
+        {!tripStarted && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={onStartTrip}
-              className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-bold text-white hover:bg-emerald-500"
+              onClick={onOptimize}
+              className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 hover:bg-slate-50"
             >
-              <Navigation2 size={15} /> Start Trip
+              <Sparkles size={15} /> Optimise
             </button>
-          )}
-        </div>
+            {onStartTrip && (
+              <button
+                onClick={onStartTrip}
+                className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-bold text-white hover:bg-emerald-500"
+              >
+                <Navigation2 size={15} /> Start Trip
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {trip.warnings?.length > 0 && (
@@ -395,61 +431,96 @@ function Overview({ trip, placesById, onSelectDay, onAddPlace, onRemovePlace, on
 
       <div className="grid grid-cols-2 gap-4">
         {(trip.days ?? []).map((day) => {
-          const items = timelineForDay(day, placesById).filter((item) => item.type === 'place')
+          const isDirty = !!pendingByDay[day.day]
+          // Use pending order if available, else derive from server legs
+          const serverItems = timelineForDay(day, allPlacesById).filter((item) => item.type === 'place')
+          const displayPlaces = isDirty
+            ? pendingByDay[day.day].map((pid) => allPlacesById[pid]).filter(Boolean)
+            : serverItems.map((item) => item.place)
+
           const stats = dayStats(day)
+          const placeTimes = computePlaceTimes(day, allPlacesById, startTime ?? '09:00')
+          const transitMin = (day.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+
+          const firstTime = !isDirty && displayPlaces[0] ? placeTimes[displayPlaces[0].id]?.arrive : null
+          const lastTime  = !isDirty && displayPlaces.at(-1) ? placeTimes[displayPlaces.at(-1).id]?.depart : null
+
           return (
             <section key={day.day} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <button onClick={() => onSelectDay(day.day)} className="text-left">
                   <h3 className="font-display text-[18px] font-extrabold text-slate-950">Day {day.day}</h3>
                   <p className="mt-1 text-[12px] text-slate-500">
-                    {items.length} stops · {formatDuration(stats.duration)} · {formatCost(stats.cost)}
+                    {displayPlaces.length} stops · {formatDuration(stats.duration)} · {formatCost(stats.cost)}
                   </p>
+                  {firstTime && lastTime && (
+                    <p className="mt-0.5 text-[11px] text-slate-400 tabular-nums">
+                      {firstTime} – {lastTime} · {formatDuration(transitMin)} transit
+                    </p>
+                  )}
                 </button>
-                <button
-                  onClick={() => onAddPlace(day.day)}
-                  className="grid h-8 w-8 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                  title="Add place"
-                >
-                  <Plus size={14} />
-                </button>
+                {!tripStarted && (
+                  <button
+                    onClick={() => onAddPlace(day.day)}
+                    className="grid h-8 w-8 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    title="Add place"
+                  >
+                    <Plus size={14} />
+                  </button>
+                )}
               </div>
-              {items.length ? (
+              {displayPlaces.length ? (
                 <div className="space-y-2">
-                  {items.map((item, index) => (
-                    <div key={item.place.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
-                      <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
-                        {index + 1}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-slate-700">{item.place.name}</span>
-                      <button
-                        onClick={() => onReorder(day.day, items.map((entry) => entry.place.id), index, -1)}
-                        disabled={index === 0}
-                        className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                      >
-                        Up
-                      </button>
-                      <button
-                        onClick={() => onReorder(day.day, items.map((entry) => entry.place.id), index, 1)}
-                        disabled={index === items.length - 1}
-                        className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                      >
-                        Down
-                      </button>
-                      <button
-                        onClick={() => onRemovePlace(item.place.id)}
-                        className="text-slate-300 hover:text-red-500"
-                        title="Remove"
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  ))}
+                  {displayPlaces.map((place, index) => {
+                    const times = placeTimes[place.id]
+                    return (
+                      <div key={place.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
+                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-bold text-slate-700">{place.name}</p>
+                          {times && (
+                            <p className="text-[10.5px] text-slate-400 tabular-nums">{times.arrive} – {times.depart}</p>
+                          )}
+                        </div>
+                        {!tripStarted && (
+                          <>
+                            <button
+                              onClick={() => onReorder(day.day, displayPlaces.map((p) => p.id), index, -1)}
+                              disabled={index === 0}
+                              className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                            >Up</button>
+                            <button
+                              onClick={() => onReorder(day.day, displayPlaces.map((p) => p.id), index, 1)}
+                              disabled={index === displayPlaces.length - 1}
+                              className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                            >Down</button>
+                            <button
+                              onClick={() => onRemovePlace(place.id, day.day)}
+                              className="text-slate-300 hover:text-red-500"
+                              title="Remove"
+                            >
+                              <X size={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-[13px] text-slate-400">
                   Empty day
                 </div>
+              )}
+              {isDirty && (
+                <button
+                  onClick={() => onRecalculate(day.day)}
+                  className="mt-3 inline-flex w-full h-9 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                >
+                  <RotateCcw size={13} /> Recalculate Route
+                </button>
               )}
             </section>
           )
@@ -459,41 +530,42 @@ function Overview({ trip, placesById, onSelectDay, onAddPlace, onRemovePlace, on
   )
 }
 
-function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onStart, onArrive, onAddPlace }) {
+function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onAddPlace, startTime }) {
   const items = timelineForDay(day, placesById)
   const activeLeg = day?.legs?.[activeLegIndex]
   const activeFrom = activeLeg ? placesById[activeLeg.from_place_id] : null
   const activeTo = activeLeg ? placesById[activeLeg.to_place_id] : null
+  const placeTimes = computePlaceTimes(day, placesById, startTime ?? '09:00')
 
   if (tripStarted && activeLeg) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="font-display text-[24px] font-extrabold text-slate-950">Active leg</h2>
-            <p className="mt-1 text-[13px] text-slate-500">Route from your current progress through Day {day.day}.</p>
+            <h2 className="font-display text-[20px] font-extrabold text-slate-950">Active leg</h2>
+            <p className="mt-0.5 text-[13px] text-slate-500">
+              Day {day.day} · Leg {activeLegIndex + 1} of {day.legs?.length ?? 1}
+            </p>
           </div>
           <button
-            onClick={onArrive}
+            onClick={onMarkArrived}
             className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-bold text-white hover:bg-emerald-500"
           >
             <CheckCircle size={15} /> Arrived
           </button>
         </div>
-        <div className="grid grid-cols-[1fr_1.2fr_1fr] gap-4">
-          <PlaceCard place={activeFrom} />
-          <LegCard
-            leg={activeLeg}
-            from={activeFrom}
-            to={activeTo}
-            tripId={tripId}
-            tripStarted
-            position={position}
-            onUpdated={onUpdated}
-            onWarning={onWarning}
-          />
-          <PlaceCard place={activeTo} onRemove={() => onRemovePlace(activeTo.id)} />
-        </div>
+        <CompactPlaceCard place={activeFrom} role="from" />
+        <LegCard
+          leg={activeLeg}
+          from={activeFrom}
+          to={activeTo}
+          tripId={tripId}
+          tripStarted
+          position={position}
+          onUpdated={onUpdated}
+          onWarning={onWarning}
+        />
+        <CompactPlaceCard place={activeTo} role="to" onRemove={() => onRemovePlace(activeTo.id)} />
       </div>
     )
   }
@@ -505,20 +577,12 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
           <h2 className="font-display text-[24px] font-extrabold text-slate-950">Day {day.day}</h2>
           <p className="mt-1 text-[13px] text-slate-500">Alternating place and route cards with live transport details.</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onAddPlace(day.day)}
-            className="flex h-10 items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-4 text-[13px] font-bold text-blue-700 hover:bg-blue-100"
-          >
-            <Plus size={15} /> Add place
-          </button>
-          <button
-            onClick={() => onStart(day.day)}
-            className="flex h-10 items-center gap-2 rounded-md bg-slate-900 px-4 text-[13px] font-bold text-white hover:bg-slate-800"
-          >
-            <Navigation2 size={15} /> Start
-          </button>
-        </div>
+        <button
+          onClick={() => onAddPlace(day.day)}
+          className="flex h-10 items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-4 text-[13px] font-bold text-blue-700 hover:bg-blue-100"
+        >
+          <Plus size={15} /> Add place
+        </button>
       </div>
 
       {items.length ? (
@@ -527,6 +591,8 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
             <PlaceCard
               key={`place-${item.place.id}`}
               place={item.place}
+              arriveAt={placeTimes[item.place.id]?.arrive}
+              departAt={placeTimes[item.place.id]?.depart}
               onRemove={() => onRemovePlace(item.place.id)}
             />
           ) : (
@@ -592,20 +658,57 @@ export default function Trip() {
   const [optimizeMsg, setOptimizeMsg] = useState(null)
   const [todayBanner, setTodayBanner] = useState(false)
 
+  // Pending local changes: { [dayNum]: placeId[] } — set by reorder/add/remove before Recalculate
+  const [pendingByDay, setPendingByDay] = useState({})
+  // Locally added places not yet in server data
+  const [pendingPlaces, setPendingPlaces] = useState({})
+  // Task 7: arrival flow — user must tap Continue before advancing leg
+  const [arrivedPending, setArrivedPending] = useState(false)
+  const autoArrivedRef = useRef(false)  // prevents re-firing auto-arrive for same destination
+  // Task 8: live GPS trail (only for WALK/CYCLE legs)
+  const [trackingPath, setTrackingPath] = useState([])
+  const lastTrackPointRef = useRef(null)
+
   const savedMeta = useMemo(() => savedTrips.find((item) => item.id === id), [savedTrips, id])
   const placesById = useMemo(() => buildPlacesById(trip?.places ?? []), [trip])
+  const allPlacesById = useMemo(() => ({ ...placesById, ...pendingPlaces }), [placesById, pendingPlaces])
   const currentDay = useMemo(
     () => trip?.days?.find((day) => day.day === selectedDay) ?? trip?.days?.[0],
     [trip, selectedDay]
   )
+
+  // Task 3a: 1-based sequence number for each place within its own day
+  const placeSequences = useMemo(() => {
+    const map = {}
+    for (const day of trip?.days ?? []) {
+      timelineForDay(day, allPlacesById)
+        .filter(i => i.type === 'place')
+        .forEach((i, idx) => { map[i.place.id] = idx + 1 })
+    }
+    return map
+  }, [trip, allPlacesById])
+
+  // Task 3a: IDs of places in the currently selected day tab (null = no inter-day dimming)
+  const activeDayPlaceIds = useMemo(() => {
+    if (!activeTab.startsWith('day-') || !currentDay) return null
+    return new Set(
+      timelineForDay(currentDay, allPlacesById)
+        .filter(i => i.type === 'place')
+        .map(i => i.place.id)
+    )
+  }, [activeTab, currentDay, allPlacesById])
 
   // Hoist active leg computation so mapPlaces/mapLegs can use it
   const activeLeg = useMemo(
     () => (tripStarted ? currentDay?.legs?.[activeLegIndex] ?? null : null),
     [tripStarted, currentDay, activeLegIndex]
   )
-  const activeFrom = activeLeg ? placesById[activeLeg.from_place_id] : null
-  const activeTo   = activeLeg ? placesById[activeLeg.to_place_id]   : null
+  const activeFrom = activeLeg ? allPlacesById[activeLeg.from_place_id] : null
+  const activeTo   = activeLeg ? allPlacesById[activeLeg.to_place_id]   : null
+
+  // Task 8b: determine if current leg warrants a live-draw tracking polyline
+  const activeLegMode = activeLeg ? normalizeTransportMode(activeLeg.transport_mode) : null
+  const isWalkOrCycle = activeLegMode === 'WALK' || activeLegMode === 'CYCLE'
 
   // Map data: when trip started → only active leg; day tab → all places (TripMap dims others); overview → all
   const mapLegs = useMemo(() => {
@@ -615,26 +718,21 @@ export default function Trip() {
     return currentDay?.legs ?? []
   }, [tripStarted, activeLeg, activeTab, trip, currentDay])
 
+  // Task 4a: during trip — hide visited, dim future, show active at full opacity
   const mapPlaces = useMemo(() => {
     if (!trip) return []
-    if (tripStarted && activeFrom && activeTo) return [activeFrom, activeTo]
-    return trip.places ?? []
-  }, [trip, tripStarted, activeFrom, activeTo])
-
-  // Maps placeId → dayNum so TripMap can dim non-active-day places
-  const dayGroupsForMap = useMemo(() => {
-    if (!trip?.days) return {}
-    const map = {}
-    for (const day of trip.days) {
-      for (const leg of day.legs ?? []) {
-        if (leg.from_place_id) map[leg.from_place_id] = day.day
-        if (leg.to_place_id)   map[leg.to_place_id]   = day.day
-      }
+    if (tripStarted && currentDay) {
+      const legs = currentDay.legs ?? []
+      const visitedIds = new Set(legs.slice(0, activeLegIndex).map(l => l.from_place_id))
+      const activeIds = activeLeg
+        ? new Set([activeLeg.from_place_id, activeLeg.to_place_id])
+        : new Set()
+      return (trip.places ?? [])
+        .filter(p => !visitedIds.has(p.id))
+        .map(p => ({ ...p, _dim: !activeIds.has(p.id) }))
     }
-    return map
-  }, [trip])
-
-  const activeDayNum = (!tripStarted && activeTab.startsWith('day-')) ? selectedDay : null
+    return trip.places ?? []
+  }, [trip, tripStarted, currentDay, activeLeg, activeLegIndex])
 
   useEffect(() => {
     if (!trip?.days?.length) return
@@ -654,6 +752,31 @@ export default function Trip() {
     lastLocationSent.current = now
     api.updateLocation(id, { ...position, session_id: getSessionId() }).catch(() => {})
   }, [tripStarted, position, id])
+
+  // Task 6b: auto-arrive when GPS is within 100 m of the destination
+  useEffect(() => {
+    if (!tripStarted || !position || !activeTo || autoArrivedRef.current || arrivedPending) return
+    const dist = haversineMeters(position, { lat: activeTo.lat, lng: activeTo.lng })
+    if (dist <= 100) {
+      autoArrivedRef.current = true
+      markArrived()
+    }
+  }, [position, tripStarted, activeTo, arrivedPending])
+
+  // Task 8a: append a GPS point to the tracking trail when the user moves ≥ 30 m
+  useEffect(() => {
+    if (!tripStarted || !position) return
+    if (!lastTrackPointRef.current) {
+      lastTrackPointRef.current = position
+      setTrackingPath([[position.lat, position.lng]])
+      return
+    }
+    const dist = haversineMeters(lastTrackPointRef.current, position)
+    if (dist >= 30) {
+      lastTrackPointRef.current = position
+      setTrackingPath(prev => [...prev, [position.lat, position.lng]])
+    }
+  }, [position, tripStarted])
 
   const selectDayTab = (dayNum) => {
     setSelectedDay(dayNum)
@@ -679,6 +802,7 @@ export default function Trip() {
   const optimize = async () => {
     if (mutating) return
     const orderBefore = (trip?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
+    const daysBefore = trip?.days?.length ?? 0
     setMutating(true)
     setUiWarning(null)
     setOptimizeMsg(null)
@@ -686,8 +810,16 @@ export default function Trip() {
       const result = await api.optimizeRoute(id)
       await refresh(result?.days ? result : undefined)
       const orderAfter = (result?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
-      const changed = orderAfter.filter((v, i) => v !== orderBefore[i]).length
-      setOptimizeMsg(changed > 0 ? `Route optimised! ${changed} stop${changed !== 1 ? 's' : ''} reordered.` : 'Already optimal — no reordering needed.')
+      const daysAfter = result?.days?.length ?? 0
+      const reordered = orderAfter.filter((v, i) => v !== orderBefore[i]).length
+      const redistributed = daysAfter !== daysBefore
+      if (redistributed) {
+        setOptimizeMsg(`Route optimised — distributed across ${daysAfter} day${daysAfter !== 1 ? 's' : ''}.`)
+      } else if (reordered > 0) {
+        setOptimizeMsg(`Route optimised! ${reordered} stop${reordered !== 1 ? 's' : ''} reordered.`)
+      } else {
+        setOptimizeMsg('Already optimal — no reordering needed.')
+      }
       setTimeout(() => setOptimizeMsg(null), 4000)
     } catch (err) {
       setUiWarning(err.message)
@@ -695,15 +827,82 @@ export default function Trip() {
       setMutating(false)
     }
   }
-  const removePlace = (placeId) => mutate(() => api.removePlaceFromDay(id, placeId))
-  const addPlace = (place, day) => mutate(() => api.addPlaceToDay(id, { place_id: place.id, day }))
-  const reorder = (day, ids, index, direction) => {
+  // Helpers to get current displayed order for a day (pending override or server order)
+  const getDisplayIds = (day) => {
+    if (pendingByDay[day.day]) return pendingByDay[day.day]
+    return timelineForDay(day, allPlacesById)
+      .filter((i) => i.type === 'place')
+      .map((i) => i.place.id)
+  }
+
+  // Local remove: update display state only — API deferred to recalculateDay
+  const removePlace = (placeId, dayNumHint) => {
+    const dayOfPlace = trip?.days?.find((d) => {
+      if (pendingByDay[d.day]) return pendingByDay[d.day].includes(placeId)
+      return timelineForDay(d, allPlacesById).some((i) => i.type === 'place' && i.place.id === placeId)
+    })
+    const dayNum = dayNumHint ?? dayOfPlace?.day
+    if (dayNum != null) {
+      const day = trip.days.find((d) => d.day === dayNum)
+      const currentIds = getDisplayIds(day)
+      setPendingByDay((prev) => ({ ...prev, [dayNum]: currentIds.filter((pid) => pid !== placeId) }))
+    }
+    // If locally-added (not yet on server), also drop from pendingPlaces
+    setPendingPlaces((prev) => { const next = { ...prev }; delete next[placeId]; return next })
+  }
+
+  // Local add: update display state only — API deferred to recalculateDay
+  const addPlace = (place, dayNum) => {
+    const day = trip?.days?.find((d) => d.day === dayNum)
+    const currentIds = getDisplayIds(day ?? { day: dayNum, legs: [] })
+    if (!currentIds.includes(place.id)) {
+      setPendingByDay((prev) => ({ ...prev, [dayNum]: [...currentIds, place.id] }))
+      setPendingPlaces((prev) => ({ ...prev, [place.id]: place }))
+    }
+    setAddDayFor(null)
+  }
+
+  // Local reorder only — no API call until Recalculate Route
+  const reorderLocal = (dayNum, ids, index, direction) => {
     const target = index + direction
     if (target < 0 || target >= ids.length) return
     const next = [...ids]
-    const [moved] = next.splice(index, 1)
-    next.splice(target, 0, moved)
-    mutate(() => api.reorderPlaces(id, day, next))
+    ;[next[index], next[target]] = [next[target], next[index]]
+    setPendingByDay((prev) => ({ ...prev, [dayNum]: next }))
+  }
+
+  // Recalculate: compute diff vs server state, apply removes → adds → reorder sequentially
+  const recalculateDay = async (dayNum) => {
+    const day = trip?.days?.find((d) => d.day === dayNum)
+    const pendingIds = pendingByDay[dayNum]
+    if (!pendingIds || !day) return
+
+    const serverIds = new Set(
+      timelineForDay(day, placesById).filter((i) => i.type === 'place').map((i) => i.place.id)
+    )
+    const pendingSet = new Set(pendingIds)
+    const toRemove = [...serverIds].filter((pid) => !pendingSet.has(pid))
+    const toAdd    = pendingIds.filter((pid) => !serverIds.has(pid) && pendingPlaces[pid])
+
+    setMutating(true)
+    setUiWarning(null)
+    try {
+      for (const placeId of toRemove) {
+        await api.removePlaceFromDay(id, placeId)
+      }
+      for (const placeId of toAdd) {
+        await api.addPlaceToDay(id, { place_id: placeId, day: dayNum })
+      }
+      const result = await api.reorderPlaces(id, dayNum, pendingIds)
+      await refresh(result?.days ? result : undefined)
+    } catch (err) {
+      setUiWarning(err.message)
+    } finally {
+      setMutating(false)
+    }
+
+    setPendingByDay((prev) => { const next = { ...prev }; delete next[dayNum]; return next })
+    setPendingPlaces({})
   }
 
   const startDay = (dayNum) => {
@@ -714,7 +913,15 @@ export default function Trip() {
     api.checkAlerts(id, { session_id: getSessionId() }).catch(() => {})
   }
 
-  const arrive = () => {
+  // Task 7: step 1 — mark arrived; user sees Continue banner before leg advances
+  const markArrived = () => setArrivedPending(true)
+
+  // Task 7: step 2 — advance to next leg (also resets GPS trail + auto-arrive guard)
+  const advanceLeg = () => {
+    autoArrivedRef.current = false
+    setArrivedPending(false)
+    setTrackingPath([])
+    lastTrackPointRef.current = null
     const day = trip?.days?.find((item) => item.day === selectedDay)
     if (!day) return
     if (activeLegIndex < (day.legs?.length ?? 0) - 1) {
@@ -839,8 +1046,20 @@ export default function Trip() {
         }
       </div>
 
-      {(isOffline || todayBanner || optimizeMsg || alerts.length > 0 || uiWarning) && (
+      {(isOffline || todayBanner || optimizeMsg || arrivedPending || alerts.length > 0 || uiWarning) && (
         <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
+          {arrivedPending && (
+            <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-semibold text-emerald-800">
+              <CheckCircle size={15} className="text-emerald-600" />
+              You&apos;ve arrived! Ready for the next leg?
+              <button
+                onClick={advanceLeg}
+                className="ml-auto rounded-md bg-emerald-600 px-3 py-1.5 text-[12px] font-bold text-white hover:bg-emerald-500"
+              >
+                Continue →
+              </button>
+            </div>
+          )}
           {todayBanner && (
             <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-800">
               <Navigation2 size={15} /> Your trip starts today!
@@ -881,20 +1100,24 @@ export default function Trip() {
           {activeTab === 'overview' && (
             <Overview
               trip={trip}
-              placesById={placesById}
+              allPlacesById={allPlacesById}
+              pendingByDay={pendingByDay}
               onSelectDay={selectDayTab}
               onAddPlace={setAddDayFor}
               onRemovePlace={removePlace}
-              onReorder={reorder}
+              onReorder={reorderLocal}
+              onRecalculate={recalculateDay}
               onOptimize={optimize}
               onStartTrip={!tripStarted && (trip?.days?.length ?? 0) > 0 ? () => startDay(trip.days[0].day) : null}
+              tripStarted={tripStarted}
+              startTime={savedMeta?.startTime ?? '09:00'}
             />
           )}
 
           {activeTab.startsWith('day-') && currentDay && (
             <DayView
               day={currentDay}
-              placesById={placesById}
+              placesById={allPlacesById}
               tripId={id}
               tripStarted={tripStarted && currentDay.day === selectedDay}
               position={position}
@@ -902,9 +1125,9 @@ export default function Trip() {
               onUpdated={refresh}
               onWarning={setUiWarning}
               onRemovePlace={removePlace}
-              onStart={startDay}
-              onArrive={arrive}
+              onMarkArrived={markArrived}
               onAddPlace={setAddDayFor}
+              startTime={savedMeta?.startTime ?? '09:00'}
             />
           )}
 
@@ -940,8 +1163,10 @@ export default function Trip() {
               legs={mapLegs}
               userPosition={tripStarted ? position : null}
               activeLegId={activeLeg?.id ?? null}
-              dayGroups={dayGroupsForMap}
-              activeDayNum={activeDayNum}
+              trimActiveRoute={!!(activeLeg?.id)}
+              placeSequences={placeSequences}
+              activeDayPlaceIds={activeDayPlaceIds}
+              trackingPath={isWalkOrCycle ? trackingPath : []}
             />
           </div>
         </aside>
@@ -988,11 +1213,8 @@ export default function Trip() {
               </button>
             </div>
             <PlaceSearch
-              addedIds={new Set((trip.places ?? []).map((place) => place.id))}
-              onAdd={async (place) => {
-                await addPlace(place, addDayFor)
-                setAddDayFor(null)
-              }}
+              addedIds={new Set(Object.keys(allPlacesById))}
+              onAdd={(place) => addPlace(place, addDayFor)}
             />
           </div>
         </div>
