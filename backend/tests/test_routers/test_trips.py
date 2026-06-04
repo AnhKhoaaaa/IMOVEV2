@@ -1060,3 +1060,102 @@ def test_check_alerts_returns_404_for_unknown_trip():
     """check-alerts returns 404 when trip is not in store and Supabase is unavailable."""
     resp = client.post("/trips/no-such-trip-xyz/check-alerts", json={})
     assert resp.status_code == 404
+
+
+# ── _persist_trip_plan: DELETE-before-INSERT contract ────────────────────────
+
+def test_persist_trip_plan_deletes_before_insert():
+    """_persist_trip_plan must DELETE all stale rows before inserting new ones.
+
+    Regression test for the stale-accumulation bug:
+      • trip_places primary key is an auto-generated UUID with no UNIQUE constraint
+        on (trip_id, place_id), so upsert without a prior delete always inserts new rows.
+      • route_legs generates fresh UUIDs for every plan_trip call, so upsert also
+        always inserts, leaving old rows from previous plans intact.
+    After a backend restart _fetch_trip_from_db reads ALL rows including stale ones,
+    causing phantom days, doubled stop counts, and overlapping route polylines.
+    """
+    from unittest.mock import MagicMock, call, patch
+    from app.routers.trips import _persist_trip_plan
+
+    # Build a minimal chain mock that records the operation sequence.
+    # supabase.table(name).delete().eq("trip_id", x).execute()
+    # supabase.table(name).insert(rows).execute()
+    delete_eq_mock = MagicMock()
+    delete_eq_mock.execute = MagicMock(return_value=MagicMock())
+    delete_mock = MagicMock()
+    delete_mock.eq = MagicMock(return_value=delete_eq_mock)
+
+    insert_mock = MagicMock()
+    insert_mock.execute = MagicMock(return_value=MagicMock())
+
+    call_sequence: list[str] = []
+
+    def _table(name):
+        tbl = MagicMock()
+
+        def _delete():
+            call_sequence.append(f"delete:{name}")
+            return delete_mock
+        def _insert(_rows):
+            call_sequence.append(f"insert:{name}")
+            return insert_mock
+
+        tbl.delete = _delete
+        tbl.insert = _insert
+        return tbl
+
+    mock_supabase = MagicMock()
+    mock_supabase.table = _table
+
+    plan = _make_plan("trip-persist-test")
+
+    with patch("app.routers.trips.supabase", mock_supabase):
+        _persist_trip_plan("trip-persist-test", plan)
+
+    # Both tables must be deleted before either is inserted
+    assert "delete:route_legs" in call_sequence, "route_legs DELETE not called"
+    assert "delete:trip_places" in call_sequence, "trip_places DELETE not called"
+    assert "insert:trip_places" in call_sequence, "trip_places INSERT not called"
+    assert "insert:route_legs" in call_sequence, "route_legs INSERT not called"
+
+    route_legs_del_idx  = call_sequence.index("delete:route_legs")
+    trip_places_del_idx = call_sequence.index("delete:trip_places")
+    trip_places_ins_idx = call_sequence.index("insert:trip_places")
+    route_legs_ins_idx  = call_sequence.index("insert:route_legs")
+
+    # Deletes must precede their own inserts
+    assert route_legs_del_idx  < route_legs_ins_idx,  "route_legs DELETE must come before INSERT"
+    assert trip_places_del_idx < trip_places_ins_idx, "trip_places DELETE must come before INSERT"
+
+
+def test_persist_trip_plan_no_upsert_called():
+    """_persist_trip_plan must NOT call upsert — only delete+insert."""
+    from unittest.mock import MagicMock, patch
+    from app.routers.trips import _persist_trip_plan
+
+    upsert_called: list[str] = []
+
+    def _table(name):
+        tbl = MagicMock()
+        delete_chain = MagicMock()
+        delete_chain.eq.return_value.execute.return_value = MagicMock()
+        tbl.delete.return_value = delete_chain
+        tbl.insert.return_value.execute.return_value = MagicMock()
+
+        def _upsert(_rows):
+            upsert_called.append(name)
+            return MagicMock()
+        tbl.upsert = _upsert
+        return tbl
+
+    mock_supabase = MagicMock()
+    mock_supabase.table = _table
+
+    plan = _make_plan("trip-no-upsert")
+    with patch("app.routers.trips.supabase", mock_supabase):
+        _persist_trip_plan("trip-no-upsert", plan)
+
+    assert upsert_called == [], (
+        f"upsert was called on tables {upsert_called} — must use DELETE+INSERT instead"
+    )
