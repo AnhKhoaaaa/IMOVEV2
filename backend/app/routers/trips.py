@@ -838,7 +838,22 @@ def _verify_session_ownership(trip_id: str, session_id: str) -> None:
 
 
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
-    """Batch-write trip_places and route_legs to Supabase (2 round-trips total)."""
+    """Batch-write trip_places and route_legs to Supabase.
+
+    Strategy: DELETE all existing rows for this trip_id first, then INSERT the
+    current plan.  This prevents stale rows from accumulating when plan_trip is
+    called multiple times (e.g. remove_day, remove_place, optimize).
+
+    Without the delete step, route_legs keeps old UUIDs from previous plans and
+    trip_places keeps duplicate place rows, causing:
+      - phantom days after backend restart (_fetch_trip_from_db reads stale day_number)
+      - doubled stop counts (trip.places had duplicate entries)
+      - overlapping route polylines on the map (doubled mapLegs)
+    """
+    # Delete stale records first so we never read back phantom data
+    supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
+    supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
+
     place_rows = [
         {
             "trip_id": trip_id,
@@ -851,7 +866,7 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
         for p in plan.places
     ]
     if place_rows:
-        supabase.table("trip_places").upsert(place_rows).execute()
+        supabase.table("trip_places").insert(place_rows).execute()
 
     leg_rows = [
         {
@@ -866,12 +881,16 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
             "is_estimated": leg.is_estimated,
             "instructions": leg.instructions,
             "geometry": leg.geometry,
+            "distance_km": float(leg.distance_km) if leg.distance_km is not None else None,
+            "sub_legs": [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
+            "first_bus_stop_code": leg.first_bus_stop_code,
+            "geometries": leg.geometries if leg.geometries else [],
         }
         for day in plan.days
         for leg in day.legs
     ]
     if leg_rows:
-        supabase.table("route_legs").upsert(leg_rows).execute()
+        supabase.table("route_legs").insert(leg_rows).execute()
 
 
 def _ordered_place_ids(legs: list, places) -> list[str]:
@@ -950,6 +969,10 @@ def _fetch_trip_from_db(trip_id: str):
             is_estimated=leg["is_estimated"],
             instructions=leg.get("instructions") or [],
             geometry=leg.get("geometry"),
+            distance_km=leg.get("distance_km"),
+            sub_legs=leg.get("sub_legs") or [],
+            first_bus_stop_code=leg.get("first_bus_stop_code"),
+            geometries=leg.get("geometries") or [],
         ))
 
     days = [DayPlan(day=d, legs=legs) for d, legs in sorted(days_map.items())]
