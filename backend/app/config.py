@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Demo key: 50 req/hr. Production key: 5,000 req/hr (free, apply at unsplash.com/developers)
     unsplash_access_key: Optional[str] = None
 
+    # Optional: Pexels image seeding (seed_images_pexels.py only — not used at runtime)
+    # Free tier: 200 req/hr, 20 000 req/month. Get key at pexels.com/api
+    pexels_api_key: Optional[str] = None
+
     # Optional: Google Places API (New) — enrich_places_google.py only, not used at runtime.
     # Enable at: https://console.cloud.google.com → Maps Platform → Places API (New)
     # Free caps: Text Search Pro 5K/month, Place Details Enterprise 1K/month, Photos 1K/month
