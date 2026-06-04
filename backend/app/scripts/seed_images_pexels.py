@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+còn 147-45
+python -m app.scripts.seed_images_pexels --start số bắt đầu.
 Seed script: fetches Pexels landscape image URLs for all 499 Singapore POIs.
 
 Overwrites ALL image_url values (existing Wikipedia/Unsplash URLs are broken).
@@ -563,7 +565,7 @@ def _clear_progress() -> None:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-def seed(*, resume: bool = False, limit: int = 0, dry_run: bool = False) -> None:
+def seed(*, resume: bool = False, limit: int = 0, dry_run: bool = False, start: int = 1) -> None:
     # ── Validate key ──────────────────────────────────────────────────────────
     api_key: str = settings.pexels_api_key or ""
     if not api_key:
@@ -589,6 +591,10 @@ def seed(*, resume: bool = False, limit: int = 0, dry_run: bool = False) -> None
     else:
         pending = list(raw)   # overwrite all — existing URLs are broken
         log.info("Overwrite mode: fetching URLs for all %d POIs", len(pending))
+
+    if start > 1:
+        pending = pending[start - 1:]
+        log.info("--start %d applied: skipping first %d POIs, %d remaining", start, start - 1, len(pending))
 
     if limit > 0:
         pending = pending[:limit]
@@ -663,12 +669,16 @@ def main() -> None:
         help="Process only the first N POIs (0 = all, default: 0)",
     )
     parser.add_argument(
+        "--start", type=int, default=1, metavar="N",
+        help="Skip the first N-1 POIs and begin processing from POI number N (1-based, default: 1)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print planned queries without calling Pexels or writing files",
     )
     args = parser.parse_args()
-    seed(resume=args.resume, limit=args.limit, dry_run=args.dry_run)
+    seed(resume=args.resume, limit=args.limit, dry_run=args.dry_run, start=args.start)
 
 
 if __name__ == "__main__":
