@@ -138,6 +138,7 @@ def _assign_evening_to_days(evening: list[dict], day_groups: list[list[dict]]) -
 def _day_bucketed_greedy(
     day_overlap: list[dict],
     num_days: int,
+    hotel: dict | None = None,
 ) -> tuple[list[list[dict]], list[str]]:
     """Assign and order daytime places across days using a time-budget greedy pass.
 
@@ -161,11 +162,16 @@ def _day_bucketed_greedy(
     total_dwell = sum(p.get("dwell_minutes", 60) for p in day_overlap)
     dwell_budget = total_dwell / num_days if num_days > 1 else float("inf")
 
-    anchor = day_overlap[0] if day_overlap else _SG_CENTER
+    # Hotel is the anchor: used as Day 1 start and as the overnight base for each day.
+    anchor = hotel if hotel else (day_overlap[0] if day_overlap else _SG_CENTER)
 
     for day_idx in range(num_days):
         clock = START_MIN
-        last_pos = day_groups[day_idx - 1][-1] if day_idx > 0 and day_groups[day_idx - 1] else anchor
+        if day_idx > 0:
+            # Tourists return to their hotel at night → hotel is daily start for Day 2+.
+            last_pos = hotel if hotel else (day_groups[day_idx - 1][-1] if day_groups[day_idx - 1] else anchor)
+        else:
+            last_pos = anchor
         is_last_day = (day_idx == num_days - 1)
         day_dwell_used = 0.0
 
@@ -245,6 +251,7 @@ def _distribute_days(
     places: list[dict],
     num_days: int,
     route_durations: dict[tuple, int] | None = None,
+    hotel: dict | None = None,
 ) -> list[list[dict]]:
     """Distribute places into days by simulating a 09:00–17:00 tourist day.
 
@@ -278,10 +285,12 @@ def _distribute_days(
 
         placed = False
         for day_idx in range(num_days):
-            # Travel time from last place in this day (0 if day is empty)
+            # Travel time from last place in this day (or hotel if day is empty and hotel provided)
             if days[day_idx]:
                 prev_id = days[day_idx][-1]["id"]
                 travel  = route_durations.get((prev_id, place["id"]), 15)
+            elif hotel:
+                travel = route_durations.get(("hotel", place["id"]), 15)
             else:
                 travel = 0
 
@@ -551,6 +560,9 @@ async def plan_trip(
     preferences: dict | None,
     profile: UserPreferenceProfile | None = None,
     context: ContextSnapshot | None = None,
+    hotel_name: str | None = None,
+    hotel_lat: float | None = None,
+    hotel_lng: float | None = None,
 ) -> TripPlan:
     prefs = preferences or {}
     effective_profile = profile or UserPreferenceProfile()
@@ -571,79 +583,123 @@ async def plan_trip(
 
     places = [_PLACES[pid] for pid in place_ids]
 
+    # Build hotel_place dict if coordinates are provided
+    hotel_place: dict | None = None
+    if hotel_lat is not None and hotel_lng is not None:
+        hotel_place = {
+            "id": "hotel",
+            "name": hotel_name or "Hotel",
+            "lat": hotel_lat,
+            "lng": hotel_lng,
+            "dwell_minutes": 0,
+            "category": "Hotel",
+            "is_outdoor": False,
+            "opening_hours": "24h",
+            "best_time_start": "09:00",
+            "best_time_end": "23:59",
+        }
+
     # [CODE] 2+4. Day-bucketed greedy with time-window constraints
     # Replaces _sort_places_greedy (step 2) and _distribute_days (step 4) on the optimize path.
     greedy_warnings: list[str] = []
+    # Pre-initialise caches so non-optimize pre-fetch can populate them before Step 3.
+    route_cache:    dict[tuple, dict] = {}
+    alt_cache:      dict[tuple, dict] = {}
+    best_key_cache: dict[tuple, str]  = {}
+
     if optimize_order:
         classified  = {p["id"]: _classify_place(p) for p in places}
         day_overlap = [p for p in places if classified[p["id"]] != "evening"]
         evening     = [p for p in places if classified[p["id"]] == "evening"]
-        day_groups, greedy_warnings = _day_bucketed_greedy(day_overlap, num_days)
+        day_groups, greedy_warnings = _day_bucketed_greedy(day_overlap, num_days, hotel=hotel_place)
         # Assign evening places after daytime so they balance against known per-day dwell
         _assign_evening_to_days(evening, day_groups)
     else:
-        day_groups = _distribute_days(places, num_days)
+        # Non-optimize: haversine-only distribution — no OneMap calls here.
+        # User can freely add/remove places without waiting for API round-trips.
+        # Real routes are fetched only when the user explicitly clicks Optimize Route.
+        day_groups = _distribute_days(places, num_days, hotel=hotel_place)
 
-    # [CODE] 3. Parallel OneMap fetch — all unique consecutive pairs across all days
+    # [CODE] 3. Build route data for all unique consecutive pairs + hotel→first pairs.
+    # optimize_order=True  → parallel OneMap fetch (real transit routes).
+    # optimize_order=False → instant haversine estimates, all marked is_estimated=True.
     seen: set[tuple] = set()
-    unique_pairs: list[tuple[dict, dict]] = []
+    all_pairs: list[tuple[dict, dict]] = []
     for day_places in day_groups:
+        if hotel_place and day_places:
+            key = ("hotel", day_places[0]["id"])
+            if key not in seen and key not in alt_cache:
+                seen.add(key)
+                all_pairs.append((hotel_place, day_places[0]))
         for i in range(len(day_places) - 1):
             key = (day_places[i]["id"], day_places[i + 1]["id"])
-            if key not in seen:
+            if key not in seen and key not in alt_cache:
                 seen.add(key)
-                unique_pairs.append((day_places[i], day_places[i + 1]))
+                all_pairs.append((day_places[i], day_places[i + 1]))
 
-    alt_results = await asyncio.gather(
-        *[_fetch_all_alternatives(a, b) for a, b in unique_pairs],
-        return_exceptions=True,
-    )
-    route_cache:    dict[tuple, dict] = {}   # best single route for timing calculations
-    alt_cache:      dict[tuple, dict] = {}   # all alternatives keyed by TransportMode
-    best_key_cache: dict[tuple, str]  = {}   # transport mode key chosen as primary
-
-    for (a, b), alts in zip(unique_pairs, alt_results):
-        if isinstance(alts, Exception):
-            alts = {}
-
-        dist_km = _haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
-
-        if not alts:
+    if optimize_order:
+        alt_results = await asyncio.gather(
+            *[_fetch_all_alternatives(a, b) for a, b in all_pairs],
+            return_exceptions=True,
+        )
+        for (a, b), alts in zip(all_pairs, alt_results):
+            if isinstance(alts, Exception):
+                alts = {}
+            dist_km = _haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
+            if not alts:
+                if dist_km < 1.5:
+                    dur = max(1, round(dist_km / 5.0 * 60))
+                    alts = {"WALK": {
+                        "duration_minutes": dur,
+                        "fare_sgd": 0.0,
+                        "is_estimated": True,
+                        "geometry": None,
+                        "geometries": [],
+                        "instructions": [],
+                        "legs": [{"mode": "WALK", "duration_minutes": dur}],
+                        "distance_km": round(dist_km, 2),
+                        "sub_legs": [],
+                    }}
+                else:
+                    raise NoRouteError(
+                        f"No route available from '{a['id']}' to '{b['id']}' — "
+                        "all routing modes unavailable"
+                    )
+            alt_cache[(a["id"], b["id"])] = alts
+            alt_models = {m: _to_alternative(r) for m, r in alts.items()}
+            scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx)
+            best_key   = scoring.recommended_mode
+            # Safety guard: WALK > 1.5km is physically impractical in Singapore heat
+            if dist_km >= 1.5 and best_key == "WALK":
+                pt_key = next((m for m in ("METRO", "BUS") if m in alts), None)
+                if pt_key:
+                    best_key = pt_key
+            route_cache[(a["id"], b["id"])]    = alts[best_key]
+            best_key_cache[(a["id"], b["id"])] = best_key
+    else:
+        # Haversine estimates — no OneMap calls, instant response
+        for a, b in all_pairs:
+            dist_km = _haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
             if dist_km < 1.5:
-                # Haversine walk estimate — no OneMap route at all for short distance
-                dur = max(1, round(dist_km / 5.0 * 60))
-                alts = {"WALK": {
-                    "duration_minutes": dur,
-                    "fare_sgd": 0.0,
-                    "is_estimated": True,
-                    "geometry": None,
-                    "geometries": [],
-                    "instructions": [],
-                    "legs": [{"mode": "WALK", "duration_minutes": dur}],
-                    "distance_km": round(dist_km, 2),
-                    "sub_legs": [],
-                }}
+                dur      = max(1, round(dist_km / 5.0 * 60))
+                mode_key = "WALK"
             else:
-                raise NoRouteError(
-                    f"No route available from '{a['id']}' to '{b['id']}' — "
-                    "all routing modes unavailable"
-                )
-
-        alt_cache[(a["id"], b["id"])] = alts
-
-        # Select best route via weighted scoring (replaces hard distance threshold)
-        alt_models = {m: _to_alternative(r) for m, r in alts.items()}
-        scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx)
-        best_key   = scoring.recommended_mode
-
-        # Safety guard: WALK > 1.5km is physically impractical in Singapore heat
-        if dist_km >= 1.5 and best_key == "WALK":
-            pt_key = next((m for m in ("METRO", "BUS") if m in alts), None)
-            if pt_key:
-                best_key = pt_key
-
-        route_cache[(a["id"], b["id"])]    = alts[best_key]
-        best_key_cache[(a["id"], b["id"])] = best_key
+                dur      = max(_MIN_TRANSIT_MIN, round(dist_km / _TRAVEL_SPEED_KM_MIN))
+                mode_key = "METRO"
+            est_route = {
+                "duration_minutes": dur,
+                "fare_sgd": 0.0,
+                "is_estimated": True,
+                "geometry": None,
+                "geometries": [],
+                "instructions": [],
+                "legs": [{"mode": mode_key, "duration_minutes": dur}],
+                "distance_km": round(dist_km, 2),
+                "sub_legs": [],
+            }
+            route_cache[(a["id"], b["id"])]    = est_route
+            alt_cache[(a["id"], b["id"])]      = {mode_key: est_route}
+            best_key_cache[(a["id"], b["id"])] = mode_key
 
     route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
 
@@ -670,6 +726,52 @@ async def plan_trip(
     for day_idx, day_places in enumerate(day_groups):
         legs: list[LegResponse] = []
         current_time = 540  # tour starts at 09:00 (minutes since midnight)
+
+        # Hotel → first place leg (departs at 09:00, arrives at 09:00 + travel_time)
+        if hotel_place and day_places:
+            h_route_key = ("hotel", day_places[0]["id"])
+            if h_route_key in route_cache:
+                h_route        = route_cache[h_route_key]
+                h_alts         = alt_cache.get(h_route_key, {})
+                h_best_key     = best_key_cache.get(h_route_key, "WALK")
+            else:
+                h_fresh = await _fetch_all_alternatives(hotel_place, day_places[0])
+                h_dist  = _haversine_km(hotel_place["lat"], hotel_place["lng"], day_places[0]["lat"], day_places[0]["lng"])
+                if not h_fresh:
+                    dur = max(1, round(h_dist / 5.0 * 60))
+                    h_fresh = {"WALK": {"duration_minutes": dur, "fare_sgd": 0.0, "is_estimated": True,
+                                        "geometry": None, "geometries": [], "instructions": [],
+                                        "legs": [{"mode": "WALK"}], "distance_km": round(h_dist, 2), "sub_legs": []}}
+                h_models   = {m: _to_alternative(r) for m, r in h_fresh.items()}
+                h_scoring  = score_alternatives(h_models, profile=effective_profile, context=effective_ctx)
+                h_best_key = h_scoring.recommended_mode
+                if h_dist >= 1.5 and h_best_key == "WALK":
+                    pt_fb = next((m for m in ("METRO", "BUS") if m in h_fresh), None)
+                    if pt_fb:
+                        h_best_key = pt_fb
+                h_route = h_fresh[h_best_key]
+                h_alts  = h_fresh
+                alt_cache[h_route_key]      = h_fresh
+                route_cache[h_route_key]    = h_route
+                best_key_cache[h_route_key] = h_best_key
+
+            h_transport = "WALK" if h_best_key == "WALK" else _primary_mode(h_route.get("legs", []))
+            legs.append(LegResponse(
+                id=str(uuid.uuid4()),
+                from_place_id="hotel",
+                to_place_id=day_places[0]["id"],
+                transport_mode=h_transport,
+                duration_minutes=h_route["duration_minutes"],
+                cost_sgd=h_route.get("fare_sgd", 0.0),
+                is_estimated=h_route.get("is_estimated", False),
+                instructions=_normalize_instructions(h_route.get("instructions", [])),
+                geometry=h_route.get("geometry"),
+                geometries=h_route.get("geometries", []),
+                distance_km=h_route.get("distance_km"),
+                sub_legs=h_route.get("sub_legs", []),
+                alternatives={m: _to_alternative(r) for m, r in h_alts.items()},
+            ))
+            current_time += h_route["duration_minutes"]
 
         for i, place in enumerate(day_places):
             arrival_time = current_time
@@ -784,7 +886,9 @@ async def plan_trip(
                     first_bus_stop_code=bus_stop_code,
                 ))
 
-        days.append(DayPlan(day=day_idx + 1, legs=legs))
+        # place_ids: hotel first (if present), then sightseeing places in visit order
+        day_place_ids = (["hotel"] if hotel_place and day_places else []) + [p["id"] for p in day_places]
+        days.append(DayPlan(day=day_idx + 1, legs=legs, place_ids=day_place_ids))
 
     # [CODE+LLM] 6b. Batch Gemini call for all gap notifications
     gap_notifications: list[GapNotification] = []
@@ -823,7 +927,21 @@ async def plan_trip(
     # [LLM] 8. Gemini not called — preferences are structured (prefer_mrt, max_walk_minutes,
     # budget_sgd). Free-text edge cases would require: # [LLM] call_gemini() here.
 
-    response_places = [
+    response_places = []
+    if hotel_place:
+        response_places.append(Place(
+            id="hotel",
+            name=hotel_place["name"],
+            lat=hotel_place["lat"],
+            lng=hotel_place["lng"],
+            dwell_minutes=0,
+            best_time_start="09:00",
+            best_time_end="23:59",
+            category="Hotel",
+            is_outdoor=False,
+            in_curated_dataset=False,
+        ))
+    response_places += [
         Place(
             id=p["id"],
             name=p["name"],

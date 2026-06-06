@@ -59,6 +59,7 @@ export default function DayPlan({
   tripId,
   onLegUpdated,
   placesById = {},
+  placeIds = [],
   // Active leg props (tripStarted mode)
   isActiveDay = false,
   activeLegIndex = 0,
@@ -83,7 +84,7 @@ export default function DayPlan({
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
-  const timeline = buildTimeline(legs ?? [], placesById)
+  const timeline = buildTimeline(legs ?? [], placesById, placeIds)
   const dayLabel = formatDayLabel(legs ?? [])
   const placeItems = timeline.filter(t => t.type === 'place').map(t => t.data.id)
 
