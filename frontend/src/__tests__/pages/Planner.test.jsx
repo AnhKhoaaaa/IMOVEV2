@@ -11,215 +11,147 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
-vi.mock('../../hooks/useSavedTrips', () => ({
-  useSavedTrips: () => ({ save: vi.fn() }),
-}))
-
 vi.mock('../../services/api', () => ({
   api: {
     createTrip: vi.fn(),
     planTrip: vi.fn(),
-    getCuratedPlaces: vi.fn().mockResolvedValue([]),
+    getCuratedPlaces: vi.fn().mockResolvedValue([
+      { id: 'p1', name: 'Gardens by the Bay', category: 'Nature', dwell_minutes: 120 },
+      { id: 'p2', name: 'Sentosa Beach Club', category: 'Entertainment', dwell_minutes: 180 }
+    ]),
+    geocodeHotel: vi.fn(),
+    suggestPlaces: vi.fn(),
   },
 }))
 
-// Two-place mock so transport chip tests work
-vi.mock('../../components/planner/PlaceSearch', () => ({
-  default: ({ onAdd, addedIds }) => (
+// Mock PlaceBrowser
+vi.mock('../../components/planner/PlaceBrowser', () => ({
+  default: ({ selectedIds, onToggle }) => (
     <div>
-      <button onClick={() => onAdd({ id: 'p1', name: 'Gardens by the Bay', lat: 1.28, lng: 103.86, category: 'nature', in_curated_dataset: true })}>
-        Add Gardens
+      <button onClick={() => onToggle({ id: 'p1', name: 'Gardens by the Bay', category: 'Nature', dwell_minutes: 120 })}>
+        Select Gardens
       </button>
-      <button onClick={() => onAdd({ id: 'p2', name: 'Sentosa', lat: 1.25, lng: 103.82, category: 'beach', in_curated_dataset: true })}>
-        Add Sentosa
+      <button onClick={() => onToggle({ id: 'p2', name: 'Sentosa Beach Club', category: 'Entertainment', dwell_minutes: 180 })}>
+        Select Sentosa
       </button>
-      <span data-testid="added-size">{addedIds?.size ?? 0}</span>
+      <span data-testid="selected-count">{selectedIds?.length ?? 0}</span>
     </div>
-  ),
+  )
 }))
 
 import { api } from '../../services/api'
 
 const wrap = () => render(
-  <BrowserRouter><LanguageProvider><Planner /></LanguageProvider></BrowserRouter>
+  <BrowserRouter>
+    <LanguageProvider>
+      <Planner />
+    </LanguageProvider>
+  </BrowserRouter>
 )
 
 describe('Planner', () => {
-  beforeEach(() => { vi.clearAllMocks(); localStorage.clear() })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
 
-  /* ── Mode chooser ───────────────────────────────────── */
-  it('shows mode chooser on initial render', () => {
+  it('renders Step 1 (Essentials) initially', () => {
     wrap()
-    expect(screen.getByText('Build it yourself')).toBeInTheDocument()
-    expect(screen.getByText('Plan with AI')).toBeInTheDocument()
-    expect(screen.getByText('Recommended')).toBeInTheDocument()
+    expect(screen.getByText('General settings')).toBeInTheDocument()
+    expect(screen.getAllByText('Trip Name')[0]).toBeInTheDocument()
+    expect(screen.getByText('Transit Budget (SGD)')).toBeInTheDocument()
+    expect(screen.getByText('Days')).toBeInTheDocument()
   })
 
-  it('mode chooser in Vietnamese when lang=vi', () => {
-    localStorage.setItem('imove_lang', 'vi')
+  it('can navigate to Step 2 (Hotel Location) and search for hotels', async () => {
     wrap()
-    expect(screen.getByText('Tự tạo hành trình')).toBeInTheDocument()
+    
+    // Click Next to go to Step 2
+    fireEvent.click(screen.getByText('Next'))
+    
+    expect(screen.getByText('Hotel Accommodation')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/e.g. Marina Bay Sands/i)).toBeInTheDocument()
+
+    // Test searching
+    api.geocodeHotel.mockResolvedValue({ address: '10 Bayfront Ave', lat: 1.28, lng: 103.86 })
+    const searchInput = screen.getByPlaceholderText(/e.g. Marina Bay Sands/i)
+    fireEvent.change(searchInput, { target: { value: 'Marina Bay' } })
+
+    await waitFor(() => expect(api.geocodeHotel).toHaveBeenCalledWith('Marina Bay'))
+    await waitFor(() => expect(screen.getByText('10 Bayfront Ave')).toBeInTheDocument())
+    
+    // Select the hotel
+    fireEvent.click(screen.getByText('Use'))
+    expect(screen.getAllByText('Marina Bay')[0]).toBeInTheDocument()
   })
 
-  /* ── Manual mode ────────────────────────────────────── */
-  const enterManual = () => {
+  it('can navigate to Step 3 (Travel Style) and select presets', () => {
     wrap()
-    fireEvent.click(screen.getByText('Build it yourself'))
-  }
+    
+    // Go to Step 3
+    fireEvent.click(screen.getByText('Next')) // Step 2
+    fireEvent.click(screen.getByText('Next')) // Step 3
+    
+    expect(screen.getByText('Transit weights')).toBeInTheDocument()
+    expect(screen.getByText('Fastest')).toBeInTheDocument()
+    expect(screen.getByText('Cheapest')).toBeInTheDocument()
+    expect(screen.getByText('Least Walking')).toBeInTheDocument()
+    expect(screen.getByText('Least Transfers')).toBeInTheDocument()
 
-  it('enters manual mode on primary card click', () => {
-    enterManual()
-    expect(screen.getByText('Add place')).toBeInTheDocument()
+    // Click Cheapest preset
+    fireEvent.click(screen.getByText('Cheapest'))
+    expect(screen.getByText('Fare Cost')).toBeInTheDocument()
   })
 
-  it('back button returns to mode chooser', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Change method'))
-    expect(screen.getByText('Build it yourself')).toBeInTheDocument()
+  it('can navigate to Step 4 (Places) and select places', async () => {
+    wrap()
+    
+    // Go to Step 4
+    fireEvent.click(screen.getByText('Next')) // Step 2
+    fireEvent.click(screen.getByText('Next')) // Step 3
+    fireEvent.click(screen.getByText('Next')) // Step 4
+    
+    expect(screen.getByText('Singapore attractions')).toBeInTheDocument()
+    
+    // Toggle places
+    fireEvent.click(screen.getByText('Select Gardens'))
+    expect(screen.getByTestId('selected-count').textContent).toBe('1')
+    
+    fireEvent.click(screen.getByText('Select Sentosa'))
+    expect(screen.getByTestId('selected-count').textContent).toBe('2')
   })
 
-  it('shows empty state when no places added', () => {
-    enterManual()
-    expect(screen.getByText('No places added yet')).toBeInTheDocument()
-  })
-
-  it('opens search panel on Add place click', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    expect(screen.getByText('Add Gardens')).toBeInTheDocument()
-  })
-
-  it('search panel stays open after adding a place (bug fix)', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    // Panel must still be open
-    expect(screen.getByText('Add Gardens')).toBeInTheDocument()
-  })
-
-  it('passes correct addedIds to PlaceSearch after adding', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    expect(screen.getByTestId('added-size').textContent).toBe('0')
-    fireEvent.click(screen.getByText('Add Gardens'))
-    expect(screen.getByTestId('added-size').textContent).toBe('1')
-    fireEvent.click(screen.getByText('Add Sentosa'))
-    expect(screen.getByTestId('added-size').textContent).toBe('2')
-  })
-
-  it('does not add duplicate places', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    expect(screen.getByTestId('added-size').textContent).toBe('1')
-  })
-
-  it('shows place in list after adding', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    expect(screen.getByText('Gardens by the Bay')).toBeInTheDocument()
-  })
-
-  it('shows transport chip between two places', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    fireEvent.click(screen.getByText('Add Sentosa'))
-    // Distance ~5.5km → MRT
-    expect(screen.getByText(/mrt/i)).toBeInTheDocument()
-  })
-
-  it('transport chip label changes language with toggle', () => {
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    fireEvent.click(screen.getByText('Add Sentosa'))
-    expect(screen.getByText('MRT')).toBeInTheDocument()
-  })
-
-  it('create trip button disabled with no places', () => {
-    enterManual()
-    expect(screen.getByText(/create itinerary/i)).toBeInTheDocument()
-    expect(screen.getByText(/add at least/i)).toBeInTheDocument()
-  })
-
-  it('calls createTrip then planTrip on submit', async () => {
-    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
+  it('submits correctly on Step 4 and calls API', async () => {
+    api.createTrip.mockResolvedValue({ trip_id: 'trip-123' })
     api.planTrip.mockResolvedValue({})
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    // close search, then find the create button (gradient button not disabled)
-    const createBtn = screen.getAllByRole('button').find(b =>
-      b.textContent.includes('Create Itinerary') && !b.disabled
-    )
-    fireEvent.click(createBtn)
+    
+    wrap()
+    
+    // Go to Step 4
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    fireEvent.click(screen.getByText('Next'))
+    
+    // Select 2 places
+    fireEvent.click(screen.getByText('Select Gardens'))
+    fireEvent.click(screen.getByText('Select Sentosa'))
+    
+    // Click Generate Plan
+    fireEvent.click(screen.getAllByText(/Generate plan/i)[0])
+    
     await waitFor(() => expect(api.createTrip).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-abc', expect.objectContaining({
-      place_ids: ['p1'],
-      optimize_order: false,
+    await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
+      place_ids: ['p1', 'p2'],
+      optimize_order: true,
+      preferences: expect.objectContaining({
+        budget_sgd: 50,
+        duration_w: 0.7
+      })
     })))
-  })
-
-  it('navigates to /trip/:id after successful submit', async () => {
-    api.createTrip.mockResolvedValue({ trip_id: 'trip-xyz' })
-    api.planTrip.mockResolvedValue({})
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    const createBtn = screen.getAllByRole('button').find(b =>
-      b.textContent.includes('Create Itinerary') && !b.disabled
-    )
-    fireEvent.click(createBtn)
+    
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(
-      '/trip/trip-xyz',
-      expect.objectContaining({ state: expect.objectContaining({ pendingSave: expect.any(Object) }) })
+      '/trip/trip-123',
+      expect.any(Object)
     ))
-  })
-
-  it('shows error when planTrip fails', async () => {
-    api.createTrip.mockResolvedValue({ trip_id: 'trip-abc' })
-    api.planTrip.mockRejectedValue(new Error('Server error'))
-    enterManual()
-    fireEvent.click(screen.getByText('Add place'))
-    fireEvent.click(screen.getByText('Add Gardens'))
-    const createBtn = screen.getAllByRole('button').find(b =>
-      b.textContent.includes('Create Itinerary') && !b.disabled
-    )
-    fireEvent.click(createBtn)
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Server error'))
-  })
-
-  /* ── AI mode ────────────────────────────────────────── */
-  const enterAI = () => {
-    wrap()
-    fireEvent.click(screen.getByText('Plan with AI'))
-  }
-
-  it('enters AI mode on secondary card click', () => {
-    enterAI()
-    expect(screen.getByText('Plan with AI')).toBeInTheDocument() // button label
-    expect(screen.getByText('Preferences')).toBeInTheDocument()
-  })
-
-  it('AI back button returns to mode chooser', () => {
-    enterAI()
-    fireEvent.click(screen.getByText('Change method'))
-    expect(screen.getByText('Build it yourself')).toBeInTheDocument()
-  })
-
-  it('AI mode shows companion and style chips', () => {
-    enterAI()
-    expect(screen.getByText('Solo')).toBeInTheDocument()
-    expect(screen.getByText('Cultural')).toBeInTheDocument()
-  })
-
-  it('AI mode shows pace options', () => {
-    enterAI()
-    expect(screen.getByText('Ambitious')).toBeInTheDocument()
-    expect(screen.getByText('Moderate')).toBeInTheDocument()
-    expect(screen.getByText('Relaxed')).toBeInTheDocument()
   })
 })

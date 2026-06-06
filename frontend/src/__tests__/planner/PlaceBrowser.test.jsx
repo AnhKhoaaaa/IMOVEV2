@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render as tlRender, screen, fireEvent, waitFor } from '@testing-library/react'
 import PlaceBrowser from '../../components/planner/PlaceBrowser'
 import { api } from '../../services/api'
+import { LanguageProvider } from '../../contexts/LanguageContext'
+
+const render = (ui, options) => tlRender(ui, { wrapper: LanguageProvider, ...options })
 
 vi.mock('../../services/api', () => ({
   api: { getCuratedPlaces: vi.fn() },
@@ -18,6 +21,14 @@ const PLACES = [
 beforeEach(() => {
   vi.clearAllMocks()
   api.getCuratedPlaces.mockResolvedValue(PLACES)
+  vi.stubGlobal('localStorage', {
+    getItem: vi.fn((key) => {
+      if (key === 'imove_lang') return 'vi'
+      return null
+    }),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+  })
 })
 
 describe('PlaceBrowser', () => {

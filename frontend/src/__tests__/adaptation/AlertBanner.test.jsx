@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render as tlRender, screen, fireEvent, waitFor } from '@testing-library/react'
 import AlertBanner from '../../components/adaptation/AlertBanner'
+import { LanguageProvider } from '../../contexts/LanguageContext'
+
+const render = (ui, options) => tlRender(ui, { wrapper: LanguageProvider, ...options })
 
 vi.mock('../../services/api', () => ({
-  api: { adaptTrip: vi.fn() },
+  api: { adaptTrip: vi.fn(), acceptSwap: vi.fn() },
 }))
 
 import { api } from '../../services/api'
@@ -23,7 +26,10 @@ describe('AlertBanner', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.stubGlobal('localStorage', {
-      getItem: vi.fn(() => 'sess-test-12345678'),
+      getItem: vi.fn((key) => {
+        if (key === 'imove_lang') return 'vi'
+        return 'sess-test-12345678'
+      }),
       setItem: vi.fn(),
       removeItem: vi.fn(),
     })
@@ -47,7 +53,7 @@ describe('AlertBanner', () => {
   it('renders weather_warning with adapt + dismiss buttons', () => {
     render(<AlertBanner alert={makeAlert({ alert_type: 'weather_warning' })} tripId="trip-1" onDismiss={onDismiss} />)
     expect(screen.getByText('Cập nhật kế hoạch')).toBeInTheDocument()
-    expect(screen.getByText('Bỏ qua')).toBeInTheDocument()
+    expect(screen.getByLabelText('Dismiss')).toBeInTheDocument()
   })
 
   it('displays the alert message', () => {
@@ -62,7 +68,7 @@ describe('AlertBanner', () => {
     expect(screen.getByText(/Cảnh báo giao thông/i)).toBeInTheDocument()
 
     rerender(<AlertBanner alert={makeAlert({ alert_type: 'weather_warning' })} tripId="t" onDismiss={onDismiss} />)
-    expect(screen.getByText(/Cảnh báo thời tiết/i)).toBeInTheDocument()
+    expect(screen.getByText(/Mưa/i)).toBeInTheDocument()
 
     rerender(<AlertBanner alert={makeAlert({ alert_type: 'service_unavailable' })} tripId="t" onDismiss={onDismiss} />)
     expect(screen.getByText(/Dịch vụ không khả dụng/i)).toBeInTheDocument()
@@ -90,8 +96,9 @@ describe('AlertBanner', () => {
 
   // --- Adapt button (success) ---
 
-  it('calls api.adaptTrip with session_id and then onAdapted and onDismiss on success', async () => {
-    api.adaptTrip.mockResolvedValue({})
+  it('calls api.adaptTrip with session_id, then acceptSwap, then onAdapted and onDismiss on success', async () => {
+    api.adaptTrip.mockResolvedValue({ changes: ['Change A'] })
+    api.acceptSwap.mockResolvedValue({})
     render(
       <AlertBanner alert={makeAlert()} tripId="trip-1" onDismiss={onDismiss} onAdapted={onAdapted} />
     )
@@ -100,6 +107,17 @@ describe('AlertBanner', () => {
 
     await waitFor(() =>
       expect(api.adaptTrip).toHaveBeenCalledWith('trip-1', {
+        alert_id: 'alert-1',
+        session_id: 'sess-test-12345678',
+      })
+    )
+
+    // Two-step flow: after preview, click accept
+    await waitFor(() => expect(screen.getByText('Chấp nhận')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Chấp nhận'))
+
+    await waitFor(() =>
+      expect(api.acceptSwap).toHaveBeenCalledWith('trip-1', {
         alert_id: 'alert-1',
         session_id: 'sess-test-12345678',
       })

@@ -280,6 +280,27 @@ const EN = {
   pace_ambitious: 'Ambitious',
   pace_moderate: 'Moderate',
   pace_relaxed: 'Relaxed',
+
+  /* ── Alert Banner ────────────────── */
+  alertTransit: 'Transit Alert',
+  alertWeather: 'Weather Alert',
+  alertService: 'Service Notice',
+  alertPreview: 'Preview swap',
+  alertAccept: 'Accept',
+  alertAcceptSwap: 'Accept swap',
+  alertDismiss: 'Dismiss',
+  alertGotIt: 'Got it',
+  alertUpdating: 'Updating...',
+  alertApplying: 'Applying...',
+  alertDiscard: 'Discard',
+  alertHelpful: 'Helpful',
+  alertNotHelpful: 'Not helpful',
+  alertFeedbackSent: 'Feedback sent',
+  alertRain: 'Rain',
+  alertChance: (pct) => `${pct}% chance`,
+  alertOutdoorAffected: (count) => `· ${count} outdoor stop${count !== 1 ? 's' : ''} affected`,
+  alertOutdoorFallback: 'Weather may affect outdoor stops',
+  alertNoSwapsNeeded: 'No swaps needed — all stops are indoor-friendly.',
 }
 
 const VI = {
@@ -523,6 +544,27 @@ const VI = {
   pace_ambitious: 'Nhiều điểm',
   pace_moderate: 'Vừa phải',
   pace_relaxed: 'Thư thả',
+
+  /* ── Alert Banner ────────────────── */
+  alertTransit: 'Cảnh báo giao thông',
+  alertWeather: 'Cảnh báo thời tiết',
+  alertService: 'Dịch vụ không khả dụng',
+  alertPreview: 'Cập nhật kế hoạch',
+  alertAccept: 'Chấp nhận',
+  alertAcceptSwap: 'Cập nhật kế hoạch',
+  alertDismiss: 'Bỏ qua',
+  alertGotIt: 'Đã hiểu',
+  alertUpdating: 'Đang cập nhật...',
+  alertApplying: 'Đang áp dụng...',
+  alertDiscard: 'Bỏ qua',
+  alertHelpful: 'Có ích',
+  alertNotHelpful: 'Không có ích',
+  alertFeedbackSent: 'Đã gửi phản hồi',
+  alertRain: 'Mưa',
+  alertChance: (pct) => `${pct}% cơ hội`,
+  alertOutdoorAffected: (count) => `· ảnh hưởng ${count} điểm ngoài trời`,
+  alertOutdoorFallback: 'Thời tiết có thể ảnh hưởng điểm ngoài trời',
+  alertNoSwapsNeeded: 'Không cần thay đổi — tất cả các điểm đều thân thiện trong nhà.',
 }
 
 export { EN, VI }

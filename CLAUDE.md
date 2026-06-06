@@ -13,7 +13,7 @@ For every feature request, follow this sequence — each step requires user appr
 2. **Plan** — write plan to `docs/plans/dev1.md` (version-controlled), await approval
 3. **Code** — implement exactly the requested feature, nothing more
 4. **Test** — generate and run test cases; all must pass before moving on
-5. **Commit** — commit with clear message
+5. **Commit** — commit with clear message; for each changed file, state the line range(s) modified (e.g. `backend/app/agents/planning_agent.py L563-600, L614-776`) so individual changes can be cherry-picked later
 
 ## Commands
 
@@ -91,7 +91,7 @@ Migrations live in `supabase/migrations/`. Auth is only required for the Memory 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **IMOVEV2** (3516 symbols, 6005 relationships, 160 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **IMOVEV2** (3758 symbols, 6516 relationships, 178 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
