@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Building2,
+  Car,
   CheckCircle,
   ChevronDown,
   Clock,
@@ -31,6 +32,7 @@ import { useGeolocation } from '../hooks/useGeolocation'
 import { useAuth } from '../contexts/AuthContext'
 import { buildPlacesById, computePlaceTimes, haversineMeters, parseHHMM, toHHMM } from '../lib/tripUtils'
 import { allModesWithAvailability, normalizeTransportMode, transportMeta } from '../lib/transport'
+import { openGrab } from '../lib/grab'
 import { cn } from '../lib/utils'
 import TripMap from '../components/map/TripMap'
 import AlertBanner from '../components/adaptation/AlertBanner'
@@ -215,6 +217,13 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
         : await api.updateLeg(tripId, leg.id, { transport_mode: mode })
       if (result?.warnings?.length) onWarning?.(result.warnings.join(' '))
       await onUpdated?.()
+      if (mode === 'GRAB') {
+        const pickup = (tripStarted && position)
+          ? { lat: position.lat, lng: position.lng, name: 'Your location' }
+          : { lat: from?.lat, lng: from?.lng, name: from?.name ?? '' }
+        openGrab({ fromLat: pickup.lat, fromLng: pickup.lng, fromName: pickup.name,
+                   toLat: to?.lat, toLng: to?.lng, toName: to?.name ?? '' })
+      }
     } catch (err) {
       onWarning?.(err.message)
     } finally {
@@ -257,7 +266,11 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
               </span>
             )}
             {leg.is_estimated && (
-              <span className="rounded-md bg-amber-50 px-2 py-1 text-[12px] font-bold text-amber-700">Estimated</span>
+              <span className="rounded-md bg-amber-50 px-2 py-1 text-[12px] font-bold text-amber-700">
+                {normalizeTransportMode(leg.transport_mode) === 'GRAB'
+                  ? 'Estimated · Excl. surge & ERP'
+                  : 'Estimated'}
+              </span>
             )}
           </div>
         </div>
@@ -361,16 +374,38 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
               }
 
               {compare && (
-                <div className="grid grid-cols-3 gap-2">
-                  {Object.entries(compare).map(([key, value]) => (
-                    <div key={key} className="rounded-md border border-slate-200 bg-white p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
-                      <p className="mt-1 text-[13px] font-extrabold text-slate-900">
-                        {value.available ? formatDuration(value.duration_minutes) : 'Unavailable'}
-                      </p>
-                      {value.available && <p className="text-[11px] text-slate-500">{formatCost(value.fare_sgd)}</p>}
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    {Object.entries(compare).map(([key, value]) => (
+                      <div key={key} className="rounded-md border border-slate-200 bg-white p-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
+                        <p className="mt-1 text-[13px] font-extrabold text-slate-900">
+                          {value.available ? formatDuration(value.duration_minutes) : 'Unavailable'}
+                        </p>
+                        {value.available && <p className="text-[11px] text-slate-500">{formatCost(value.fare_sgd)}</p>}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Grab row — always shown when Compare is open */}
+                  <div className="flex items-center justify-between rounded-md border border-green-100 bg-green-50 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <Car size={13} className="text-green-700" />
+                      <span className="text-[13px] font-bold text-green-700">Grab</span>
+                      <span className="text-[11px] text-green-500">Estimated · Excl. surge &amp; ERP</span>
                     </div>
-                  ))}
+                    <button
+                      onClick={() => {
+                        const pickup = (tripStarted && position)
+                          ? { lat: position.lat, lng: position.lng, name: 'Your location' }
+                          : { lat: from?.lat, lng: from?.lng, name: from?.name ?? '' }
+                        openGrab({ fromLat: pickup.lat, fromLng: pickup.lng, fromName: pickup.name,
+                                   toLat: to?.lat, toLng: to?.lng, toName: to?.name ?? '' })
+                      }}
+                      className="rounded-md bg-green-600 px-3 py-1 text-[12px] font-bold text-white hover:bg-green-500"
+                    >
+                      Open Grab
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
