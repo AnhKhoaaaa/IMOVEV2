@@ -323,15 +323,17 @@ async def test_budget_exceeded_adds_warning():
 @pytest.mark.asyncio
 async def test_onemap_network_failure_raises_no_route():
     # Network errors swallowed per-mode by _fetch_all_alternatives.
-    # Long-distance pair with all modes failing → NoRouteError raised.
-    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]  # ≈5.4km → PT needed
+    # Long-distance pair (≈5.4km ≥ 2km) with all modes failing → falls back to GRAB.
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
         side_effect=Exception("Network timeout"),
     ):
-        with pytest.raises(NoRouteError):
-            await plan_trip("t4", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
+        result = await plan_trip("t4", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
+    leg = result.days[0].legs[0]
+    assert leg.transport_mode == "GRAB"
+    assert leg.is_estimated is True
 
 
 @pytest.mark.asyncio
@@ -349,17 +351,19 @@ async def test_short_distance_no_route_falls_back_to_haversine():
 
 
 @pytest.mark.asyncio
-async def test_long_distance_no_route_raises():
-    # gardens-by-the-bay-supertree-grove → universal-studios-singapore ≈ 5.4km ≥ 1.5km → PT mode
-    # PT NoRouteError must NOT fall back to haversine walk — must raise
+async def test_long_distance_no_transit_falls_back_to_grab():
+    # gardens-by-the-bay-supertree-grove → universal-studios-singapore ≈ 5.4km ≥ 2.0km
+    # When all transit fails, planning now succeeds with GRAB (estimated) instead of raising.
     ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
     with patch(
         "app.agents.planning_agent.onemap.get_route",
         new_callable=AsyncMock,
         side_effect=NoRouteError("no pt route"),
     ):
-        with pytest.raises(NoRouteError):
-            await plan_trip("t-pt-fail", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
+        result = await plan_trip("t-pt-fail", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
+    leg = result.days[0].legs[0]
+    assert leg.transport_mode == "GRAB"
+    assert leg.is_estimated is True
 
 
 @pytest.mark.asyncio
@@ -588,12 +592,14 @@ async def test_fetch_all_alternatives_partial_failure_returns_available():
 
 
 @pytest.mark.asyncio
-async def test_fetch_all_alternatives_all_fail_returns_empty():
+async def test_fetch_all_alternatives_all_fail_returns_grab_only():
+    # When all OneMap modes fail, GRAB (synthetic estimate) is always returned as fallback.
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
     with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(side_effect=NoRouteError)):
         alts = await _fetch_all_alternatives(from_p, to_p)
-    assert alts == {}
+    assert set(alts.keys()) == {"GRAB"}
+    assert alts["GRAB"]["is_estimated"] is True
 
 
 @pytest.mark.asyncio
