@@ -3,7 +3,7 @@ import uuid
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.dependencies import get_current_user
 from app.models.preferences import UserPreferenceProfile, ContextSnapshot
@@ -11,7 +11,7 @@ from app.models.preferences import UserPreferenceProfile, ContextSnapshot
 from app.models.trip import (
     TripCreate, TripPlanRequest, TripPlan,
     LegUpdateRequest, LiveSwitchRequest, AdaptRequest, AdaptResponse, TripStatus, LocationUpdate,
-    AddPlaceRequest, ReorderRequest, LegSwapResult, CheckAlertsRequest,
+    AddPlaceRequest, ReorderRequest, OptimizeRequest, LegSwapResult, CheckAlertsRequest,
 )
 from app.agents import planning_agent, adaptation_agent
 from app.agents.planning_agent import get_curated_place
@@ -381,7 +381,11 @@ async def update_location(trip_id: str, body: LocationUpdate):
 
 
 @router.post("/{trip_id}/optimize")
-async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
+async def optimize_trip(
+    trip_id: str,
+    body: Optional[OptimizeRequest] = Body(default=None),
+    current_user: Optional[str] = Depends(get_current_user),
+):
     """Re-run greedy sort + smart distribution on the current place list."""
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
@@ -415,6 +419,7 @@ async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            existing_real_legs=(body.existing_legs if body else []),
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -712,6 +717,8 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            force_real_routes=True,
+            existing_real_legs=body.existing_legs or [],
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))

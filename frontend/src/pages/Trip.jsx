@@ -29,7 +29,7 @@ import { useAlerts } from '../hooks/useAlerts'
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { useAuth } from '../contexts/AuthContext'
-import { buildPlacesById, computePlaceTimes, haversineMeters } from '../lib/tripUtils'
+import { buildPlacesById, computePlaceTimes, haversineMeters, parseHHMM, toHHMM } from '../lib/tripUtils'
 import { allModesWithAvailability, normalizeTransportMode, transportMeta } from '../lib/transport'
 import { cn } from '../lib/utils'
 import TripMap from '../components/map/TripMap'
@@ -381,7 +381,34 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
   )
 }
 
-function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, onRemovePlace, onReorder, onRecalculate, onOptimize, onStartTrip, tripStarted, startTime }) {
+const _WALK_M_PER_MIN  = 80   // ~5 km/h
+const _METRO_M_PER_MIN = 600  // ~36 km/h
+const _MIN_METRO_MIN   = 8
+
+function computeHaversineTimes(places, hotel, startTimeStr) {
+  let cursor = parseHHMM(startTimeStr || '09:00')
+  const times = {}
+  if (hotel && places[0]) {
+    const d = haversineMeters({ lat: hotel.lat, lng: hotel.lng }, { lat: places[0].lat, lng: places[0].lng })
+    cursor += d < 1500 ? Math.max(1, Math.round(d / _WALK_M_PER_MIN)) : Math.max(_MIN_METRO_MIN, Math.round(d / _METRO_M_PER_MIN))
+  }
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i]
+    const dwell = p.dwell_minutes ?? 30
+    times[p.id] = { arrive: toHHMM(cursor), depart: toHHMM(cursor + dwell) }
+    cursor += dwell
+    const next = places[i + 1] ?? hotel
+    if (next) {
+      const d = haversineMeters({ lat: p.lat, lng: p.lng }, { lat: next.lat, lng: next.lng })
+      cursor += d < 1500 ? Math.max(1, Math.round(d / _WALK_M_PER_MIN)) : Math.max(_MIN_METRO_MIN, Math.round(d / _METRO_M_PER_MIN))
+    }
+  }
+  if (hotel && places.length) times['hotel'] = { arrive: toHHMM(cursor) }
+  return times
+}
+
+function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTime, needsRouteUpdate, keepOrderDone, mutating }) {
+  const [routeDropdownOpen, setRouteDropdownOpen] = useState(false)
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -391,12 +418,51 @@ function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, 
         </div>
         {!tripStarted && (
           <div className="flex items-center gap-2">
-            <button
-              onClick={onOptimize}
-              className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-[13px] font-bold text-slate-700 hover:bg-slate-50"
-            >
-              <Sparkles size={15} /> Optimise
-            </button>
+            {needsRouteUpdate ? (
+              <div className="relative">
+                <button
+                  onClick={() => setRouteDropdownOpen((v) => !v)}
+                  className="flex h-10 items-center gap-2 rounded-md bg-indigo-600 px-4 text-[13px] font-bold text-white hover:bg-indigo-500 disabled:opacity-60"
+                  disabled={mutating}
+                >
+                  {mutating ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                  Update Route
+                  <ChevronDown size={13} className={cn('ml-1 transition-transform', routeDropdownOpen && 'rotate-180')} />
+                </button>
+                {routeDropdownOpen && (
+                  <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-md border border-slate-200 bg-white shadow-pop">
+                    <button
+                      onClick={() => { setRouteDropdownOpen(false); onUpdateRoute(true) }}
+                      disabled={keepOrderDone || mutating}
+                      className={cn(
+                        'flex w-full flex-col px-4 py-3 text-left hover:bg-slate-50',
+                        (keepOrderDone || mutating) && 'cursor-not-allowed opacity-40'
+                      )}
+                    >
+                      <span className="text-[13px] font-bold text-slate-800">Keep my order</span>
+                      <span className="text-[11px] text-slate-500">Real transit times, your stop order</span>
+                    </button>
+                    <div className="border-t border-slate-100" />
+                    <button
+                      onClick={() => { setRouteDropdownOpen(false); onUpdateRoute(false) }}
+                      disabled={mutating}
+                      className="flex w-full flex-col px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      <span className="text-[13px] font-bold text-slate-800">Let AI Optimise</span>
+                      <span className="text-[11px] text-slate-500">AI reorders for best efficiency</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={onOptimiseOrder}
+                disabled={mutating}
+                className="flex h-10 items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-4 text-[13px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+              >
+                <Sparkles size={15} /> Optimise Order
+              </button>
+            )}
             {onStartTrip && (
               <button
                 onClick={onStartTrip}
@@ -448,14 +514,15 @@ function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, 
 
           const hotelPlace = allPlacesById['hotel'] ?? null
           const stats = dayStats(day)
-          const placeTimes = computePlaceTimes(day, allPlacesById, startTime ?? '09:00')
+          const serverPlaceTimes = computePlaceTimes(day, allPlacesById, startTime ?? '09:00')
+          const placeTimes = isDirty ? (pendingTimes[day.day] ?? serverPlaceTimes) : serverPlaceTimes
           // Transit minutes excludes the return-to-hotel leg so the summary reflects sightseeing transit only
           const transitMin = (day.legs ?? [])
             .filter((l) => l.to_place_id !== 'hotel')
             .reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
 
-          const firstTime = !isDirty && visitPlaces[0] ? placeTimes[visitPlaces[0].id]?.arrive : null
-          const lastTime  = !isDirty && visitPlaces.at(-1) ? placeTimes[visitPlaces.at(-1).id]?.depart : null
+          const firstTime = visitPlaces[0] ? placeTimes[visitPlaces[0].id]?.arrive : null
+          const lastTime  = visitPlaces.at(-1) ? placeTimes[visitPlaces.at(-1).id]?.depart : null
 
           return (
             <section key={day.day} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
@@ -555,12 +622,9 @@ function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, 
               </div>
 
               {isDirty && (
-                <button
-                  onClick={() => onRecalculate(day.day)}
-                  className="mt-3 inline-flex w-full h-9 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-100"
-                >
-                  <RotateCcw size={13} /> Recalculate Route
-                </button>
+                <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-center text-[11.5px] font-semibold text-amber-700">
+                  ⚡ Estimated — click <strong>Update Route</strong> to get real transit times
+                </p>
               )}
             </section>
           )
@@ -746,6 +810,11 @@ export default function Trip() {
   // Task 7: arrival flow — user must tap Continue before advancing leg
   const [arrivedPending, setArrivedPending] = useState(false)
   const autoArrivedRef = useRef(false)  // prevents re-firing auto-arrive for same destination
+
+  // Route status state
+  const [keepOrderDone, setKeepOrderDone] = useState(false)
+  const [confirmOptimise, setConfirmOptimise] = useState(false)
+  const [updateRouteOpen, setUpdateRouteOpen] = useState(false)
   // Task 8: live GPS trail (only for WALK/CYCLE legs)
   const [trackingPath, setTrackingPath] = useState([])
   const lastTrackPointRef = useRef(null)
@@ -768,6 +837,27 @@ export default function Trip() {
     }
     return map
   }, [trip, allPlacesById])
+
+  // Route quality flags — drive badge + Day tab locking + button visibility
+  const isEstimated = useMemo(
+    () => (trip?.days ?? []).flatMap((d) => d.legs ?? []).some((l) => l.is_estimated),
+    [trip]
+  )
+  const hasDirtyDays   = Object.keys(pendingByDay).length > 0
+  const needsRouteUpdate = isEstimated || hasDirtyDays
+
+  // Estimated times for pending (dirty) days — computed purely from haversine, no API call
+  const startTimeStr = savedMeta?.startTime ?? '09:00'
+  const pendingTimes = useMemo(() => {
+    if (!hasDirtyDays) return {}
+    const hotel = allPlacesById['hotel'] ?? null
+    const result = {}
+    for (const [dayStr, placeIds] of Object.entries(pendingByDay)) {
+      const places = placeIds.map((pid) => allPlacesById[pid]).filter(Boolean)
+      result[Number(dayStr)] = computeHaversineTimes(places, hotel, startTimeStr)
+    }
+    return result
+  }, [pendingByDay, allPlacesById, startTimeStr, hasDirtyDays])
 
   // Task 3a: IDs of places in the currently selected day tab (null = no inter-day dimming)
   const activeDayPlaceIds = useMemo(() => {
@@ -812,8 +902,11 @@ export default function Trip() {
         .filter(p => !visitedIds.has(p.id))
         .map(p => ({ ...p, _dim: !activeIds.has(p.id) }))
     }
-    return trip.places ?? []
-  }, [trip, tripStarted, currentDay, activeLeg, activeLegIndex])
+    // Include pending places not yet on server as additional pins (no polylines — map stays clean)
+    const serverIds = new Set((trip.places ?? []).map((p) => p.id))
+    const pendingPins = Object.values(pendingPlaces).filter((p) => !serverIds.has(p.id))
+    return [...(trip.places ?? []), ...pendingPins]
+  }, [trip, tripStarted, currentDay, activeLeg, activeLegIndex, pendingPlaces])
 
   useEffect(() => {
     if (!trip?.days?.length) return
@@ -917,6 +1010,103 @@ export default function Trip() {
       setMutating(false)
     }
   }
+  // Global "Update Route" handler — processes ALL dirty days using OneMap (force_real_routes=True)
+  const handleUpdateRoute = async (keepOrder) => {
+    if (mutating) return
+    setUpdateRouteOpen(false)
+    if (!keepOrder) { setConfirmOptimise(true); return }
+
+    const existingLegs = (trip?.days ?? []).flatMap((d) => d.legs ?? []).filter((l) => !l.is_estimated)
+    const dirtyDays = Object.keys(pendingByDay).map(Number).sort()
+    if (!dirtyDays.length) return
+
+    setMutating(true)
+    setUiWarning(null)
+    let lastResult = null
+    try {
+      for (const dayNum of dirtyDays) {
+        const day = trip?.days?.find((d) => d.day === dayNum)
+        const pendingIds = pendingByDay[dayNum]
+        if (!pendingIds || !day) continue
+
+        const serverIds = new Set(
+          timelineForDay(day, allPlacesById)
+            .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
+            .map((i) => i.place.id)
+        )
+        const pendingSet = new Set(pendingIds)
+        const toRemove = [...serverIds].filter((pid) => !pendingSet.has(pid))
+        const toAdd    = pendingIds.filter((pid) => !serverIds.has(pid) && pendingPlaces[pid])
+
+        for (const placeId of toRemove) await api.removePlaceFromDay(id, placeId)
+        for (const placeId of toAdd)    await api.addPlaceToDay(id, { place_id: placeId, day: dayNum })
+
+        if (toRemove.length > 0 || toAdd.length > 0) {
+          const freshTrip = await api.getTrip(id)
+          const freshDay  = freshTrip?.days?.find((d) => d.day === dayNum)
+          if (freshDay) {
+            const freshPlacesById = buildPlacesById(freshTrip.places ?? [])
+            const freshIds = timelineForDay(freshDay, freshPlacesById)
+              .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
+              .map((i) => i.place.id)
+            const freshSet = new Set(freshIds)
+            const safeIds  = pendingIds.filter((pid) => freshSet.has(pid))
+            const extraIds = freshIds.filter((pid) => !new Set(safeIds).has(pid))
+            const finalIds = [...safeIds, ...extraIds]
+            lastResult = JSON.stringify(finalIds) !== JSON.stringify(freshIds)
+              ? await api.reorderPlaces(id, dayNum, finalIds, existingLegs)
+              : freshTrip
+          } else {
+            lastResult = freshTrip
+          }
+        } else {
+          lastResult = await api.reorderPlaces(id, dayNum, pendingIds, existingLegs)
+        }
+      }
+      await refresh(lastResult?.days ? lastResult : undefined)
+      setKeepOrderDone(true)
+    } catch (err) {
+      setUiWarning(err.message)
+    } finally {
+      setMutating(false)
+      setPendingByDay({})
+      setPendingPlaces({})
+    }
+  }
+
+  // Confirm → Let AI Optimise (also called by "Optimise Order" button when Good To Go)
+  const handleConfirmOptimise = async () => {
+    setConfirmOptimise(false)
+    if (mutating) return
+    const existingLegs = (trip?.days ?? []).flatMap((d) => d.legs ?? []).filter((l) => !l.is_estimated)
+    const orderBefore = (trip?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
+    const daysBefore  = trip?.days?.length ?? 0
+    setMutating(true)
+    setUiWarning(null)
+    try {
+      const result = await api.optimizeRoute(id, existingLegs)
+      await refresh(result?.days ? result : undefined)
+      setPendingByDay({})
+      setPendingPlaces({})
+      setKeepOrderDone(true)
+      const orderAfter = (result?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
+      const daysAfter  = result?.days?.length ?? 0
+      const reordered  = orderAfter.filter((v, i) => v !== orderBefore[i]).length
+      if (daysAfter !== daysBefore) {
+        setOptimizeMsg(`Route optimised — distributed across ${daysAfter} day${daysAfter !== 1 ? 's' : ''}.`)
+      } else if (reordered > 0) {
+        setOptimizeMsg(`Route optimised! ${reordered} stop${reordered !== 1 ? 's' : ''} reordered.`)
+      } else {
+        setOptimizeMsg('Already optimal — no reordering needed.')
+      }
+      setTimeout(() => setOptimizeMsg(null), 4000)
+    } catch (err) {
+      setUiWarning(err.message)
+    } finally {
+      setMutating(false)
+    }
+  }
+
   // Helpers to get current displayed order for a day (pending override or server order)
   const getDisplayIds = (day) => {
     if (pendingByDay[day.day]) return pendingByDay[day.day]
@@ -935,6 +1125,7 @@ export default function Trip() {
     if (dayNum != null) {
       const day = trip.days.find((d) => d.day === dayNum)
       const currentIds = getDisplayIds(day)
+      setKeepOrderDone(false)
       setPendingByDay((prev) => ({ ...prev, [dayNum]: currentIds.filter((pid) => pid !== placeId) }))
     }
     // If locally-added (not yet on server), also drop from pendingPlaces
@@ -946,6 +1137,7 @@ export default function Trip() {
     const day = trip?.days?.find((d) => d.day === dayNum)
     const currentIds = getDisplayIds(day ?? { day: dayNum, legs: [] })
     if (!currentIds.includes(place.id)) {
+      setKeepOrderDone(false)
       setPendingByDay((prev) => ({ ...prev, [dayNum]: [...currentIds, place.id] }))
       setPendingPlaces((prev) => ({ ...prev, [place.id]: place }))
     }
@@ -958,6 +1150,7 @@ export default function Trip() {
     if (target < 0 || target >= ids.length) return
     const next = [...ids]
     ;[next[index], next[target]] = [next[target], next[index]]
+    setKeepOrderDone(false)
     setPendingByDay((prev) => ({ ...prev, [dayNum]: next }))
   }
 
@@ -1107,8 +1300,14 @@ export default function Trip() {
             {(trip.days ?? []).map((day) => (
               <div key={day.day} className="flex items-center">
                 <button
-                  onClick={() => selectDayTab(day.day)}
-                  className={cn('h-9 rounded-md px-3 text-[13px] font-bold', selectedDay === day.day && activeTab.startsWith('day-') ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+                  onClick={() => !needsRouteUpdate && selectDayTab(day.day)}
+                  disabled={needsRouteUpdate}
+                  title={needsRouteUpdate ? 'Update routes first' : undefined}
+                  className={cn('h-9 rounded-md px-3 text-[13px] font-bold',
+                    needsRouteUpdate
+                      ? 'cursor-not-allowed opacity-40 text-slate-400'
+                      : selectedDay === day.day && activeTab.startsWith('day-') ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500'
+                  )}
                 >
                   Day {day.day}
                 </button>
@@ -1137,9 +1336,6 @@ export default function Trip() {
                 <button onClick={addDay} disabled={mutating} className="grid h-9 w-9 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" title="Add day">
                   {mutating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
                 </button>
-                <button onClick={optimize} disabled={mutating} className="grid h-9 w-9 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" title="Optimise">
-                  <Sparkles size={15} />
-                </button>
                 <button onClick={() => setSetupOpen(true)} className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50" title="Edit setup">
                   <Settings size={15} />
                 </button>
@@ -1163,7 +1359,18 @@ export default function Trip() {
       )}>
         {tripStarted
           ? <><Navigation2 size={13} /> Live · Day {selectedDay} — tap Arrived when you reach each stop.</>
-          : <><FileText size={13} /> Planning mode — review your itinerary before you start.</>
+          : <>
+              <FileText size={13} /> Planning mode — review your itinerary before you start.
+              <span className={cn(
+                'ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold',
+                needsRouteUpdate
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-emerald-100 text-emerald-700'
+              )}>
+                <span className={cn('h-1.5 w-1.5 rounded-full', needsRouteUpdate ? 'bg-amber-500' : 'bg-emerald-500')} />
+                {needsRouteUpdate ? 'Estimated' : 'Good To Go'}
+              </span>
+            </>
         }
       </div>
 
@@ -1230,15 +1437,19 @@ export default function Trip() {
               trip={trip}
               allPlacesById={allPlacesById}
               pendingByDay={pendingByDay}
+              pendingTimes={pendingTimes}
               onSelectDay={selectDayTab}
               onAddPlace={setAddDayFor}
               onRemovePlace={removePlace}
               onReorder={reorderLocal}
-              onRecalculate={recalculateDay}
-              onOptimize={optimize}
+              onUpdateRoute={handleUpdateRoute}
+              onOptimiseOrder={() => setConfirmOptimise(true)}
               onStartTrip={!tripStarted && (trip?.days?.length ?? 0) > 0 ? () => startDay(trip.days[0].day) : null}
               tripStarted={tripStarted}
               startTime={savedMeta?.startTime ?? '09:00'}
+              needsRouteUpdate={needsRouteUpdate}
+              keepOrderDone={keepOrderDone}
+              mutating={mutating}
             />
           )}
 
@@ -1332,6 +1543,31 @@ export default function Trip() {
           }
         }}
       />
+
+      {confirmOptimise && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50">
+          <div className="w-[360px] rounded-xl border border-slate-200 bg-white p-6 shadow-pop">
+            <h3 className="font-display text-[18px] font-extrabold text-slate-950">Optimise Order?</h3>
+            <p className="mt-2 text-[13px] text-slate-500">
+              AI will reorder your stops for efficiency using real transit data. Your current stop order may change.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setConfirmOptimise(false)}
+                className="flex-1 h-10 rounded-md border border-slate-200 text-[13px] font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmOptimise}
+                className="flex-1 h-10 rounded-md bg-indigo-600 text-[13px] font-bold text-white hover:bg-indigo-500"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {addDayFor && (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40">

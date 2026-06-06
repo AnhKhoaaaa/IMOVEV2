@@ -165,6 +165,11 @@ class AddPlaceRequest(BaseModel):
 class ReorderRequest(BaseModel):
     day: int = Field(ge=1)
     place_ids: list[str] = Field(min_length=1)
+    existing_legs: list[dict] = Field(default_factory=list)
+
+
+class OptimizeRequest(BaseModel):
+    existing_legs: list[dict] = Field(default_factory=list)
 
 
 class FeedbackRequest(BaseModel):
