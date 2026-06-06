@@ -933,8 +933,34 @@ export default function Trip() {
       for (const placeId of toAdd) {
         await api.addPlaceToDay(id, { place_id: placeId, day: dayNum })
       }
-      const result = await api.reorderPlaces(id, dayNum, pendingIds)
-      await refresh(result?.days ? result : undefined)
+      if (toRemove.length > 0 || toAdd.length > 0) {
+        // Each remove/add triggers a full backend re-plan that may redistribute places
+        // across days. Fetch the updated state so reorderPlaces receives correct IDs.
+        const freshTrip = await api.getTrip(id)
+        const freshDay = freshTrip?.days?.find((d) => d.day === dayNum)
+        if (freshDay) {
+          const freshPlacesById = buildPlacesById(freshTrip.places ?? [])
+          const freshIds = timelineForDay(freshDay, freshPlacesById)
+            .filter((i) => i.type === 'place').map((i) => i.place.id)
+          const freshSet = new Set(freshIds)
+          // Preserve user's preferred order for IDs still in this day; append any extras
+          const safeIds = pendingIds.filter((pid) => freshSet.has(pid))
+          const safeSet = new Set(safeIds)
+          const extraIds = freshIds.filter((pid) => !safeSet.has(pid))
+          const finalIds = [...safeIds, ...extraIds]
+          if (JSON.stringify(finalIds) !== JSON.stringify(freshIds)) {
+            const result = await api.reorderPlaces(id, dayNum, finalIds)
+            await refresh(result?.days ? result : undefined)
+          } else {
+            await refresh(freshTrip)
+          }
+        } else {
+          await refresh(freshTrip)
+        }
+      } else {
+        const result = await api.reorderPlaces(id, dayNum, pendingIds)
+        await refresh(result?.days ? result : undefined)
+      }
     } catch (err) {
       setUiWarning(err.message)
     } finally {
