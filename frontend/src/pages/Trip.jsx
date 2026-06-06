@@ -4,6 +4,7 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
+  Building2,
   CheckCircle,
   ChevronDown,
   Clock,
@@ -438,18 +439,23 @@ function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, 
       <div className="grid grid-cols-2 gap-4">
         {(trip.days ?? []).map((day) => {
           const isDirty = !!pendingByDay[day.day]
-          // Use pending order if available, else derive from server legs
-          const serverItems = timelineForDay(day, allPlacesById).filter((item) => item.type === 'place')
-          const displayPlaces = isDirty
+          // Use pending order if available, else derive from server legs — hotel excluded
+          const serverItems = timelineForDay(day, allPlacesById)
+            .filter((item) => item.type === 'place' && item.place.id !== 'hotel')
+          const visitPlaces = isDirty
             ? pendingByDay[day.day].map((pid) => allPlacesById[pid]).filter(Boolean)
             : serverItems.map((item) => item.place)
 
+          const hotelPlace = allPlacesById['hotel'] ?? null
           const stats = dayStats(day)
           const placeTimes = computePlaceTimes(day, allPlacesById, startTime ?? '09:00')
-          const transitMin = (day.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+          // Transit minutes excludes the return-to-hotel leg so the summary reflects sightseeing transit only
+          const transitMin = (day.legs ?? [])
+            .filter((l) => l.to_place_id !== 'hotel')
+            .reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
 
-          const firstTime = !isDirty && displayPlaces[0] ? placeTimes[displayPlaces[0].id]?.arrive : null
-          const lastTime  = !isDirty && displayPlaces.at(-1) ? placeTimes[displayPlaces.at(-1).id]?.depart : null
+          const firstTime = !isDirty && visitPlaces[0] ? placeTimes[visitPlaces[0].id]?.arrive : null
+          const lastTime  = !isDirty && visitPlaces.at(-1) ? placeTimes[visitPlaces.at(-1).id]?.depart : null
 
           return (
             <section key={day.day} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
@@ -457,7 +463,7 @@ function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, 
                 <button onClick={() => onSelectDay(day.day)} className="text-left">
                   <h3 className="font-display text-[18px] font-extrabold text-slate-950">Day {day.day}</h3>
                   <p className="mt-1 text-[12px] text-slate-500">
-                    {displayPlaces.length} stops · {formatDuration(stats.duration)} · {formatCost(stats.cost)}
+                    {visitPlaces.length} stops · {formatDuration(stats.duration)} · {formatCost(stats.cost)}
                   </p>
                   {firstTime && lastTime && (
                     <p className="mt-0.5 text-[11px] text-slate-400 tabular-nums">
@@ -475,51 +481,79 @@ function Overview({ trip, allPlacesById, pendingByDay, onSelectDay, onAddPlace, 
                   </button>
                 )}
               </div>
-              {displayPlaces.length ? (
-                <div className="space-y-2">
-                  {displayPlaces.map((place, index) => {
-                    const times = placeTimes[place.id]
-                    return (
-                      <div key={place.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
-                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
-                          {index + 1}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-bold text-slate-700">{place.name}</p>
-                          {times && (
-                            <p className="text-[10.5px] text-slate-400 tabular-nums">{times.arrive} – {times.depart}</p>
-                          )}
-                        </div>
-                        {!tripStarted && (
-                          <>
-                            <button
-                              onClick={() => onReorder(day.day, displayPlaces.map((p) => p.id), index, -1)}
-                              disabled={index === 0}
-                              className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                            >Up</button>
-                            <button
-                              onClick={() => onReorder(day.day, displayPlaces.map((p) => p.id), index, 1)}
-                              disabled={index === displayPlaces.length - 1}
-                              className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                            >Down</button>
-                            <button
-                              onClick={() => onRemovePlace(place.id, day.day)}
-                              className="text-slate-300 hover:text-red-500"
-                              title="Remove"
-                            >
-                              <X size={13} />
-                            </button>
-                          </>
+
+              <div className="space-y-2">
+                {/* Hotel start pin — always first, not reorderable */}
+                {hotelPlace && (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                    <Building2 size={13} className="shrink-0 text-amber-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600">Hotel</p>
+                      <p className="truncate text-[12px] font-bold text-slate-700">{hotelPlace.name}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reorderable sightseeing places */}
+                {visitPlaces.length > 0 ? visitPlaces.map((place, visitIndex) => {
+                  const times = placeTimes[place.id]
+                  return (
+                    <div key={place.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
+                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
+                        {visitIndex + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-bold text-slate-700">{place.name}</p>
+                        {times && (
+                          <p className="text-[10.5px] text-slate-400 tabular-nums">{times.arrive} – {times.depart}</p>
                         )}
                       </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-[13px] text-slate-400">
-                  Empty day
-                </div>
-              )}
+                      {!tripStarted && (
+                        <>
+                          <button
+                            onClick={() => onReorder(day.day, visitPlaces.map((p) => p.id), visitIndex, -1)}
+                            disabled={visitIndex === 0}
+                            className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                          >Up</button>
+                          <button
+                            onClick={() => onReorder(day.day, visitPlaces.map((p) => p.id), visitIndex, 1)}
+                            disabled={visitIndex === visitPlaces.length - 1}
+                            className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
+                          >Down</button>
+                          <button
+                            onClick={() => onRemovePlace(place.id, day.day)}
+                            className="text-slate-300 hover:text-red-500"
+                            title="Remove"
+                          >
+                            <X size={13} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )
+                }) : !hotelPlace && (
+                  <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-[13px] text-slate-400">
+                    Empty day
+                  </div>
+                )}
+
+                {/* Hotel end pin — always last, not reorderable */}
+                {hotelPlace && (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                    <Building2 size={13} className="shrink-0 text-amber-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600">Return to Hotel</p>
+                      <p className="truncate text-[12px] font-bold text-slate-700">{hotelPlace.name}</p>
+                    </div>
+                    {!isDirty && placeTimes['hotel']?.arrive && (
+                      <span className="shrink-0 text-[10.5px] text-slate-400 tabular-nums">
+                        {placeTimes['hotel'].arrive}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {isDirty && (
                 <button
                   onClick={() => onRecalculate(day.day)}
@@ -544,6 +578,8 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
   const placeTimes = computePlaceTimes(day, placesById, startTime ?? '09:00')
   const dayGaps = gapNotifications.filter((g) => g.day_index === day.day - 1)
   const [gapsOpen, setGapsOpen] = useState(false)
+  // Detect return-to-hotel leg so we can append the hotel destination card
+  const hasReturnToHotel = (day?.legs ?? []).at(-1)?.to_place_id === 'hotel' && !!placesById['hotel']
 
   if (tripStarted && activeLeg) {
     return (
@@ -601,7 +637,7 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
               place={item.place}
               arriveAt={placeTimes[item.place.id]?.arrive}
               departAt={placeTimes[item.place.id]?.depart}
-              onRemove={() => onRemovePlace(item.place.id)}
+              onRemove={item.place.id === 'hotel' ? undefined : () => onRemovePlace(item.place.id)}
             />
           ) : (
             <LegCard
@@ -616,6 +652,14 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
               onWarning={onWarning}
             />
           ))}
+          {hasReturnToHotel && (
+            <PlaceCard
+              key="hotel-return"
+              place={placesById['hotel']}
+              arriveAt={placeTimes['hotel']?.arrive}
+              departAt={undefined}
+            />
+          )}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
@@ -877,7 +921,7 @@ export default function Trip() {
   const getDisplayIds = (day) => {
     if (pendingByDay[day.day]) return pendingByDay[day.day]
     return timelineForDay(day, allPlacesById)
-      .filter((i) => i.type === 'place')
+      .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
       .map((i) => i.place.id)
   }
 
@@ -924,7 +968,9 @@ export default function Trip() {
     if (!pendingIds || !day) return
 
     const serverIds = new Set(
-      timelineForDay(day, placesById).filter((i) => i.type === 'place').map((i) => i.place.id)
+      timelineForDay(day, placesById)
+        .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
+        .map((i) => i.place.id)
     )
     const pendingSet = new Set(pendingIds)
     const toRemove = [...serverIds].filter((pid) => !pendingSet.has(pid))
@@ -947,7 +993,8 @@ export default function Trip() {
         if (freshDay) {
           const freshPlacesById = buildPlacesById(freshTrip.places ?? [])
           const freshIds = timelineForDay(freshDay, freshPlacesById)
-            .filter((i) => i.type === 'place').map((i) => i.place.id)
+            .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
+            .map((i) => i.place.id)
           const freshSet = new Set(freshIds)
           // Preserve user's preferred order for IDs still in this day; append any extras
           const safeIds = pendingIds.filter((pid) => freshSet.has(pid))

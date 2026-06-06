@@ -673,9 +673,10 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
     for d in plan.days:
         days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
 
-    # P5-BUG-4: validate provided place_ids exactly match the current day's places
-    current_day_ids = set(days_map.get(body.day, []))
-    provided_ids = set(body.place_ids)
+    # P5-BUG-4: validate provided place_ids exactly match the current day's places.
+    # Hotel is excluded: its position is managed server-side and must not appear in reorder requests.
+    current_day_ids = set(pid for pid in days_map.get(body.day, []) if pid != "hotel")
+    provided_ids = set(pid for pid in body.place_ids if pid != "hotel")
     if provided_ids != current_day_ids:
         raise HTTPException(
             status_code=422,
@@ -683,16 +684,16 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
                    f"expected {sorted(current_day_ids)}, got {sorted(provided_ids)}",
         )
 
-    days_map[body.day] = list(body.place_ids)
+    days_map[body.day] = [pid for pid in body.place_ids if pid != "hotel"]
 
     all_ids: list[str] = []
     for day_num in sorted(days_map.keys()):
         for pid in days_map[day_num]:
-            if pid not in all_ids:
+            if pid not in all_ids and pid != "hotel":
                 all_ids.append(pid)
     # P5-BUG-2b: preserve single-place days not captured by legs
     for p in plan.places:
-        if p.id not in all_ids:
+        if p.id not in all_ids and p.id != "hotel":
             all_ids.append(p.id)
 
     profile, context = await _fetch_plan_context(current_user)
