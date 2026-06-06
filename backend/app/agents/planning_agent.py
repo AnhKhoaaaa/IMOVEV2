@@ -477,6 +477,49 @@ def _to_alternative(route_dict: dict) -> AlternativeRoute:
     )
 
 
+_GRAB_LOCATION_SURCHARGES: dict[str, float] = {
+    "changi":              6.00,
+    "sentosa":             3.00,
+    "gardens by the bay": 3.00,
+    "marina bay cruise":  3.00,
+}
+
+
+def _estimate_grab(distance_km: float, from_place_name: str = "") -> dict:
+    """Synthetic GRAB route dict — estimated fare only, no real-time data or geometry.
+
+    Formula based on Singapore 2026 Grab pricing (JustGrab/GrabCar):
+      road_km  = distance_km × 1.3  (road ≈ 1.3× straight-line)
+      road_min = road_km / 30 × 60  (avg city speed 30 km/h)
+      F_base   = 3.00 + road_km×0.70 + road_min×0.16
+      F_trip   = max(5.80, F_base)   (minimum fare)
+      S_fixed  = 1.70                (platform 1.20 + fuel 0.50)
+      S_loc    = location surcharge from from_place_name
+    M_surge and S_ERP are excluded (not modellable without realtime data).
+    """
+    road_km  = distance_km * 1.3
+    road_min = (road_km / 30.0) * 60.0
+    f_base   = 3.00 + (road_km * 0.70) + (road_min * 0.16)
+    f_trip   = max(5.80, f_base)
+    s_loc    = next(
+        (v for k, v in _GRAB_LOCATION_SURCHARGES.items()
+         if k in from_place_name.lower()),
+        0.0,
+    )
+    fare = round(f_trip + 1.70 + s_loc, 2)
+    return {
+        "duration_minutes": max(1, round(road_min)),
+        "fare_sgd":         fare,
+        "is_estimated":     True,
+        "geometry":         None,
+        "geometries":       [],
+        "instructions":     [],
+        "distance_km":      round(road_km, 2),
+        "sub_legs":         [],
+        "legs":             [],
+    }
+
+
 async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
     """Fetch PT (mixed), PT bus-only, Walk, and Cycle routes in parallel.
 
@@ -530,6 +573,10 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
     # Cycle — OneMap supports mode="cycle"; always fetch so Cycle is a real option
     if cycle_route:
         result["CYCLE"] = cycle_route
+
+    # GRAB — synthetic estimate; always available as a fallback option
+    dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
+    result["GRAB"] = _estimate_grab(dist_km, from_place_name=from_p.get("name", ""))
 
     return result
 
@@ -677,10 +724,11 @@ async def plan_trip(
             if isinstance(alts, Exception):
                 alts = {}
             dist_km = _haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
-            if not alts:
+            transit_only = {m: r for m, r in alts.items() if m != "GRAB"}
+            if not transit_only:
                 if dist_km < 1.5:
                     dur = max(1, round(dist_km / 5.0 * 60))
-                    alts = {"WALK": {
+                    alts["WALK"] = {
                         "duration_minutes": dur,
                         "fare_sgd": 0.0,
                         "is_estimated": True,
@@ -690,14 +738,22 @@ async def plan_trip(
                         "legs": [{"mode": "WALK", "duration_minutes": dur}],
                         "distance_km": round(dist_km, 2),
                         "sub_legs": [],
-                    }}
+                    }
+                    transit_only = {m: r for m, r in alts.items() if m != "GRAB"}
+                elif dist_km >= 2.0 and "GRAB" in alts:
+                    # No transit at all; long route → GRAB is the only viable option
+                    alt_cache[(a["id"], b["id"])]    = alts
+                    route_cache[(a["id"], b["id"])]  = alts["GRAB"]
+                    best_key_cache[(a["id"], b["id"])] = "GRAB"
+                    continue
                 else:
                     raise NoRouteError(
                         f"No route available from '{a['id']}' to '{b['id']}' — "
                         "all routing modes unavailable"
                     )
             alt_cache[(a["id"], b["id"])] = alts
-            alt_models = {m: _to_alternative(r) for m, r in alts.items()}
+            # GRAB excluded from scoring — it is only selected via the 2km guard below
+            alt_models = {m: _to_alternative(r) for m, r in transit_only.items()}
             scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx)
             best_key   = scoring.recommended_mode
             # Safety guard: WALK > 1.5km is physically impractical in Singapore heat
@@ -705,6 +761,8 @@ async def plan_trip(
                 pt_key = next((m for m in ("METRO", "BUS") if m in alts), None)
                 if pt_key:
                     best_key = pt_key
+                elif dist_km >= 2.0 and "GRAB" in alts:
+                    best_key = "GRAB"  # no viable transit → recommend Grab
             route_cache[(a["id"], b["id"])]    = alts[best_key]
             best_key_cache[(a["id"], b["id"])] = best_key
     else:
@@ -768,25 +826,34 @@ async def plan_trip(
             else:
                 h_fresh = await _fetch_all_alternatives(hotel_place, day_places[0])
                 h_dist  = _haversine_km(hotel_place["lat"], hotel_place["lng"], day_places[0]["lat"], day_places[0]["lng"])
-                if not h_fresh:
+                h_transit = {m: r for m, r in h_fresh.items() if m != "GRAB"}
+                if not h_transit:
                     dur = max(1, round(h_dist / 5.0 * 60))
-                    h_fresh = {"WALK": {"duration_minutes": dur, "fare_sgd": 0.0, "is_estimated": True,
-                                        "geometry": None, "geometries": [], "instructions": [],
-                                        "legs": [{"mode": "WALK"}], "distance_km": round(h_dist, 2), "sub_legs": []}}
-                h_models   = {m: _to_alternative(r) for m, r in h_fresh.items()}
+                    h_fresh["WALK"] = {"duration_minutes": dur, "fare_sgd": 0.0, "is_estimated": True,
+                                       "geometry": None, "geometries": [], "instructions": [],
+                                       "legs": [{"mode": "WALK"}], "distance_km": round(h_dist, 2), "sub_legs": []}
+                    h_transit = {m: r for m, r in h_fresh.items() if m != "GRAB"}
+                h_models   = {m: _to_alternative(r) for m, r in h_transit.items()}
                 h_scoring  = score_alternatives(h_models, profile=effective_profile, context=effective_ctx)
                 h_best_key = h_scoring.recommended_mode
                 if h_dist >= 1.5 and h_best_key == "WALK":
                     pt_fb = next((m for m in ("METRO", "BUS") if m in h_fresh), None)
                     if pt_fb:
                         h_best_key = pt_fb
+                    elif h_dist >= 2.0 and "GRAB" in h_fresh:
+                        h_best_key = "GRAB"  # no viable transit → recommend Grab
                 h_route = h_fresh[h_best_key]
                 h_alts  = h_fresh
                 alt_cache[h_route_key]      = h_fresh
                 route_cache[h_route_key]    = h_route
                 best_key_cache[h_route_key] = h_best_key
 
-            h_transport = "WALK" if h_best_key == "WALK" else _primary_mode(h_route.get("legs", []))
+            if h_best_key == "WALK":
+                h_transport = "WALK"
+            elif h_best_key == "GRAB":
+                h_transport = "GRAB"
+            else:
+                h_transport = _primary_mode(h_route.get("legs", []))
             legs.append(LegResponse(
                 id=str(uuid.uuid4()),
                 from_place_id="hotel",
@@ -846,37 +913,49 @@ async def plan_trip(
                     # Cache miss — fetch fresh alternatives on-the-fly
                     fresh_alts = await _fetch_all_alternatives(from_p, to_p)
                     dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
-                    if not fresh_alts:
+                    # Separate OneMap-sourced routes from the synthetic GRAB estimate.
+                    # GRAB is excluded from scoring — it is only selected via the 2km guard.
+                    fresh_transit = {m: r for m, r in fresh_alts.items() if m != "GRAB"}
+                    best_key_used = None
+                    if not fresh_transit:
                         if dist_km < 1.5:
                             dur = max(1, round(dist_km / 5.0 * 60))
-                            fresh_alts = {"WALK": {
+                            fresh_alts["WALK"] = {
                                 "duration_minutes": dur, "fare_sgd": 0.0,
                                 "is_estimated": True, "geometry": None, "geometries": [],
                                 "instructions": [], "legs": [{"mode": "WALK"}],
                                 "distance_km": round(dist_km, 2), "sub_legs": [],
-                            }}
+                            }
+                            fresh_transit = {m: r for m, r in fresh_alts.items() if m != "GRAB"}
+                        elif dist_km >= 2.0 and "GRAB" in fresh_alts:
+                            best_key_used = "GRAB"  # no transit at all → Grab only viable option
                         else:
                             raise NoRouteError(
                                 f"No route from '{from_p['id']}' to '{to_p['id']}' — "
                                 "all routing modes unavailable"
                             )
-                    alt_cache[route_key] = fresh_alts
-                    fresh_models  = {m: _to_alternative(r) for m, r in fresh_alts.items()}
-                    fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx)
-                    best_key_used = fresh_scoring.recommended_mode
-                    # Safety guard: WALK > 1.5km impractical
-                    if dist_km >= 1.5 and best_key_used == "WALK":
-                        pt_fallback = next((m for m in ("METRO", "BUS") if m in fresh_alts), None)
-                        if pt_fallback:
-                            best_key_used = pt_fallback
+                    if best_key_used is None:
+                        fresh_models  = {m: _to_alternative(r) for m, r in fresh_transit.items()}
+                        fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx)
+                        best_key_used = fresh_scoring.recommended_mode
+                        # Safety guard: WALK > 1.5km impractical
+                        if dist_km >= 1.5 and best_key_used == "WALK":
+                            pt_fallback = next((m for m in ("METRO", "BUS") if m in fresh_alts), None)
+                            if pt_fallback:
+                                best_key_used = pt_fallback
+                            elif dist_km >= 2.0 and "GRAB" in fresh_alts:
+                                best_key_used = "GRAB"  # no viable transit → recommend Grab
+                    alt_cache[route_key]      = fresh_alts
                     route = fresh_alts[best_key_used]
                     route_cache[route_key]    = route
                     best_key_cache[route_key] = best_key_used
                     alts_for_leg = fresh_alts
 
-                # Transport mode: WALK key → always "WALK"; PT key → derive from legs
+                # Transport mode: WALK/GRAB keys are literals; PT keys derive from legs
                 if best_key_used == "WALK":
                     transport_mode = "WALK"
+                elif best_key_used == "GRAB":
+                    transport_mode = "GRAB"
                 else:
                     transport_mode = _primary_mode(route.get("legs", []))
 
@@ -943,7 +1022,12 @@ async def plan_trip(
                     "distance_km": round(dist_km, 2), "sub_legs": [],
                 }
                 ret_alts = {ret_best: ret_route}
-            ret_transport = "WALK" if ret_best == "WALK" else _primary_mode(ret_route.get("legs", []))
+            if ret_best == "WALK":
+                ret_transport = "WALK"
+            elif ret_best == "GRAB":
+                ret_transport = "GRAB"
+            else:
+                ret_transport = _primary_mode(ret_route.get("legs", []))
             legs.append(LegResponse(
                 id=str(uuid.uuid4()),
                 from_place_id=last_p["id"],
