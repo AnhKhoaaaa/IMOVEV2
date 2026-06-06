@@ -399,8 +399,30 @@ async def _get_route_with_fallback(from_p: dict, to_p: dict) -> dict:
             f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
         ) from exc
 
-    # Haversine walking estimate — only reached for short-distance walk-mode NoRouteError
+    # Try cycle to get real road geometry before resorting to a featureless haversine estimate.
+    # Cycle and walk share the same road network for short distances, so the path is accurate
+    # even though the leg remains WALK mode. Duration stays haversine (is_estimated=True).
     duration_min = max(1, round(dist_km / 5.0 * 60))
+    try:
+        cycle_route = await onemap.get_route(
+            from_p["lat"], from_p["lng"],
+            to_p["lat"], to_p["lng"],
+            mode="cycle",
+        )
+        return {
+            "duration_minutes": duration_min,
+            "fare_sgd": 0.0,
+            "legs": [{"mode": "WALK", "duration_minutes": duration_min, "instruction": ""}],
+            "geometry": cycle_route.get("geometry"),
+            "geometries": cycle_route.get("geometries", []),
+            "instructions": [],
+            "distance_km": cycle_route.get("distance_km") or round(dist_km, 2),
+            "is_estimated": True,
+        }
+    except NoRouteError:
+        pass
+
+    # Pure haversine fallback — only when both walk and cycle fail
     return {
         "duration_minutes": duration_min,
         "fare_sgd": 0.0,

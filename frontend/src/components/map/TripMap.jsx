@@ -62,7 +62,7 @@ function legTooltip(leg) {
 }
 
 function decodeLegPositions(leg, from, to) {
-  const encoded = leg.geometry ? [leg.geometry] : (leg.geometries ?? [])
+  const encoded = leg.geometries?.length ? leg.geometries : leg.geometry ? [leg.geometry] : []
   const decoded = []
   for (const geometry of encoded) {
     try {
