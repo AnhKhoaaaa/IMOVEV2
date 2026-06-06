@@ -126,6 +126,10 @@ export function computePlaceTimes(day, placesById, startTime = '09:00') {
     if (!times[leg.to_place_id]) {
       const dwell = placesById[leg.to_place_id]?.dwell_minutes ?? 30
       times[leg.to_place_id] = { arrive: toHHMM(cursor), depart: toHHMM(cursor + dwell) }
+    } else if (leg.to_place_id === 'hotel') {
+      // Return-to-hotel leg: overwrite with the actual arrival time for the evening return
+      const dwell = placesById['hotel']?.dwell_minutes ?? 0
+      times['hotel'] = { arrive: toHHMM(cursor), depart: toHHMM(cursor + dwell) }
     }
   }
   return times

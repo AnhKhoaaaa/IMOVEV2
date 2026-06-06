@@ -631,6 +631,10 @@ async def plan_trip(
             if key not in seen and key not in alt_cache:
                 seen.add(key)
                 all_pairs.append((hotel_place, day_places[0]))
+            ret_key = (day_places[-1]["id"], "hotel")
+            if ret_key not in seen and ret_key not in alt_cache:
+                seen.add(ret_key)
+                all_pairs.append((day_places[-1], hotel_place))
         for i in range(len(day_places) - 1):
             key = (day_places[i]["id"], day_places[i + 1]["id"])
             if key not in seen and key not in alt_cache:
@@ -885,6 +889,47 @@ async def plan_trip(
                     alternatives=alternatives,
                     first_bus_stop_code=bus_stop_code,
                 ))
+
+        # Return leg: last place → hotel (tourists return to hotel each evening)
+        if hotel_place and day_places:
+            last_p   = day_places[-1]
+            ret_key  = (last_p["id"], "hotel")
+            if ret_key in route_cache:
+                ret_route = route_cache[ret_key]
+                ret_alts  = alt_cache.get(ret_key, {})
+                ret_best  = best_key_cache.get(ret_key, "WALK")
+            else:
+                # Fallback haversine (symmetric to outbound estimate)
+                dist_km  = _haversine_km(last_p["lat"], last_p["lng"], hotel_place["lat"], hotel_place["lng"])
+                if dist_km < 1.5:
+                    dur      = max(1, round(dist_km / 5.0 * 60))
+                    ret_best = "WALK"
+                else:
+                    dur      = max(_MIN_TRANSIT_MIN, round(dist_km / _TRAVEL_SPEED_KM_MIN))
+                    ret_best = "METRO"
+                ret_route = {
+                    "duration_minutes": dur, "fare_sgd": 0.0, "is_estimated": True,
+                    "geometry": None, "geometries": [], "instructions": [],
+                    "legs": [{"mode": ret_best, "duration_minutes": dur}],
+                    "distance_km": round(dist_km, 2), "sub_legs": [],
+                }
+                ret_alts = {ret_best: ret_route}
+            ret_transport = "WALK" if ret_best == "WALK" else _primary_mode(ret_route.get("legs", []))
+            legs.append(LegResponse(
+                id=str(uuid.uuid4()),
+                from_place_id=last_p["id"],
+                to_place_id="hotel",
+                transport_mode=ret_transport,
+                duration_minutes=ret_route["duration_minutes"],
+                cost_sgd=ret_route.get("fare_sgd", 0.0),
+                is_estimated=ret_route.get("is_estimated", False),
+                instructions=_normalize_instructions(ret_route.get("instructions", [])),
+                geometry=ret_route.get("geometry"),
+                geometries=ret_route.get("geometries", []),
+                distance_km=ret_route.get("distance_km"),
+                sub_legs=ret_route.get("sub_legs", []),
+                alternatives={m: _to_alternative(r) for m, r in ret_alts.items()},
+            ))
 
         # place_ids: hotel first (if present), then sightseeing places in visit order
         day_place_ids = (["hotel"] if hotel_place and day_places else []) + [p["id"] for p in day_places]
