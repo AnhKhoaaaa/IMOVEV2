@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -132,28 +132,27 @@ export default function Home() {
   const [hydrated, setHydrated] = useState({})
   const [loadingIds, setLoadingIds] = useState(new Set())
   const [openingId, setOpeningId] = useState(null)
+  const inFlightRef = useRef(new Set())
 
   useEffect(() => {
-    let ignore = false
     trips.forEach((trip) => {
-      if (!trip.id || hydrated[trip.id] || loadingIds.has(trip.id)) return
+      if (!trip.id || hydrated[trip.id] || inFlightRef.current.has(trip.id)) return
+      inFlightRef.current.add(trip.id)
       setLoadingIds((ids) => new Set(ids).add(trip.id))
       api.getTrip(trip.id)
         .then((data) => {
-          if (!ignore) setHydrated((current) => ({ ...current, [trip.id]: data }))
+          setHydrated((current) => ({ ...current, [trip.id]: data }))
         })
         .catch(() => {})
         .finally(() => {
-          if (!ignore) {
-            setLoadingIds((ids) => {
-              const next = new Set(ids)
-              next.delete(trip.id)
-              return next
-            })
-          }
+          inFlightRef.current.delete(trip.id)
+          setLoadingIds((ids) => {
+            const next = new Set(ids)
+            next.delete(trip.id)
+            return next
+          })
         })
     })
-    return () => { ignore = true }
   }, [trips]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredTrips = useMemo(() => {
