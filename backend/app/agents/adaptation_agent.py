@@ -14,7 +14,7 @@ from app.services.openweather import SINGAPORE_LAT, SINGAPORE_LNG
 from app.services.lta import LTAUnavailableError
 from app.services.openweather import WeatherUnavailableError
 from app.services.onemap import NoRouteError
-from app.agents.planning_agent import get_all_places, _haversine_km, _primary_mode
+from app.agents.planning_agent import get_all_places, _haversine_km, _primary_mode, _fetch_all_alternatives, _to_alternative
 from app.models.trip import TripPlan, DayPlan, LegResponse, AdaptResponse
 from app.models.place import Place
 from app.database import supabase
@@ -470,7 +470,9 @@ async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
             else:
                 new_leg = leg
             new_legs.append(new_leg)
-        new_days.append(DayPlan(day=day.day, legs=new_legs))
+        old_to_new = {old_id: new_p["id"] for old_id, new_p in swap_map.items()}
+        new_place_ids = [old_to_new.get(pid, pid) for pid in (day.place_ids or [])]
+        new_days.append(DayPlan(day=day.day, legs=new_legs, place_ids=new_place_ids))
 
     new_places = [
         Place(
@@ -619,7 +621,7 @@ async def _reroute_mrt_legs(
                 log.error("Unexpected error rerouting leg %s → %s: %s", leg.from_place_id, leg.to_place_id, exc)
                 new_legs.append(leg)
 
-        new_days.append(DayPlan(day=day.day, legs=new_legs))
+        new_days.append(DayPlan(day=day.day, legs=new_legs, place_ids=day.place_ids or []))
 
     return TripPlan(id=plan.id, days=new_days, places=plan.places, warnings=warnings), changes
 
@@ -631,19 +633,31 @@ async def _recalculate_leg(
     new_from_id: str,
     new_to_id: str,
 ) -> LegResponse:
-    """Call OneMap for a swapped leg; fall back to original data with is_estimated=True."""
+    """Call OneMap for a swapped leg; fall back to original data with is_estimated=True.
+
+    Fetches all mode alternatives in parallel so the mode picker can accurately
+    grey-out unavailable modes after the swap (instead of showing every mode as available).
+    """
     if from_p and to_p:
         try:
-            route = await onemap.get_route(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"], mode="pt")
+            from_dict = {"id": new_from_id, "lat": from_p["lat"], "lng": from_p["lng"]}
+            to_dict   = {"id": new_to_id,   "lat": to_p["lat"],   "lng": to_p["lng"]}
+            all_alts = await _fetch_all_alternatives(from_dict, to_dict)
+            if not all_alts:
+                raise NoRouteError(f"No alternatives for {new_from_id} → {new_to_id}")
+            # Prefer METRO (PT mixed) → BUS → WALK → CYCLE as primary route
+            pt_key = next((m for m in ("METRO", "BUS", "WALK", "CYCLE") if m in all_alts), None)
+            route = all_alts[pt_key]
             new_mode = _primary_mode(route.get("legs", []))
             sub_legs_data: list[dict] = route.get("sub_legs", [])
+            alt_models = {m: _to_alternative(r) for m, r in all_alts.items()}
             return LegResponse(
                 id=original.id,
                 from_place_id=new_from_id,
                 to_place_id=new_to_id,
                 transport_mode=new_mode,
                 duration_minutes=route["duration_minutes"],
-                cost_sgd=route["fare_sgd"],
+                cost_sgd=route.get("fare_sgd", 0.0),
                 is_estimated=False,
                 geometry=route.get("geometry"),
                 geometries=route.get("geometries", []),
@@ -651,6 +665,7 @@ async def _recalculate_leg(
                 distance_km=route.get("distance_km"),
                 sub_legs=sub_legs_data,
                 first_bus_stop_code=_first_bus_stop_code(sub_legs_data) if new_mode == "BUS" else None,
+                alternatives=alt_models,
             )
         except Exception as exc:
             # OneMap failed — fall through to estimated fallback.
@@ -779,9 +794,37 @@ async def check_alerts_for_trip(trip_id: str, plan: TripPlan) -> dict:
 
 
 def _persist_updated_legs(trip_id: str, plan: TripPlan) -> None:
-    """Batch-update route_legs in Supabase after adaptation."""
+    """Persist accepted adaptation: update trip_places and route_legs (full column set)."""
     if not supabase:
         return
+
+    # trip_places: delete and re-insert so swapped place IDs are reflected.
+    supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
+    place_day_order: dict[str, tuple[int | None, int | None]] = {}
+    for day in plan.days:
+        for order_idx, pid in enumerate(day.place_ids):
+            if pid == "hotel":
+                place_day_order.setdefault("hotel", (None, None))
+            else:
+                place_day_order[pid] = (day.day, order_idx)
+    place_rows = []
+    for p in plan.places:
+        day_num, order_in_day = place_day_order.get(p.id, (None, None))
+        place_rows.append({
+            "trip_id": trip_id,
+            "place_id": p.id,
+            "place_name": p.name,
+            "lat": p.lat,
+            "lng": p.lng,
+            "dwell_minutes": p.dwell_minutes,
+            "day_number": day_num,
+            "order_in_day": order_in_day,
+        })
+    if place_rows:
+        supabase.table("trip_places").insert(place_rows).execute()
+
+    # route_legs: upsert with all geometry/routing columns so a server restart
+    # doesn't lose map polylines, bus stop codes, or sub-leg detail.
     leg_rows = [
         {
             "id": leg.id,
@@ -793,6 +836,12 @@ def _persist_updated_legs(trip_id: str, plan: TripPlan) -> None:
             "duration_minutes": leg.duration_minutes,
             "cost_sgd": leg.cost_sgd,
             "is_estimated": leg.is_estimated,
+            "geometry": leg.geometry,
+            "geometries": leg.geometries if leg.geometries else [],
+            "instructions": leg.instructions,
+            "distance_km": float(leg.distance_km) if leg.distance_km is not None else None,
+            "sub_legs": [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
+            "first_bus_stop_code": leg.first_bus_stop_code,
         }
         for day in plan.days
         for leg in day.legs

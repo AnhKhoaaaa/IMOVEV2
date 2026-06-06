@@ -5,7 +5,7 @@ import { computeTripStatus } from '../lib/tripUtils'
 function enrich(raw) {
   return raw.map((t) => ({
     ...t,
-    status: computeTripStatus(t.startDate, t.numDays ?? 1),
+    status: t.confirmed === false ? 'draft' : computeTripStatus(t.startDate, t.numDays ?? 1),
   }))
 }
 

@@ -273,17 +273,19 @@ const user = auth?.user
         day_start_times: dayStartTimes,
       })
 
+      const tripMeta = {
+        name: tripName.trim() || 'Singapore Trip',
+        startDate: flexible ? null : startDate || null,
+        numDays,
+        hotelName: hotel?.name ?? null,
+        hotelLat: hotel?.lat ?? null,
+        hotelLng: hotel?.lng ?? null,
+      }
+      // Auto-persist as unconfirmed draft so the trip survives navigation away from the planner
+      api.saveTrip(trip.trip_id, { ...tripMeta, confirmed: false }, user?.id ?? null)
+
       navigate(`/trip/${trip.trip_id}`, {
-        state: {
-          pendingSave: {
-            name: tripName.trim() || 'Singapore Trip',
-            startDate: flexible ? null : startDate || null,
-            numDays,
-            hotelName: hotel?.name ?? null,
-            hotelLat: hotel?.lat ?? null,
-            hotelLng: hotel?.lng ?? null,
-          },
-        },
+        state: { pendingSave: tripMeta },
       })
     } catch (err) {
       setError(err.message)
