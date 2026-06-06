@@ -1,7 +1,11 @@
 import asyncio
 import time
 import httpx
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from app.config import settings
+
+_SGT = ZoneInfo("Asia/Singapore")
 
 
 class NoRouteError(Exception):
@@ -202,10 +206,10 @@ async def get_route(
         "routeType": mode.lower(),
     }
     if mode.lower() == "pt":
-        now = time.gmtime()
+        now_sgt = datetime.now(tz=_SGT)
         params.update({
-            "date": time.strftime("%m-%d-%Y", now),
-            "time": time.strftime("%H:%M:%S", now),
+            "date": now_sgt.strftime("%m-%d-%Y"),
+            "time": now_sgt.strftime("%H:%M:%S"),
             "mode": "TRANSIT",
             "numItineraries": 1,
         })
