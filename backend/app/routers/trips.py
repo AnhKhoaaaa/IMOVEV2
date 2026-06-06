@@ -215,6 +215,9 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
             "duration_minutes": leg.duration_minutes,
             "cost_sgd":         leg.cost_sgd,
             "is_estimated":     leg.is_estimated,
+            "geometries":       leg.geometries if leg.geometries else [],
+            "sub_legs":         [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
+            "distance_km":      float(leg.distance_km) if leg.distance_km is not None else None,
         }
         try:
             supabase.table("route_legs").update({
@@ -298,7 +301,10 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
             "cost_sgd":         leg.cost_sgd,
             "is_estimated":     leg.is_estimated,
             "geometry":         leg.geometry,
+            "geometries":       leg.geometries if leg.geometries else [],
             "instructions":     leg.instructions,
+            "sub_legs":         [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
+            "distance_km":      float(leg.distance_km) if leg.distance_km is not None else None,
         }).eq("id", leg_id).execute()
 
         origin_note = "from GPS" if result.routed_from_current_position else "from place"
