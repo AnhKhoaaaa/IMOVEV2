@@ -94,18 +94,19 @@ def _fallback_warning(issue_type: str, days_summary: list[dict]) -> str:
 
 
 _GAP_NOTIFICATION_TEMPLATE = (
-    "You are a friendly Singapore travel guide. A tourist has free travel time between attractions.\n"
-    "For each gap below, write a 1-2 sentence suggestion in English on what they could do "
-    "or enjoy during that time. Mention the duration and keep it practical and upbeat.\n"
-    "Return ONLY a JSON array of strings (one per gap, same order). No explanation, no code block.\n\n"
-    "Gaps:\n{gaps_text}"
+    "You are a Singapore travel guide. A tourist has a long commute between two attractions.\n"
+    "For each transit segment below, write 1-2 sentences in English informing the tourist they will be "
+    "traveling by the given transport mode for that duration. Give one brief practical tip for the journey "
+    "(e.g., grab a snack at the station, enjoy the skyline view from the MRT). Be concise and practical.\n"
+    "Return ONLY a JSON array of strings (one per segment, same order). No explanation, no code block.\n\n"
+    "Segments:\n{gaps_text}"
 )
 
 
 async def generate_gap_notifications(gap_events: list[dict]) -> list[str]:
-    """Batch-generate friendly gap messages via Gemini.
+    """Batch-generate transit-informed messages via Gemini.
 
-    gap_events: list of {gap_minutes, place_before, place_after, gap_start, gap_end}
+    gap_events: list of {gap_minutes, place_before, place_after, gap_start, gap_end, transport_mode}
     Returns list of message strings same length as gap_events.
     Falls back to template strings on any failure.
     """
@@ -115,8 +116,8 @@ async def generate_gap_notifications(gap_events: list[dict]) -> list[str]:
     await _rate_limit()
 
     gaps_text = "\n".join(
-        f"{i + 1}. {e['gap_minutes']} min between {e['place_before']} ({e['gap_start']}) "
-        f"and {e['place_after']} ({e['gap_end']})"
+        f"{i + 1}. {e['gap_minutes']} min by {e.get('transport_mode', 'transit')} "
+        f"from {e['place_before']} ({e['gap_start']}) to {e['place_after']} ({e['gap_end']})"
         for i, e in enumerate(gap_events)
     )
     prompt = _GAP_NOTIFICATION_TEMPLATE.format(gaps_text=gaps_text)
@@ -135,7 +136,8 @@ async def generate_gap_notifications(gap_events: list[dict]) -> list[str]:
         pass
 
     return [
-        f"You have {e['gap_minutes']} minutes free between {e['place_before']} and {e['place_after']}."
+        f"You'll travel about {e['gap_minutes']} min by {e.get('transport_mode', 'transit').lower()} "
+        f"from {e['place_before']} to {e['place_after']}."
         for e in gap_events
     ]
 
