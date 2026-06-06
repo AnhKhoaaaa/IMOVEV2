@@ -7,7 +7,7 @@ from app.models.place import Place
 
 TripStatus = Literal["DRAFT", "UPCOMING", "HAPPENING_TODAY", "PAST"]
 
-TransportMode = Literal["BUS", "METRO", "CYCLE", "WALK"]
+TransportMode = Literal["BUS", "METRO", "CYCLE", "WALK", "GRAB"]
 
 
 class TripCreate(BaseModel):
