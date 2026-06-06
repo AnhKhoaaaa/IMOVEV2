@@ -6,6 +6,7 @@ import {
   Calendar,
   Check,
   ChevronLeft,
+  ChevronDown,
   Clock,
   Loader2,
   MapPin,
@@ -269,6 +270,7 @@ const user = auth?.user
         hotel_name: hotel?.name ?? null,
         hotel_lat: hotel?.lat ?? null,
         hotel_lng: hotel?.lng ?? null,
+        day_start_times: dayStartTimes,
       })
 
       navigate(`/trip/${trip.trip_id}`, {
@@ -318,13 +320,14 @@ const user = auth?.user
       hotel_name: hotel?.name ?? null,
       hotel_lat: hotel?.lat ?? null,
       hotel_lng: hotel?.lng ?? null,
+      day_start_times: dayStartTimes,
       preferences: {
         budget_sgd: Number(budget),
         ...weightsObj
       }
     }
     return JSON.stringify(payload, null, 2)
-  }, [selectedIds, optimizeOrder, hotel, budget, selectedPreset])
+  }, [selectedIds, optimizeOrder, hotel, budget, selectedPreset, dayStartTimes])
 
   return (
     <main className="min-h-[calc(100vh-56px)] bg-slate-50 py-8 px-6">
@@ -477,6 +480,30 @@ const user = auth?.user
                         />
                       </div>
                     )}
+
+                    <div className="animate-fade-in">
+                      <label className="text-[12px] font-bold text-slate-500 block mb-2">
+                        <Clock size={11} className="inline mr-1" />
+                        Daily Start Times
+                      </label>
+                      <div className={cn('grid gap-2', numDays > 4 ? 'grid-cols-3' : 'grid-cols-2')}>
+                        {Array.from({ length: numDays }, (_, i) => (
+                          <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2">
+                            <span className="text-[11px] font-bold text-slate-400 w-9 shrink-0">Day {i + 1}</span>
+                            <input
+                              type="time"
+                              value={dayStartTimes[i] ?? '09:00'}
+                              onChange={(e) => {
+                                const next = [...dayStartTimes]
+                                next[i] = e.target.value
+                                setDayStartTimes(next)
+                              }}
+                              className="flex-1 min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-900 outline-none focus:border-blue-400 transition"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
 
                     <div className="border-t border-slate-100 pt-4 mt-2">
                       <div className="flex items-center justify-between bg-slate-50/50 rounded-xl border border-slate-200 p-3 shadow-sm">
@@ -867,13 +894,25 @@ const user = auth?.user
             </section>
 
             {/* API Live Payload Debug Panel */}
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-1.5 border-b border-slate-100 pb-3 mb-3">
+            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setPayloadOpen((v) => !v)}
+                className="w-full flex items-center justify-between gap-2 px-5 py-3 hover:bg-slate-50 transition"
+              >
                 <span className="text-[12px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">API Live payload</span>
-              </div>
-              <pre className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 font-mono text-[10px] text-sky-400 overflow-x-auto max-h-[200px]">
-                {livePayload}
-              </pre>
+                <ChevronDown
+                  size={14}
+                  className={cn('text-slate-400 transition-transform duration-200', payloadOpen && 'rotate-180')}
+                />
+              </button>
+              {payloadOpen && (
+                <div className="px-5 pb-4">
+                  <pre className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 font-mono text-[10px] text-sky-400 overflow-x-auto max-h-[200px]">
+                    {livePayload}
+                  </pre>
+                </div>
+              )}
             </section>
 
             {error && (
