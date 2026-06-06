@@ -563,6 +563,8 @@ async def plan_trip(
     hotel_name: str | None = None,
     hotel_lat: float | None = None,
     hotel_lng: float | None = None,
+    force_real_routes: bool = False,
+    existing_real_legs: list[dict] | None = None,
 ) -> TripPlan:
     prefs = preferences or {}
     effective_profile = profile or UserPreferenceProfile()
@@ -607,6 +609,31 @@ async def plan_trip(
     alt_cache:      dict[tuple, dict] = {}
     best_key_cache: dict[tuple, str]  = {}
 
+    # Phương án A: pre-populate caches from caller-supplied real legs so OneMap is not
+    # re-called for pairs whose routes are already known.  Pairs present in alt_cache are
+    # automatically skipped in the all_pairs build below (key not in alt_cache guard).
+    for leg in (existing_real_legs or []):
+        from_id = leg.get("from_place_id")
+        to_id   = leg.get("to_place_id")
+        if not from_id or not to_id:
+            continue
+        mode = leg.get("transport_mode", "WALK")
+        dur  = int(leg.get("duration_minutes") or 0)
+        route = {
+            "duration_minutes": dur,
+            "fare_sgd":         float(leg.get("cost_sgd") or 0.0),
+            "is_estimated":     False,
+            "geometry":         leg.get("geometry"),
+            "geometries":       leg.get("geometries") or [],
+            "instructions":     leg.get("instructions") or [],
+            "legs":             [{"mode": mode, "duration_minutes": dur}],
+            "distance_km":      leg.get("distance_km"),
+            "sub_legs":         leg.get("sub_legs") or [],
+        }
+        alt_cache[(from_id, to_id)]      = {mode: route}
+        route_cache[(from_id, to_id)]    = route
+        best_key_cache[(from_id, to_id)] = mode
+
     if optimize_order:
         classified  = {p["id"]: _classify_place(p) for p in places}
         day_overlap = [p for p in places if classified[p["id"]] != "evening"]
@@ -641,7 +668,7 @@ async def plan_trip(
                 seen.add(key)
                 all_pairs.append((day_places[i], day_places[i + 1]))
 
-    if optimize_order:
+    if optimize_order or force_real_routes:
         alt_results = await asyncio.gather(
             *[_fetch_all_alternatives(a, b) for a, b in all_pairs],
             return_exceptions=True,
