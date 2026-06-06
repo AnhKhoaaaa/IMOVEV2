@@ -50,6 +50,7 @@ const tripDataKey = (userId) => userId ? `imove_trip_data_${userId}` : 'imove_tr
 
 export const api = {
   searchPlaces: (q) => request(`/places/search?q=${encodeURIComponent(q)}`),
+  geocodeHotel: (q) => request(`/places/geocode?q=${encodeURIComponent(q)}`),
   getCuratedPlaces: () => request('/places/curated'),
   suggestPlaces: (body) => request('/places/ai-suggest', { method: 'POST', body: JSON.stringify(body) }),
   createTrip: (body) => request('/trips', { method: 'POST', body: JSON.stringify(body) }),

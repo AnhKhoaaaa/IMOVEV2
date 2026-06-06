@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import { X, Calendar, Clock, AlertTriangle, Check, AlarmClock } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { X, Calendar, Clock, AlertTriangle, Check, AlarmClock, Building2, Loader2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { api } from '../../services/api'
 
 const COMPANIONS = [
   { id: 'solo',     emoji: '🚶',    label: 'Solo' },
@@ -41,7 +42,7 @@ function Chip({ active, onClick, children }) {
   )
 }
 
-export default function TripSetupModal({ open, savedMeta, onClose, onSave }) {
+export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, onSave }) {
   const [draft, setDraft] = useState({
     origin: '',
     destination: 'Singapore',
@@ -53,24 +54,65 @@ export default function TripSetupModal({ open, savedMeta, onClose, onSave }) {
     styles: [],
     pace: 'moderate',
     startTime: '09:00',
+    hotelName: '',
+    hotelLat: null,
+    hotelLng: null,
   })
+  const [hotelQuery, setHotelQuery] = useState('')
+  const [hotelResult, setHotelResult] = useState(null)
+  const [hotelLoading, setHotelLoading] = useState(false)
+  const [hotelNotFound, setHotelNotFound] = useState(false)
+  const hotelTimerRef = useRef(null)
 
   useEffect(() => {
-    if (open && savedMeta) {
+    if (open) {
+      const hotelName = savedMeta?.hotelName ?? tripHotel?.name ?? ''
+      const hotelLat = savedMeta?.hotelLat ?? tripHotel?.lat ?? null
+      const hotelLng = savedMeta?.hotelLng ?? tripHotel?.lng ?? null
       setDraft({
-        origin: savedMeta.origin ?? '',
-        destination: savedMeta.destination ?? 'Singapore',
-        dateMode: savedMeta.startDate ? 'specific' : 'flexible',
-        startDate: savedMeta.startDate ?? '',
-        endDate: savedMeta.endDate ?? '',
-        numDays: savedMeta.numDays ?? 3,
-        companion: savedMeta.companion ?? 'solo',
-        styles: savedMeta.styles ?? [],
-        pace: savedMeta.pace ?? 'moderate',
-        startTime: savedMeta.startTime ?? '09:00',
+        origin: savedMeta?.origin ?? '',
+        destination: savedMeta?.destination ?? 'Singapore',
+        dateMode: savedMeta?.startDate ? 'specific' : 'flexible',
+        startDate: savedMeta?.startDate ?? '',
+        endDate: savedMeta?.endDate ?? '',
+        numDays: savedMeta?.numDays ?? 3,
+        companion: savedMeta?.companion ?? 'solo',
+        styles: savedMeta?.styles ?? [],
+        pace: savedMeta?.pace ?? 'moderate',
+        startTime: savedMeta?.startTime ?? '09:00',
+        hotelName,
+        hotelLat,
+        hotelLng,
       })
+      setHotelQuery('')
+      setHotelResult(null)
+      setHotelNotFound(false)
     }
-  }, [open, savedMeta])
+  }, [open, savedMeta, tripHotel])
+
+  useEffect(() => {
+    if (hotelTimerRef.current) clearTimeout(hotelTimerRef.current)
+    if (!hotelQuery.trim() || draft.hotelLat != null) {
+      setHotelResult(null)
+      setHotelNotFound(false)
+      setHotelLoading(false)
+      return
+    }
+    setHotelLoading(true)
+    setHotelResult(null)
+    setHotelNotFound(false)
+    hotelTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await api.geocodeHotel(hotelQuery.trim())
+        setHotelResult(result)
+      } catch {
+        setHotelNotFound(true)
+      } finally {
+        setHotelLoading(false)
+      }
+    }, 400)
+    return () => clearTimeout(hotelTimerRef.current)
+  }, [hotelQuery, draft.hotelLat])
 
   if (!open) return null
 
@@ -239,6 +281,63 @@ export default function TripSetupModal({ open, savedMeta, onClose, onSave }) {
               />
               <span className="text-[12px] text-slate-400">each day</span>
             </div>
+          </div>
+
+          {/* Hotel / start location */}
+          <div>
+            <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-1.5">
+              Hotel <span className="text-slate-400 normal-case font-normal">(optional — daily start origin)</span>
+            </label>
+            {draft.hotelLat != null ? (
+              <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                <Building2 size={13} className="mt-0.5 shrink-0 text-emerald-600" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold text-slate-900">{draft.hotelName || 'Hotel'}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { set('hotelName', ''); set('hotelLat', null); set('hotelLng', null); setHotelQuery('') }}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded text-slate-400 hover:text-red-500"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="relative">
+                  <input
+                    value={hotelQuery}
+                    onChange={(e) => setHotelQuery(e.target.value)}
+                    placeholder="e.g. Marina Bay Sands"
+                    className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                  />
+                  {hotelLoading && (
+                    <Loader2 size={13} className="absolute right-2.5 top-3 animate-spin text-slate-400" />
+                  )}
+                </div>
+                {hotelResult && !hotelLoading && (
+                  <div className="mt-1 flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <p className="min-w-0 truncate text-[12px] text-slate-600">{hotelResult.address}</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        set('hotelName', hotelQuery.trim())
+                        set('hotelLat', hotelResult.lat)
+                        set('hotelLng', hotelResult.lng)
+                        setHotelResult(null)
+                        setHotelQuery('')
+                      }}
+                      className="flex shrink-0 items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-indigo-500"
+                    >
+                      <Check size={10} /> Use
+                    </button>
+                  </div>
+                )}
+                {hotelNotFound && !hotelLoading && (
+                  <p className="mt-1 text-[11.5px] text-red-500">No location found. Try a more specific name.</p>
+                )}
+              </>
+            )}
           </div>
 
           {/* Date change warning */}

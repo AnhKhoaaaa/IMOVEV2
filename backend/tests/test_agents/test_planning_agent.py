@@ -283,7 +283,7 @@ async def test_plan_trip_valid_returns_tripplan():
         new_callable=AsyncMock,
         return_value=_mock_route(),
     ):
-        result = await plan_trip("t1", ids, 1, 999.0, False, None)
+        result = await plan_trip("t1", ids, 1, 999.0, True, None)
 
     assert result.id == "t1"
     assert len(result.days) >= 1
@@ -314,7 +314,7 @@ async def test_budget_exceeded_adds_warning():
         new_callable=AsyncMock,
         return_value=_mock_route(fare=100.0),  # 100 SGD per leg, budget is 50
     ):
-        result = await plan_trip("t3", ids, 1, budget_sgd=50.0, optimize_order=False, preferences=None)
+        result = await plan_trip("t3", ids, 1, budget_sgd=50.0, optimize_order=True, preferences=None)
     # Planning must complete (no exception) and emit a budget warning
     assert any("budget" in w.lower() for w in result.warnings)
     assert len(result.days[0].legs) == 1
@@ -331,7 +331,7 @@ async def test_onemap_network_failure_raises_no_route():
         side_effect=Exception("Network timeout"),
     ):
         with pytest.raises(NoRouteError):
-            await plan_trip("t4", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+            await plan_trip("t4", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
 
 
 @pytest.mark.asyncio
@@ -359,7 +359,7 @@ async def test_long_distance_no_route_raises():
         side_effect=NoRouteError("no pt route"),
     ):
         with pytest.raises(NoRouteError):
-            await plan_trip("t-pt-fail", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+            await plan_trip("t-pt-fail", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
 
 
 @pytest.mark.asyncio
@@ -421,7 +421,7 @@ async def test_plan_trip_populates_leg_geometry():
         "instructions": ["Walk to station", "Board NS"],
     }
     with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=route_with_geo):
-        result = await plan_trip("t-geo", ids, 1, 999.0, False, None)
+        result = await plan_trip("t-geo", ids, 1, 999.0, True, None)
     leg = result.days[0].legs[0]
     assert leg.geometry == "encoded_abc"
     assert leg.geometries == ["walk_poly", "mrt_poly", "walk2_poly"]
@@ -453,7 +453,7 @@ async def test_plan_trip_populates_sub_legs():
         ],
     }
     with patch("app.agents.planning_agent.onemap.get_route", new_callable=AsyncMock, return_value=route_with_sub_legs):
-        result = await plan_trip("t-sub", ids, 1, 999.0, False, None)
+        result = await plan_trip("t-sub", ids, 1, 999.0, True, None)
     leg = result.days[0].legs[0]
     assert len(leg.sub_legs) == 2
     metro = next(s for s in leg.sub_legs if s.mode == "METRO")

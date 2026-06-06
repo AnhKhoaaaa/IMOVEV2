@@ -102,6 +102,9 @@ async def plan_trip(
             preferences=body.preferences,
             profile=effective_profile,
             context=effective_ctx,
+            hotel_name=body.hotel_name,
+            hotel_lat=body.hotel_lat,
+            hotel_lng=body.hotel_lng,
         )
     except PlaceDataMissingError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -110,12 +113,27 @@ async def plan_trip(
     except BudgetExceededError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    # Cache hotel in _trip_meta so re-plan ops can pass it to the agent
+    _trip_meta[trip_id]["hotel_name"] = body.hotel_name
+    _trip_meta[trip_id]["hotel_lat"]  = body.hotel_lat
+    _trip_meta[trip_id]["hotel_lng"]  = body.hotel_lng
+
     # Always cache in memory (authoritative for this session)
     _trip_store[trip_id] = result
 
     # Best-effort persist — planning already succeeded so don't fail the request
     if supabase:
         try:
+            # Persist hotel details to trips table
+            hotel_update: dict = {}
+            if body.hotel_name is not None:
+                hotel_update["hotel_name"] = body.hotel_name
+            if body.hotel_lat is not None:
+                hotel_update["hotel_lat"] = float(body.hotel_lat)
+            if body.hotel_lng is not None:
+                hotel_update["hotel_lng"] = float(body.hotel_lng)
+            if hotel_update:
+                supabase.table("trips").update(hotel_update).eq("id", trip_id).execute()
             _persist_trip_plan(trip_id, result)
         except Exception as exc:
             log.warning("Supabase persist failed for trip %s: %s", trip_id, exc)
@@ -146,10 +164,13 @@ async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_curre
                 _trip_store[trip_id] = plan
                 if trip_id not in _trip_meta:
                     _trip_meta[trip_id] = {
-                        "num_days": t.get("num_days", len(plan.days)),
+                        "num_days":   t.get("num_days", len(plan.days)),
                         "budget_sgd": float(t.get("budget_sgd") or 999.0),
                         "session_id": t.get("session_id"),
-                        "user_id": trip_user_id,
+                        "user_id":    trip_user_id,
+                        "hotel_name": t.get("hotel_name"),
+                        "hotel_lat":  _float_or_none(t.get("hotel_lat")),
+                        "hotel_lng":  _float_or_none(t.get("hotel_lng")),
                     }
             return plan
 
@@ -375,19 +396,25 @@ async def optimize_trip(trip_id: str, current_user: Optional[str] = Depends(get_
     meta = _trip_meta.get(trip_id, {})
     num_days = meta.get("num_days", len(plan.days))
     budget_sgd = meta.get("budget_sgd", 999.0)
+    h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
     profile, context = await _fetch_plan_context(current_user)
 
+    # Exclude hotel from re-plan place_ids (it's passed separately as hotel_*)
+    replan_ids = [p.id for p in plan.places if p.id != "hotel"]
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
-            place_ids=[p.id for p in plan.places],
+            place_ids=replan_ids,
             num_days=num_days,
             budget_sgd=budget_sgd,
             optimize_order=True,
             preferences=None,
             profile=profile,
             context=context,
+            hotel_name=h_name,
+            hotel_lat=h_lat,
+            hotel_lng=h_lng,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -466,17 +493,22 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
     _trip_meta[trip_id] = meta
 
     profile, context = await _fetch_plan_context(current_user)
+    h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
+    replan_ids = [p.id for p in plan.places if p.id != "hotel"]
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
-            place_ids=[p.id for p in plan.places],
+            place_ids=replan_ids,
             num_days=new_num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
             optimize_order=False,
             preferences=None,
             profile=profile,
             context=context,
+            hotel_name=h_name,
+            hotel_lat=h_lat,
+            hotel_lng=h_lng,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -507,13 +539,14 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
     if not any(p.id == place_id for p in plan.places):
         raise HTTPException(status_code=404, detail=f"Place '{place_id}' not in trip")
 
-    # Re-plan with place removed
-    remaining_ids = [p.id for p in plan.places if p.id != place_id]
+    # Re-plan with place removed (never remove "hotel" via this endpoint)
+    remaining_ids = [p.id for p in plan.places if p.id != place_id and p.id != "hotel"]
     if len(remaining_ids) < 2:
         raise HTTPException(status_code=422, detail="Trip must have at least 2 places")
 
     meta = _trip_meta.get(trip_id, {})
     profile, context = await _fetch_plan_context(current_user)
+    h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
     try:
         result = await planning_agent.plan_trip(
@@ -525,6 +558,9 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
             preferences=None,
             profile=profile,
             context=context,
+            hotel_name=h_name,
+            hotel_lat=h_lat,
+            hotel_lng=h_lng,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -588,6 +624,7 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
         all_ids.append(body.place_id)
 
     profile, context = await _fetch_plan_context(current_user)
+    h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
     try:
         result = await planning_agent.plan_trip(
@@ -599,6 +636,9 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
             preferences=None,
             profile=profile,
             context=context,
+            hotel_name=h_name,
+            hotel_lat=h_lat,
+            hotel_lng=h_lng,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -656,6 +696,7 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
             all_ids.append(p.id)
 
     profile, context = await _fetch_plan_context(current_user)
+    h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
     try:
         result = await planning_agent.plan_trip(
@@ -667,6 +708,9 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
             preferences=None,
             profile=profile,
             context=context,
+            hotel_name=h_name,
+            hotel_lat=h_lat,
+            hotel_lng=h_lng,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -776,6 +820,26 @@ async def _fetch_plan_context(
     return profile, ContextSnapshot.now(rain_mm=rain_mm)
 
 
+def _get_hotel_from_meta(trip_id: str) -> tuple[str | None, float | None, float | None]:
+    """Return (hotel_name, hotel_lat, hotel_lng) from in-memory cache or Supabase."""
+    meta = _trip_meta.get(trip_id, {})
+    if "hotel_lat" in meta:
+        return meta.get("hotel_name"), meta.get("hotel_lat"), meta.get("hotel_lng")
+    if supabase:
+        resp = supabase.table("trips").select("hotel_name,hotel_lat,hotel_lng").eq("id", trip_id).execute()
+        if resp.data:
+            row = resp.data[0]
+            return row.get("hotel_name"), _float_or_none(row.get("hotel_lat")), _float_or_none(row.get("hotel_lng"))
+    return None, None, None
+
+
+def _float_or_none(v) -> float | None:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
     """Return (num_days, budget_sgd) — prefers DB, falls back to meta cache."""
     budget_override = (
@@ -860,17 +924,29 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
     supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
     supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
 
-    place_rows = [
-        {
+    # Build place_id → (day_number, order_in_day) mapping from DayPlan.place_ids.
+    # Hotel ("hotel") is stored with day_number=NULL (shared across all days).
+    place_day_order: dict[str, tuple[int | None, int | None]] = {}
+    for day in plan.days:
+        for order_idx, pid in enumerate(day.place_ids):
+            if pid == "hotel":
+                place_day_order.setdefault("hotel", (None, None))
+            else:
+                place_day_order[pid] = (day.day, order_idx)
+
+    place_rows = []
+    for p in plan.places:
+        day_num, order_in_day = place_day_order.get(p.id, (None, None))
+        place_rows.append({
             "trip_id": trip_id,
             "place_id": p.id,
             "place_name": p.name,
             "lat": p.lat,
             "lng": p.lng,
             "dwell_minutes": p.dwell_minutes,
-        }
-        for p in plan.places
-    ]
+            "day_number": day_num,
+            "order_in_day": order_in_day,
+        })
     if place_rows:
         supabase.table("trip_places").insert(place_rows).execute()
 
@@ -931,16 +1007,43 @@ def _fetch_trip_from_db(trip_id: str):
     if not trip_resp.data:
         return None
 
-    places_resp = supabase.table("trip_places").select("*").eq("trip_id", trip_id).execute()
+    trip_row = trip_resp.data[0]
+    hotel_name_db = trip_row.get("hotel_name")
+    hotel_lat_db  = _float_or_none(trip_row.get("hotel_lat"))
+    hotel_lng_db  = _float_or_none(trip_row.get("hotel_lng"))
+
+    places_resp = (
+        supabase.table("trip_places")
+        .select("*")
+        .eq("trip_id", trip_id)
+        .order("day_number", desc=False, nullsfirst=False)
+        .order("order_in_day")
+        .execute()
+    )
     legs_resp = supabase.table("route_legs").select("*").eq("trip_id", trip_id).order("day_number").execute()
 
     from app.models.place import Place
     from app.models.trip import LegResponse, DayPlan, TripPlan
 
-    places = []
+    # Build flat places list — hotel first (reconstructed from trips table), then POIs
+    places: list[Place] = []
+    if hotel_lat_db is not None and hotel_lng_db is not None:
+        places.append(Place(
+            id="hotel",
+            name=hotel_name_db or "Hotel",
+            lat=hotel_lat_db,
+            lng=hotel_lng_db,
+            dwell_minutes=0,
+            best_time_start="09:00",
+            best_time_end="23:59",
+            category="Hotel",
+            is_outdoor=False,
+            in_curated_dataset=False,
+        ))
+
     for p in places_resp.data:
-        # Look up full metadata from curated dataset; fall back to DB values if place
-        # was removed from the dataset after the trip was created.
+        if p["place_id"] == "hotel":
+            continue  # hotel is reconstructed from the trips table, skip trip_places row
         curated = get_curated_place(p["place_id"]) or {}
         places.append(Place(
             id=p["place_id"],
@@ -957,15 +1060,25 @@ def _fetch_trip_from_db(trip_id: str):
             image_url=curated.get("image_url"),
         ))
 
+    # Reconstruct day → ordered place_ids from trip_places.day_number/order_in_day.
+    # Falls back to legs-based reconstruction for older data where day_number is NULL.
+    days_places_map: dict[int, list[str]] = {}
+    has_day_number = any(p.get("day_number") is not None for p in places_resp.data if p["place_id"] != "hotel")
+    if has_day_number:
+        for p in places_resp.data:
+            d = p.get("day_number")
+            if d is not None and p["place_id"] != "hotel":
+                days_places_map.setdefault(d, []).append(p["place_id"])
+
     # Coerce legacy DB values ("MRT", "LRT") to current TransportMode labels
     _LEGACY_MODE: dict[str, str] = {"MRT": "METRO", "LRT": "METRO"}
 
-    days_map: dict[int, list] = {}
+    legs_map: dict[int, list] = {}
     for leg in legs_resp.data:
         d = leg["day_number"]
         raw_mode = leg["transport_mode"]
         transport_mode = _LEGACY_MODE.get(raw_mode, raw_mode)
-        days_map.setdefault(d, []).append(LegResponse(
+        legs_map.setdefault(d, []).append(LegResponse(
             id=leg["id"],
             from_place_id=leg["from_place_id"],
             to_place_id=leg["to_place_id"],
@@ -981,5 +1094,21 @@ def _fetch_trip_from_db(trip_id: str):
             geometries=leg.get("geometries") or [],
         ))
 
-    days = [DayPlan(day=d, legs=legs) for d, legs in sorted(days_map.items())]
+    # Determine all days from both place_ids and legs
+    all_day_nums = sorted(set(days_places_map.keys()) | set(legs_map.keys()))
+    if not all_day_nums and not has_day_number:
+        # Legacy: reconstruct days only from legs (no trip_places day assignment)
+        all_day_nums = sorted(legs_map.keys())
+
+    days = []
+    for d in all_day_nums:
+        day_place_ids = days_places_map.get(d, [])
+        day_legs      = legs_map.get(d, [])
+        # Prepend hotel to each day's place_ids when hotel is configured
+        if hotel_lat_db is not None and day_place_ids:
+            full_place_ids = ["hotel"] + day_place_ids
+        else:
+            full_place_ids = day_place_ids
+        days.append(DayPlan(day=d, legs=day_legs, place_ids=full_place_ids))
+
     return TripPlan(id=trip_id, days=days, places=places, warnings=[])

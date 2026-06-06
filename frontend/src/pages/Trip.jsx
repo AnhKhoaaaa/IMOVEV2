@@ -63,7 +63,6 @@ function dayStats(day) {
 
 function timelineForDay(day, placesById) {
   const legs = day?.legs ?? []
-  if (!legs.length) return []
   const items = []
   const seen = new Set()
   legs.forEach((leg, index) => {
@@ -79,6 +78,13 @@ function timelineForDay(day, placesById) {
       items.push({ type: 'place', place: to, incomingLeg: leg, outgoingLeg: legs[index + 1] ?? null })
     }
   })
+  // Single-place day: no legs but place_ids lists places — render without transit rows
+  if (items.length === 0 && day?.place_ids?.length) {
+    for (const pid of day.place_ids) {
+      const place = placesById[pid]
+      if (place) items.push({ type: 'place', place, incomingLeg: null, outgoingLeg: null })
+    }
+  }
   return items
 }
 
@@ -1251,6 +1257,7 @@ export default function Trip() {
       <TripSetupModal
         open={setupOpen}
         savedMeta={savedMeta}
+        tripHotel={allPlacesById['hotel'] ?? null}
         onClose={() => setSetupOpen(false)}
         onSave={async (meta) => {
           saveTrip(id, { ...savedMeta, ...meta })
@@ -1259,13 +1266,16 @@ export default function Trip() {
           setUiWarning(null)
           try {
             await api.planTrip(id, {
-              place_ids: trip.places.map((p) => p.id),
+              place_ids: trip.places.filter((p) => p.id !== 'hotel').map((p) => p.id),
               optimize_order: true,
               preferences: {
                 budget_sgd: meta.budget_sgd ?? savedMeta?.budget_sgd ?? 100,
                 travel_styles: meta.styles ?? [],
                 group_type: meta.companion ?? 'solo',
               },
+              hotel_name: meta.hotelName ?? null,
+              hotel_lat: meta.hotelLat ?? null,
+              hotel_lng: meta.hotelLng ?? null,
             })
             await refresh()
           } catch (e) {

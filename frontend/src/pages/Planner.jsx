@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertCircle,
+  Building2,
   Calendar,
   Check,
   ChevronLeft,
@@ -142,6 +143,12 @@ export default function Planner() {
   const [suggestState, setSuggestState] = useState('idle')
   const [error, setError] = useState(null)
   const [creating, setCreating] = useState(false)
+  const [hotelQuery, setHotelQuery] = useState('')
+  const [hotelResult, setHotelResult] = useState(null)
+  const [hotelLoading, setHotelLoading] = useState(false)
+  const [hotelNotFound, setHotelNotFound] = useState(false)
+  const [hotel, setHotel] = useState(null)
+  const hotelTimerRef = useRef(null)
 
   useEffect(() => {
     document.body.classList.add('planner-choice-immersive')
@@ -155,6 +162,30 @@ export default function Planner() {
       .catch(() => setPlacesById({}))
       .finally(() => setPlacesLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (hotelTimerRef.current) clearTimeout(hotelTimerRef.current)
+    if (!hotelQuery.trim() || hotel) {
+      setHotelResult(null)
+      setHotelNotFound(false)
+      setHotelLoading(false)
+      return
+    }
+    setHotelLoading(true)
+    setHotelResult(null)
+    setHotelNotFound(false)
+    hotelTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await api.geocodeHotel(hotelQuery.trim())
+        setHotelResult(result)
+      } catch {
+        setHotelNotFound(true)
+      } finally {
+        setHotelLoading(false)
+      }
+    }, 400)
+    return () => clearTimeout(hotelTimerRef.current)
+  }, [hotelQuery, hotel])
 
   const selectedIds = useMemo(() => selected.map((place) => place.id), [selected])
 
@@ -221,6 +252,9 @@ export default function Planner() {
           travel_styles: travelStyles,
           group_type: groupType,
         },
+        hotel_name: hotel?.name ?? null,
+        hotel_lat: hotel?.lat ?? null,
+        hotel_lng: hotel?.lng ?? null,
       })
       navigate(`/trip/${trip.trip_id}`, {
         state: {
@@ -228,6 +262,9 @@ export default function Planner() {
             name: tripName.trim() || 'Singapore Trip',
             startDate: flexible ? null : startDate || null,
             numDays,
+            hotelName: hotel?.name ?? null,
+            hotelLat: hotel?.lat ?? null,
+            hotelLng: hotel?.lng ?? null,
           },
         },
       })
@@ -366,6 +403,60 @@ export default function Planner() {
                   className="h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
                 />
               )}
+              {/* Hotel / start location */}
+              <div>
+                <span className="text-[12px] font-bold text-slate-500">
+                  Hotel <span className="font-normal text-slate-400">(optional)</span>
+                </span>
+                {hotel ? (
+                  <div className="mt-1 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                    <Building2 size={13} className="mt-0.5 shrink-0 text-emerald-600" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-semibold text-slate-900">{hotel.name}</p>
+                      {hotel.address && <p className="truncate text-[11px] text-slate-500">{hotel.address}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setHotel(null); setHotelQuery('') }}
+                      className="grid h-5 w-5 shrink-0 place-items-center rounded text-slate-400 hover:text-red-500"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="relative mt-1">
+                      <input
+                        value={hotelQuery}
+                        onChange={(event) => setHotelQuery(event.target.value)}
+                        placeholder="e.g. Marina Bay Sands"
+                        className="h-10 w-full rounded-md border border-slate-200 px-3 pr-8 text-[13px] outline-none focus:border-blue-400"
+                      />
+                      {hotelLoading && (
+                        <Loader2 size={13} className="absolute right-2.5 top-3.5 animate-spin text-slate-400" />
+                      )}
+                    </div>
+                    {hotelResult && !hotelLoading && (
+                      <div className="mt-1 flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+                        <p className="min-w-0 truncate text-[12px] text-slate-600">{hotelResult.address}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHotel({ name: hotelQuery.trim(), lat: hotelResult.lat, lng: hotelResult.lng, address: hotelResult.address })
+                            setHotelResult(null)
+                          }}
+                          className="flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-500"
+                        >
+                          <Check size={10} /> Use
+                        </button>
+                      </div>
+                    )}
+                    {hotelNotFound && !hotelLoading && (
+                      <p className="mt-1 text-[11.5px] text-red-500">No location found. Try a more specific name.</p>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </section>
 

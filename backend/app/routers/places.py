@@ -1,7 +1,7 @@
 import json
 import pathlib
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from app.models.place import Place
 from app.agents.planning_agent import _normalise_place
@@ -33,6 +33,20 @@ class AiSuggestRequest(BaseModel):
     num_days: int = Field(default=1, ge=1, le=14)
     travel_styles: list[str] = Field(default_factory=list)
     group_type: str = "solo"
+
+
+@router.get("/geocode")
+async def geocode_location(q: str = Query(..., min_length=1)):
+    """Geocode a free-text address or place name via OneMap.
+
+    Returns {lat, lng, address} of the top match.
+    Used by frontend hotel/start-location search.
+    """
+    from app.services.onemap import geocode, GeocodingError
+    try:
+        return await geocode(q)
+    except GeocodingError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.post("/ai-suggest")

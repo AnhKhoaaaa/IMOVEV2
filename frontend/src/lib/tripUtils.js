@@ -41,8 +41,9 @@ export function computeTripStatus(startDate, numDays) {
 }
 
 // Builds a flat timeline array from a day's legs and a placesById map.
+// placeIds (optional) is used to render single-place days that have no legs.
 // Returns [{type:'place', data:Place, index:N} | {type:'transit', data:leg, slot:string|null}]
-export function buildTimeline(legs, placesById) {
+export function buildTimeline(legs, placesById, placeIds = []) {
   const timeline = []
   const seen = new Set()
   let placeIndex = 0
@@ -62,6 +63,16 @@ export function buildTimeline(legs, placesById) {
       seen.add(leg.to_place_id)
       placeIndex++
       timeline.push({ type: 'place', data: placesById[leg.to_place_id], index: placeIndex })
+    }
+  }
+
+  // Single-place day: no legs, but placeIds lists the places — show them without transit rows
+  if (timeline.length === 0 && placeIds.length > 0) {
+    for (const pid of placeIds) {
+      if (placesById[pid]) {
+        placeIndex++
+        timeline.push({ type: 'place', data: placesById[pid], index: placeIndex })
+      }
     }
   }
 

@@ -23,6 +23,9 @@ class TripPlanRequest(BaseModel):
     place_ids: list[str] = Field(min_length=2)
     optimize_order: bool = True
     preferences: Optional[dict] = None
+    hotel_name: Optional[str] = None
+    hotel_lat: Optional[float] = None
+    hotel_lng: Optional[float] = None
 
 
 class PTSubLeg(BaseModel):
@@ -74,6 +77,7 @@ class LegResponse(BaseModel):
 class DayPlan(BaseModel):
     day: int
     legs: list[LegResponse]
+    place_ids: list[str] = []
 
 
 class GapNotification(BaseModel):
