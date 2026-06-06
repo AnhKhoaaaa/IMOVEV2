@@ -820,13 +820,15 @@ async def plan_trip(
                 prev = day_places[i - 1]
                 gap = arrival_time - place_timing[prev["id"]]["departure"]
                 if gap >= 30:
+                    transit_mode = best_key_cache.get((prev["id"], place["id"]), "METRO")
                     gap_events.append({
-                        "day_index":    day_idx,
-                        "gap_start":    _fmt_hhmm(place_timing[prev["id"]]["departure"]),
-                        "gap_end":      _fmt_hhmm(arrival_time),
-                        "gap_minutes":  gap,
-                        "place_before": prev["name"],
-                        "place_after":  place["name"],
+                        "day_index":      day_idx,
+                        "gap_start":      _fmt_hhmm(place_timing[prev["id"]]["departure"]),
+                        "gap_end":        _fmt_hhmm(arrival_time),
+                        "gap_minutes":    gap,
+                        "place_before":   prev["name"],
+                        "place_after":    place["name"],
+                        "transport_mode": transit_mode,
                     })
 
             # Advance clock by dwell at this place

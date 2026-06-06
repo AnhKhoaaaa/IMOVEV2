@@ -490,11 +490,11 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
 
       {trip.gap_notifications?.length > 0 && (
         <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-          <p className="mb-3 text-[12px] font-bold uppercase tracking-wide text-blue-700">Schedule gaps</p>
+          <p className="mb-3 text-[12px] font-bold uppercase tracking-wide text-blue-700">Long commutes</p>
           <div className="space-y-2">
             {trip.gap_notifications.map((gap, index) => (
               <div key={index} className="rounded-md bg-white px-3 py-2 text-[13px] text-blue-900 shadow-sm">
-                <span className="font-bold">Day {gap.day_index + 1} · {gap.gap_start}-{gap.gap_end}</span>
+                <span className="font-bold">Day {gap.day_index + 1} · {gap.gap_start}–{gap.gap_end}</span>
                 <span className="text-blue-700"> · {gap.message}</span>
               </div>
             ))}
@@ -744,8 +744,8 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
             onClick={() => setGapsOpen((v) => !v)}
             className="flex w-full items-center gap-2 px-3 py-2.5 text-[12.5px] font-semibold text-blue-700"
           >
-            <Sparkles size={13} className="shrink-0" />
-            <span>{dayGaps.length} free time gap{dayGaps.length > 1 ? 's' : ''} today</span>
+            <Route size={13} className="shrink-0" />
+            <span>{dayGaps.length} long transit{dayGaps.length > 1 ? 's' : ''} today</span>
             <ChevronDown size={13} className={cn('ml-auto transition-transform', gapsOpen && 'rotate-180')} />
           </button>
           {gapsOpen && (
