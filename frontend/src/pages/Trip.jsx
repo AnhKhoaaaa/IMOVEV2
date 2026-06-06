@@ -516,13 +516,17 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
           const stats = dayStats(day)
           const serverPlaceTimes = computePlaceTimes(day, allPlacesById, startTime ?? '09:00')
           const placeTimes = isDirty ? (pendingTimes[day.day] ?? serverPlaceTimes) : serverPlaceTimes
-          // Transit minutes excludes the return-to-hotel leg so the summary reflects sightseeing transit only
-          const transitMin = (day.legs ?? [])
-            .filter((l) => l.to_place_id !== 'hotel')
-            .reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+          // Total transit includes all legs (hotel→first and last→hotel)
+          const transitMin = (day.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
 
-          const firstTime = visitPlaces[0] ? placeTimes[visitPlaces[0].id]?.arrive : null
-          const lastTime  = visitPlaces.at(-1) ? placeTimes[visitPlaces.at(-1).id]?.depart : null
+          const hasHotelStart = day.legs?.[0]?.from_place_id === 'hotel'
+          const hasHotelEnd   = (day.legs?.length ?? 0) > 0 && day.legs[day.legs.length - 1]?.to_place_id === 'hotel'
+          const firstTime = hasHotelStart
+            ? (startTime ?? '09:00')
+            : (visitPlaces[0] ? placeTimes[visitPlaces[0].id]?.arrive : null)
+          const lastTime = hasHotelEnd
+            ? placeTimes['hotel']?.arrive
+            : (visitPlaces.at(-1) ? placeTimes[visitPlaces.at(-1).id]?.depart : null)
 
           return (
             <section key={day.day} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
@@ -530,7 +534,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 <button onClick={() => onSelectDay(day.day)} className="text-left">
                   <h3 className="font-display text-[18px] font-extrabold text-slate-950">Day {day.day}</h3>
                   <p className="mt-1 text-[12px] text-slate-500">
-                    {visitPlaces.length} stops · {formatDuration(stats.duration)} · {formatCost(stats.cost)}
+                    {visitPlaces.length} stops · {formatCost(stats.cost)}
                   </p>
                   {firstTime && lastTime && (
                     <p className="mt-0.5 text-[11px] text-slate-400 tabular-nums">
@@ -634,7 +638,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
   )
 }
 
-function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onAddPlace, startTime, gapNotifications = [] }) {
+function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onContinue, arrivedPending, onAddPlace, startTime, gapNotifications = [] }) {
   const items = timelineForDay(day, placesById)
   const activeLeg = day?.legs?.[activeLegIndex]
   const activeFrom = activeLeg ? placesById[activeLeg.from_place_id] : null
@@ -655,12 +659,27 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
               Day {day.day} · Leg {activeLegIndex + 1} of {day.legs?.length ?? 1}
             </p>
           </div>
-          <button
-            onClick={onMarkArrived}
-            className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-bold text-white hover:bg-emerald-500"
-          >
-            <CheckCircle size={15} /> Arrived
-          </button>
+          <div className="relative">
+            <button
+              onClick={arrivedPending ? onContinue : onMarkArrived}
+              className={cn(
+                'flex h-10 items-center gap-2 rounded-md px-4 text-[13px] font-bold text-white transition-colors duration-300',
+                arrivedPending
+                  ? 'bg-teal-600 hover:bg-teal-500'
+                  : 'bg-emerald-600 hover:bg-emerald-500',
+              )}
+            >
+              {arrivedPending
+                ? <><Navigation2 size={15} /> Continue</>
+                : <><CheckCircle size={15} /> Arrived</>}
+            </button>
+            {arrivedPending && (
+              <span className="absolute -right-1 -top-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-teal-500" />
+              </span>
+            )}
+          </div>
         </div>
         <CompactPlaceCard place={activeFrom} role="from" />
         <LegCard
@@ -877,6 +896,12 @@ export default function Trip() {
   const activeFrom = activeLeg ? allPlacesById[activeLeg.from_place_id] : null
   const activeTo   = activeLeg ? allPlacesById[activeLeg.to_place_id]   : null
 
+  // Reset auto-arrive guard whenever the destination changes (leg advance OR swap adaptation).
+  useEffect(() => {
+    autoArrivedRef.current = false
+    setArrivedPending(false)
+  }, [activeTo?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Task 8b: determine if current leg warrants a live-draw tracking polyline
   const activeLegMode = activeLeg ? normalizeTransportMode(activeLeg.transport_mode) : null
   const isWalkOrCycle = activeLegMode === 'WALK' || activeLegMode === 'CYCLE'
@@ -960,6 +985,18 @@ export default function Trip() {
   useEffect(() => {
     sessionStorage.setItem(`imove_active_leg_${id}`, String(activeLegIndex))
   }, [activeLegIndex, id])
+
+  // When opened from Home dashboard with autoStart=true, jump to Day 1 once trip loads
+  const autoStartHandled = useRef(false)
+  useEffect(() => {
+    if (!location.state?.autoStart || autoStartHandled.current || !trip?.days?.[0]) return
+    autoStartHandled.current = true
+    const firstDay = trip.days[0].day
+    setSelectedDay(firstDay)
+    setActiveLegIndex(0)
+    setActiveTab(`day-${firstDay}`)
+    api.checkAlerts(id, { session_id: getSessionId() }).catch(() => {})
+  }, [trip?.days]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectDayTab = (dayNum) => {
     setSelectedDay(dayNum)
@@ -1255,7 +1292,7 @@ export default function Trip() {
 
   if (loading) {
     return (
-      <main className="grid min-h-[calc(100vh-56px)] place-items-center bg-slate-50">
+      <main aria-label="Loading trip" className="grid min-h-[calc(100vh-56px)] place-items-center bg-slate-50">
         <Loader2 className="h-7 w-7 animate-spin text-blue-600" />
       </main>
     )
@@ -1374,20 +1411,8 @@ export default function Trip() {
         }
       </div>
 
-      {(isOffline || todayBanner || optimizeMsg || arrivedPending || (tripStarted && geoError) || alerts.length > 0 || uiWarning) && (
+      {(isOffline || todayBanner || optimizeMsg || (tripStarted && geoError) || alerts.length > 0 || uiWarning) && (
         <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
-          {arrivedPending && (
-            <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-semibold text-emerald-800">
-              <CheckCircle size={15} className="text-emerald-600" />
-              You&apos;ve arrived! Ready for the next leg?
-              <button
-                onClick={advanceLeg}
-                className="ml-auto rounded-md bg-emerald-600 px-3 py-1.5 text-[12px] font-bold text-white hover:bg-emerald-500"
-              >
-                Continue →
-              </button>
-            </div>
-          )}
           {tripStarted && geoError && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
               <MapPin size={15} className="shrink-0" />
@@ -1397,13 +1422,7 @@ export default function Trip() {
           )}
           {todayBanner && (
             <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-800">
-              <Navigation2 size={15} /> Your trip starts today!
-              <button
-                onClick={() => { startDay(trip?.days?.[0]?.day ?? 1); setTodayBanner(false) }}
-                className="ml-2 rounded-md bg-emerald-600 px-2.5 py-1 text-[12px] font-bold text-white hover:bg-emerald-500"
-              >
-                Start Day 1 →
-              </button>
+              <Navigation2 size={15} /> Your trip starts today! Head to the dashboard to start.
               <button onClick={() => setTodayBanner(false)} className="ml-auto"><X size={14} /></button>
             </div>
           )}
@@ -1444,7 +1463,7 @@ export default function Trip() {
               onReorder={reorderLocal}
               onUpdateRoute={handleUpdateRoute}
               onOptimiseOrder={() => setConfirmOptimise(true)}
-              onStartTrip={!tripStarted && (trip?.days?.length ?? 0) > 0 ? () => startDay(trip.days[0].day) : null}
+              onStartTrip={null}
               tripStarted={tripStarted}
               startTime={savedMeta?.startTime ?? '09:00'}
               needsRouteUpdate={needsRouteUpdate}
@@ -1465,6 +1484,8 @@ export default function Trip() {
               onWarning={setUiWarning}
               onRemovePlace={removePlace}
               onMarkArrived={markArrived}
+              onContinue={advanceLeg}
+              arrivedPending={arrivedPending}
               onAddPlace={setAddDayFor}
               startTime={savedMeta?.startTime ?? '09:00'}
               gapNotifications={trip.gap_notifications ?? []}
@@ -1477,7 +1498,7 @@ export default function Trip() {
               pendingSave={pendingSave}
               optimizationLog={(trip.warnings ?? []).map((warning) => ({ title: warning, type: 'mode_change' }))}
               onSave={(name) => {
-                const meta = { ...pendingSave, name }
+                const meta = { ...pendingSave, name, confirmed: true }
                 saveTrip(id, meta)
                 setPendingSave(null)
                 sessionStorage.removeItem(pendingKey)
@@ -1518,7 +1539,7 @@ export default function Trip() {
         tripHotel={allPlacesById['hotel'] ?? null}
         onClose={() => setSetupOpen(false)}
         onSave={async (meta) => {
-          saveTrip(id, { ...savedMeta, ...meta })
+          saveTrip(id, { ...savedMeta, ...meta, confirmed: true })
           if (!trip?.places?.length) return
           setMutating(true)
           setUiWarning(null)

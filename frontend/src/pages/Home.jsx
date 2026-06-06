@@ -246,6 +246,27 @@ export default function Home() {
         </div>
       </section>
 
+      {(() => {
+        const todayTrip = trips.find((t) => t.status === 'today')
+        if (!todayTrip) return null
+        return (
+          <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-3">
+            <div className="mx-auto flex max-w-7xl items-center gap-3">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+              <p className="text-[13px] font-semibold text-emerald-800">
+                <span className="font-bold">{todayTrip.name ?? 'Singapore Trip'}</span> starts today
+              </p>
+              <button
+                onClick={() => openTrip(todayTrip, true)}
+                className="ml-auto flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-bold text-white hover:bg-emerald-500"
+              >
+                <Navigation2 size={13} /> Start
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+
       <section className="mx-auto max-w-7xl px-6 py-6">
         <div className="mb-5 flex items-center justify-between gap-4">
           <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-card">

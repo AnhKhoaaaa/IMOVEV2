@@ -15,6 +15,7 @@ vi.mock('../../services/api', () => ({
   api: {
     createTrip: vi.fn(),
     planTrip: vi.fn(),
+    saveTrip: vi.fn(),
     getCuratedPlaces: vi.fn().mockResolvedValue([
       { id: 'p1', name: 'Gardens by the Bay', category: 'Nature', dwell_minutes: 120 },
       { id: 'p2', name: 'Sentosa Beach Club', category: 'Entertainment', dwell_minutes: 180 }

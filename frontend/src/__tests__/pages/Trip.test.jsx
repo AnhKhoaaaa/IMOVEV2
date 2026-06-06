@@ -66,7 +66,10 @@ const makeTrip = (overrides = {}) => ({
 })
 
 describe('Trip page', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
 
   it('shows loading skeleton', () => {
     useTrip.mockReturnValue({ trip: null, loading: true, error: null })
@@ -83,24 +86,26 @@ describe('Trip page', () => {
   it('renders day by day board when loaded', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Day by day/i }))
-    expect(screen.getByRole('button', { name: /Day 1/i })).toBeInTheDocument()
+    // Overview is the default tab; Day 1 appears in nav and as a day card heading
+    expect(screen.getAllByRole('button', { name: /Day 1/i })[0]).toBeInTheDocument()
     expect(screen.getByText('Marina Bay')).toBeInTheDocument()
   })
 
   it('opens map view after selecting a day', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Day by day/i }))
-    fireEvent.click(screen.getByRole('button', { name: /Day 1/i }))
+    // TripMap is always rendered alongside the left panel; clicking Day 1 tab keeps it visible
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/i })[0])
     expect(screen.getByTestId('trip-map')).toBeInTheDocument()
   })
 
   it('allows changing transport mode from day by day', async () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Day by day/i }))
-    fireEvent.click(screen.getByRole('button', { name: /change transport from marina bay to bugis/i }))
+    // Navigate to DayView via the Day 1 nav tab
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/i })[0])
+    // Open the mode dropdown on the LegCard
+    fireEvent.click(screen.getByRole('button', { name: /Change/i }))
     fireEvent.click(screen.getByRole('button', { name: /Bus/i }))
 
     await waitFor(() => {
@@ -124,7 +129,7 @@ describe('Trip page', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Sentosa best time conflict')
   })
 
-  it('dismisses warnings banner when × is clicked', () => {
+  it('warnings banner is persistent (no dismiss button)', () => {
     useTrip.mockReturnValue({
       trip: makeTrip({ warnings: ['Some warning'] }),
       loading: false,
@@ -132,18 +137,19 @@ describe('Trip page', () => {
     })
     render(<BrowserRouter><Trip /></BrowserRouter>)
     expect(screen.getByRole('alert')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /dismiss warnings/i }))
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /dismiss/i })).not.toBeInTheDocument()
   })
 
-  it('shows multiple warnings joined by separator', () => {
+  it('shows all warnings in the alert banner', () => {
     useTrip.mockReturnValue({
       trip: makeTrip({ warnings: ['Warning A', 'Warning B'] }),
       loading: false,
       error: null,
     })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByRole('alert')).toHaveTextContent('Warning A · Warning B')
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Warning A')
+    expect(alert).toHaveTextContent('Warning B')
   })
 
   it('P6-BUG-1: handleSaveSetup uses hook saveTrip, not api.saveTrip directly', async () => {
@@ -206,7 +212,10 @@ const makeTwoLegTrip = () => ({
 })
 
 describe('dev13 — Task 1: no Start button in DayView', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
 
   it('DayView header has no standalone "Start" button in planning mode', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
@@ -217,69 +226,80 @@ describe('dev13 — Task 1: no Start button in DayView', () => {
     expect(screen.queryByRole('button', { name: /^Start$/ })).not.toBeInTheDocument()
   })
 
-  it('Start Trip button still exists in Overview', () => {
+  it('Start Trip button does not exist in Overview', () => {
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByRole('button', { name: /Start Trip/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Start Trip/i })).not.toBeInTheDocument()
   })
 })
 
 describe('dev13 — Task 5: no instructions in LegCard', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
 
   it('after starting trip the DayView shows no "instructions" text', () => {
+    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
-    // Instruction-related text must not appear
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
     expect(screen.queryByText(/instructions/i)).not.toBeInTheDocument()
   })
 
   it('"Compare modes" button is still present in active leg view', () => {
+    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
     expect(screen.getByRole('button', { name: /Compare modes/i })).toBeInTheDocument()
   })
 })
 
 describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
 
-  it('clicking Arrived shows the Continue banner', () => {
+  it('clicking Arrived changes the button to Continue (no separate banner)', () => {
+    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
-    expect(screen.getByText(/You've arrived/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
+    expect(screen.queryByText(/You've arrived/i)).not.toBeInTheDocument()
   })
 
   it('clicking Arrived does NOT immediately advance the leg', () => {
+    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
     // Single-leg trip — after arriving, should show Continue, NOT jump to Summary
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     // Summary tab should NOT have appeared yet
     expect(screen.queryByText(/Total cost|Total time/i)).not.toBeInTheDocument()
   })
 
-  it('clicking Continue advances to next leg and hides banner', () => {
+  it('clicking Continue advances to next leg and button resets to Arrived', () => {
+    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
-    expect(screen.getByText(/You've arrived/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
-    // Banner dismissed after Continue
-    expect(screen.queryByText(/You've arrived/i)).not.toBeInTheDocument()
+    // Button resets back to Arrived for the next leg
+    expect(screen.getByRole('button', { name: /Arrived/i })).toBeInTheDocument()
   })
 
   it('Continue → last leg → no more legs → trip ends (Summary shown)', () => {
+    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Start Trip/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
     // After last leg, tripStarted becomes false and Summary tab is active
