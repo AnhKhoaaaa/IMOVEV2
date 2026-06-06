@@ -10,33 +10,31 @@ import {
   Loader2,
   MapPin,
   Navigation2,
-  Pencil,
   Plus,
   Search,
   Sparkles,
   Trash2,
   X,
+  Zap,
+  Banknote,
+  Footprints,
+  Shuffle,
+  User,
+  ArrowLeft,
+  ArrowRight,
+  HelpCircle,
 } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { cn } from '../lib/utils'
-import PlaceSearch from '../components/planner/PlaceSearch'
 import PlaceBrowser from '../components/planner/PlaceBrowser'
 
-const COMPANIONS = [
-  { id: 'solo', label: 'Solo' },
-  { id: 'couple', label: 'Couple' },
-  { id: 'family', label: 'Family' },
-  { id: 'friends', label: 'Friends' },
-]
-
-const STYLES = [
-  { id: 'nature', label: 'Nature' },
-  { id: 'food', label: 'Food' },
-  { id: 'heritage', label: 'Heritage' },
-  { id: 'shopping', label: 'Shopping' },
-  { id: 'nightlife', label: 'Nightlife' },
-]
+const PRESETS = {
+  fastest: { duration_w: 0.70, cost_w: 0.10, walking_w: 0.10, transfers_w: 0.10 },
+  cheapest: { duration_w: 0.10, cost_w: 0.70, walking_w: 0.10, transfers_w: 0.10 },
+  leisure: { duration_w: 0.20, cost_w: 0.10, walking_w: 0.60, transfers_w: 0.10 },
+  direct: { duration_w: 0.20, cost_w: 0.20, walking_w: 0.10, transfers_w: 0.50 },
+}
 
 const generateId = () =>
   typeof crypto?.randomUUID === 'function'
@@ -48,23 +46,6 @@ function endDate(startDate, numDays) {
   const date = new Date(startDate)
   date.setDate(date.getDate() + Math.max(0, numDays - 1))
   return date.toISOString().slice(0, 10)
-}
-
-function Chip({ active, children, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'h-9 rounded-md border px-3 text-[13px] font-bold transition',
-        active
-          ? 'border-blue-200 bg-blue-600 text-white shadow-card'
-          : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700'
-      )}
-    >
-      {children}
-    </button>
-  )
 }
 
 function PlaceMiniCard({ place, onRemove }) {
@@ -85,7 +66,7 @@ function PlaceMiniCard({ place, onRemove }) {
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] font-extrabold text-slate-900">{place.name}</p>
+        <p className="truncate text-[13px] font-bold text-slate-900">{place.name}</p>
         <p className="mt-0.5 truncate text-[11px] font-semibold capitalize text-slate-400">
           {place.category || 'place'} · {place.dwell_minutes ?? place.suggested_duration_minutes ?? 60} min
         </p>
@@ -108,16 +89,16 @@ function PlaceMiniCard({ place, onRemove }) {
 function SelectedList({ places, onRemove }) {
   if (!places.length) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-        <MapPin className="mx-auto h-7 w-7 text-slate-300" />
-        <p className="mt-2 text-[13px] font-bold text-slate-600">No places selected yet</p>
-        <p className="mt-1 text-[12px] text-slate-400">Search or browse all places to stage your itinerary.</p>
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+        <MapPin className="mx-auto h-6 w-6 text-slate-300" />
+        <p className="mt-2 text-[12.5px] font-bold text-slate-600">No places selected yet</p>
+        <p className="mt-1 text-[11.5px] text-slate-400">Select places on the left to add them to your trip.</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
       {places.map((place) => (
         <PlaceMiniCard key={place.id} place={place} onRemove={() => onRemove(place.id)} />
       ))}
@@ -127,22 +108,29 @@ function SelectedList({ places, onRemove }) {
 
 export default function Planner() {
   const navigate = useNavigate()
-  const { user } = useAuth()
-  const [mode, setMode] = useState(null)
+const auth = useAuth()
+const user = auth?.user
+  
+  // Wizard steps: 1: Essentials, 2: Hotel, 3: Travel Style, 4: Places
+  const [currentStep, setCurrentStep] = useState(1)
+  
   const [placesById, setPlacesById] = useState({})
   const [placesLoading, setPlacesLoading] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [selected, setSelected] = useState([])
   const [tripName, setTripName] = useState('Singapore Trip')
+  
+  // Step 1: Essentials States
   const [numDays, setNumDays] = useState(3)
-  const [budget, setBudget] = useState(60)
+  const [budget, setBudget] = useState(50)
   const [flexible, setFlexible] = useState(true)
   const [startDate, setStartDate] = useState('')
-  const [groupType, setGroupType] = useState('solo')
-  const [travelStyles, setTravelStyles] = useState(['heritage'])
-  const [suggestState, setSuggestState] = useState('idle')
-  const [error, setError] = useState(null)
-  const [creating, setCreating] = useState(false)
+  const [optimizeOrder, setOptimizeOrder] = useState(true)
+  const [dayStartTimes, setDayStartTimes] = useState(() => Array(3).fill('09:00'))
+
+  // Sidebar states
+  const [payloadOpen, setPayloadOpen] = useState(false)
+
+  // Step 2: Hotel States (Optional)
   const [hotelQuery, setHotelQuery] = useState('')
   const [hotelResult, setHotelResult] = useState(null)
   const [hotelLoading, setHotelLoading] = useState(false)
@@ -150,11 +138,15 @@ export default function Planner() {
   const [hotel, setHotel] = useState(null)
   const hotelTimerRef = useRef(null)
 
-  useEffect(() => {
-    document.body.classList.add('planner-choice-immersive')
-    return () => document.body.classList.remove('planner-choice-immersive')
-  }, [])
+  // Step 3: Travel Style Preset States
+  const [selectedPreset, setSelectedPreset] = useState('fastest')
 
+  // UI Flow States
+  const [suggestState, setSuggestState] = useState('idle')
+  const [error, setError] = useState(null)
+  const [creating, setCreating] = useState(false)
+
+  // Fetch Curated Places
   useEffect(() => {
     setPlacesLoading(true)
     api.getCuratedPlaces()
@@ -163,6 +155,16 @@ export default function Planner() {
       .finally(() => setPlacesLoading(false))
   }, [])
 
+  // Sync dayStartTimes array length when numDays changes
+  useEffect(() => {
+    setDayStartTimes((prev) => {
+      const next = Array(numDays).fill('09:00')
+      for (let i = 0; i < Math.min(prev.length, numDays); i++) next[i] = prev[i]
+      return next
+    })
+  }, [numDays])
+
+  // Geocoding debounce for hotel search
   useEffect(() => {
     if (hotelTimerRef.current) clearTimeout(hotelTimerRef.current)
     if (!hotelQuery.trim() || hotel) {
@@ -203,18 +205,23 @@ export default function Planner() {
     else addPlace(place)
   }
 
-  const toggleStyle = (style) => {
-    setTravelStyles((items) => items.includes(style) ? items.filter((item) => item !== style) : [...items, style])
-  }
-
+  // Calls AI API to auto-shortlist places based on day budget
   const suggestPlaces = async () => {
     setSuggestState('thinking')
     setError(null)
     try {
+      // Map current preset to some standard tags for AI compatibility
+      const stylesMap = {
+        fastest: ['heritage', 'nature'],
+        cheapest: ['food', 'shopping'],
+        leisure: ['nature', 'food'],
+        direct: ['heritage', 'shopping'],
+        user: ['heritage', 'nature']
+      }
       const response = await api.suggestPlaces({
         num_days: numDays,
-        travel_styles: travelStyles,
-        group_type: groupType,
+        travel_styles: stylesMap[selectedPreset] || ['heritage'],
+        group_type: 'solo',
       })
       const ids = response?.suggested_place_ids ?? []
       const next = ids.map((id) => placesById[id]).filter(Boolean)
@@ -236,26 +243,34 @@ export default function Planner() {
     try {
       const sessionId = localStorage.getItem('session_id') ?? generateId()
       localStorage.setItem('session_id', sessionId)
+      
       const body = {
         session_id: sessionId,
         num_days: numDays,
         budget_sgd: Number(budget),
         start_date: flexible ? null : startDate || null,
         end_date: flexible || !startDate ? null : endDate(startDate, numDays),
+        day_start_times: dayStartTimes,
       }
+      
       const trip = await api.createTrip(body)
+
+      // Calculate weights payload based on selected Preset
+      const weightsObj = selectedPreset === 'user' ? {} : PRESETS[selectedPreset]
+      const preferencesObj = {
+        budget_sgd: Number(budget),
+        ...weightsObj,
+      }
+
       await api.planTrip(trip.trip_id, {
         place_ids: selected.map((place) => place.id),
-        optimize_order: true,
-        preferences: {
-          budget_sgd: Number(budget),
-          travel_styles: travelStyles,
-          group_type: groupType,
-        },
+        optimize_order: optimizeOrder,
+        preferences: preferencesObj,
         hotel_name: hotel?.name ?? null,
         hotel_lat: hotel?.lat ?? null,
         hotel_lng: hotel?.lng ?? null,
       })
+
       navigate(`/trip/${trip.trip_id}`, {
         state: {
           pendingSave: {
@@ -275,307 +290,602 @@ export default function Planner() {
     }
   }
 
-  if (!mode) {
-    return (
-      <main className="planner-choice-shell -mt-14 min-h-screen pt-24">
-        <div className="planner-choice-frame mx-auto w-[min(980px,calc(100vw-48px))]">
-          <div className="mb-8 max-w-2xl text-white">
-            <p className="text-[12px] font-bold uppercase tracking-wide text-white/75">IMOVE planner</p>
-            <h1 className="mt-2 font-display text-[54px] font-extrabold leading-none">Build your Singapore route</h1>
-            <p className="mt-4 text-[15px] leading-7 text-white/75">
-              Start from your own places or let AI shortlist transport-friendly stops from the curated Singapore dataset.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-5">
-            <button
-              type="button"
-              onClick={() => setMode('manual')}
-              className="rounded-lg border border-white/40 bg-white/90 p-6 text-left shadow-pop backdrop-blur transition hover:-translate-y-0.5 hover:bg-white"
-            >
-              <div className="grid h-12 w-12 place-items-center rounded-lg bg-blue-600 text-white">
-                <Pencil size={20} />
-              </div>
-              <h2 className="mt-5 font-display text-[24px] font-extrabold text-slate-950">Manual planner</h2>
-              <p className="mt-2 text-[14px] leading-6 text-slate-500">Search, browse, and stage every place yourself before generating the route.</p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('ai')}
-              className="rounded-lg border border-white/40 bg-white/88 p-6 text-left shadow-pop backdrop-blur transition hover:-translate-y-0.5 hover:bg-white"
-            >
-              <div className="grid h-12 w-12 place-items-center rounded-lg bg-slate-900 text-white">
-                <Sparkles size={20} />
-              </div>
-              <h2 className="mt-5 font-display text-[24px] font-extrabold text-slate-950">AI suggestion</h2>
-              <p className="mt-2 text-[14px] leading-6 text-slate-500">Choose your travel style, get a shortlist, edit it, then generate the plan.</p>
-            </button>
-          </div>
-        </div>
-      </main>
-    )
+  // Wizard Step triggers
+  const goToStep = (step) => {
+    if (step >= 1 && step <= 4) {
+      setCurrentStep(step)
+    }
   }
 
-  return (
-    <main className="min-h-[calc(100vh-56px)] bg-slate-50">
-      <div className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setMode(null)}
-              className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              title="Back"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <div>
-              <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{mode === 'manual' ? 'Manual' : 'AI'} planner</p>
-              <h1 className="font-display text-[26px] font-extrabold text-slate-950">Create Singapore itinerary</h1>
-            </div>
-          </div>
-          <button
-            onClick={createPlan}
-            disabled={creating || selected.length < 2}
-            className="flex h-11 items-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white shadow-card hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-55"
-          >
-            {creating ? <Loader2 size={16} className="animate-spin" /> : <Navigation2 size={16} />}
-            Generate plan
-          </button>
-        </div>
-      </div>
+  const handleNext = () => {
+    if (currentStep === 4) {
+      createPlan()
+    } else {
+      goToStep(currentStep + 1)
+    }
+  }
 
-      <div className="mx-auto grid max-w-7xl grid-cols-[380px_1fr_360px] gap-6 px-6 py-6">
-        <aside className="space-y-4">
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
-            <h2 className="font-display text-[16px] font-extrabold text-slate-950">Trip setup</h2>
-            <div className="mt-4 space-y-4">
-              <label className="block">
-                <span className="text-[12px] font-bold text-slate-500">Trip name</span>
-                <input
-                  value={tripName}
-                  onChange={(event) => setTripName(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
+  const handlePrev = () => {
+    goToStep(currentStep - 1)
+  }
+
+  // Live JSON Preview compiler
+  const livePayload = useMemo(() => {
+    const weightsObj = selectedPreset === 'user' ? {} : PRESETS[selectedPreset]
+    const payload = {
+      place_ids: selectedIds,
+      optimize_order: optimizeOrder,
+      hotel_name: hotel?.name ?? null,
+      hotel_lat: hotel?.lat ?? null,
+      hotel_lng: hotel?.lng ?? null,
+      preferences: {
+        budget_sgd: Number(budget),
+        ...weightsObj
+      }
+    }
+    return JSON.stringify(payload, null, 2)
+  }, [selectedIds, optimizeOrder, hotel, budget, selectedPreset])
+
+  return (
+    <main className="min-h-[calc(100vh-56px)] bg-slate-50 py-8 px-6">
+      <div className="mx-auto max-w-7xl">
+        
+        {/* Header section */}
+        <div className="mb-6 flex items-center gap-4">
+          <button
+            onClick={() => navigate('/')}
+            className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700 hover:shadow-sm transition"
+            title="Cancel and Back to Home"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <div>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">Itinerary Builder</p>
+            <h1 className="font-display text-[28px] font-extrabold text-slate-900">Configure Singapore Trip</h1>
+          </div>
+        </div>
+
+        {/* 2-Panel Layout */}
+        <div className="grid grid-cols-[1fr_360px] gap-6 items-start">
+          
+          {/* Main Wizard Form Card (Left) */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm min-h-[500px] flex flex-col justify-between">
+            <div>
+              {/* Steps Dot Indicator */}
+              <div className="relative flex justify-between mb-8 px-6">
+                <div className="absolute top-[21px] left-10 right-10 h-0.5 bg-slate-100 -z-10" />
+                <div 
+                  className="absolute top-[21px] left-10 h-0.5 bg-blue-600 -z-10 transition-all duration-300"
+                  style={{ width: `${((currentStep - 1) / 3) * 82}%` }}
                 />
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="text-[12px] font-bold text-slate-500">Days</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="14"
-                    value={numDays}
-                    onChange={(event) => setNumDays(Number(event.target.value))}
-                    className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[12px] font-bold text-slate-500">Budget SGD</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={budget}
-                    onChange={(event) => setBudget(Number(event.target.value))}
-                    className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
-                  />
-                </label>
-              </div>
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-1">
-                <div className="grid grid-cols-2 gap-1">
+                
+                {[
+                  { label: 'Essentials', num: 1 },
+                  { label: 'Hotel Location', num: 2 },
+                  { label: 'Travel Style', num: 3 },
+                  { label: 'Sightseeing', num: 4 },
+                ].map((s) => (
                   <button
-                    onClick={() => setFlexible(true)}
-                    className={cn('h-9 rounded text-[13px] font-bold', flexible ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+                    key={s.num}
+                    type="button"
+                    onClick={() => goToStep(s.num)}
+                    className="flex flex-col items-center focus:outline-none"
                   >
-                    <Clock size={13} className="mr-1 inline" /> Flexible
-                  </button>
-                  <button
-                    onClick={() => setFlexible(false)}
-                    className={cn('h-9 rounded text-[13px] font-bold', !flexible ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
-                  >
-                    <Calendar size={13} className="mr-1 inline" /> Dates
-                  </button>
-                </div>
-              </div>
-              {!flexible && (
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(event) => setStartDate(event.target.value)}
-                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-[13px] outline-none focus:border-blue-400"
-                />
-              )}
-              {/* Hotel / start location */}
-              <div>
-                <span className="text-[12px] font-bold text-slate-500">
-                  Hotel <span className="font-normal text-slate-400">(optional)</span>
-                </span>
-                {hotel ? (
-                  <div className="mt-1 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
-                    <Building2 size={13} className="mt-0.5 shrink-0 text-emerald-600" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-slate-900">{hotel.name}</p>
-                      {hotel.address && <p className="truncate text-[11px] text-slate-500">{hotel.address}</p>}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { setHotel(null); setHotelQuery('') }}
-                      className="grid h-5 w-5 shrink-0 place-items-center rounded text-slate-400 hover:text-red-500"
-                    >
-                      <X size={11} />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="relative mt-1">
-                      <input
-                        value={hotelQuery}
-                        onChange={(event) => setHotelQuery(event.target.value)}
-                        placeholder="e.g. Marina Bay Sands"
-                        className="h-10 w-full rounded-md border border-slate-200 px-3 pr-8 text-[13px] outline-none focus:border-blue-400"
-                      />
-                      {hotelLoading && (
-                        <Loader2 size={13} className="absolute right-2.5 top-3.5 animate-spin text-slate-400" />
+                    <div
+                      className={cn(
+                        'flex h-10 w-10 items-center justify-center rounded-full border font-bold text-sm transition',
+                        currentStep === s.num
+                          ? 'border-blue-600 bg-blue-600 text-white shadow-card ring-2 ring-blue-100'
+                          : currentStep > s.num
+                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                          : 'border-slate-200 bg-white text-slate-400'
                       )}
+                    >
+                      {currentStep > s.num ? <Check size={16} /> : s.num}
                     </div>
-                    {hotelResult && !hotelLoading && (
-                      <div className="mt-1 flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
-                        <p className="min-w-0 truncate text-[12px] text-slate-600">{hotelResult.address}</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setHotel({ name: hotelQuery.trim(), lat: hotelResult.lat, lng: hotelResult.lng, address: hotelResult.address })
-                            setHotelResult(null)
-                          }}
-                          className="flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-emerald-500"
-                        >
-                          <Check size={10} /> Use
-                        </button>
+                    <span
+                      className={cn(
+                        'text-[12px] font-semibold mt-1.5 transition',
+                        currentStep >= s.num ? 'text-slate-900' : 'text-slate-400'
+                      )}
+                    >
+                      {s.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Form Contents */}
+              <div className="space-y-4">
+                
+                {/* STEP 1: Essentials */}
+                {currentStep === 1 && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <h2 className="font-display font-extrabold text-[18px] text-slate-900">General settings</h2>
+                      <p className="text-[12.5px] text-slate-500">Provide basic parameters to structure your itinerary.</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Trip Name</label>
+                        <input
+                          value={tripName}
+                          onChange={(e) => setTripName(e.target.value)}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Transit Budget (SGD)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={budget}
+                          onChange={(e) => setBudget(Number(e.target.value))}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Days</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="14"
+                          value={numDays}
+                          onChange={(e) => setNumDays(Number(e.target.value))}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Dates mode</label>
+                        <div className="flex h-10 rounded-lg border border-slate-200 p-0.5 bg-slate-50 gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setFlexible(true)}
+                            className={cn(
+                              'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
+                              flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
+                            )}
+                          >
+                            <Clock size={12} /> Flexible
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFlexible(false)}
+                            className={cn(
+                              'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
+                              !flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
+                            )}
+                          >
+                            <Calendar size={12} /> Calendar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {!flexible && (
+                      <div className="animate-fade-in">
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Start date</label>
+                        <input
+                          type="date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] outline-none focus:border-blue-400 transition"
+                        />
                       </div>
                     )}
-                    {hotelNotFound && !hotelLoading && (
-                      <p className="mt-1 text-[11.5px] text-red-500">No location found. Try a more specific name.</p>
-                    )}
-                  </>
+
+                    <div className="border-t border-slate-100 pt-4 mt-2">
+                      <div className="flex items-center justify-between bg-slate-50/50 rounded-xl border border-slate-200 p-3 shadow-sm">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[13px] font-bold text-slate-900">Auto-Optimize Order</span>
+                          <span className="text-[11.5px] text-slate-400">Reorders places dynamically to save transit times.</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOptimizeOrder(!optimizeOrder)}
+                          className={cn(
+                            'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+                            optimizeOrder ? 'bg-blue-600' : 'bg-slate-200'
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                              optimizeOrder ? 'translate-x-5' : 'translate-x-0'
+                            )}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
+
+                {/* STEP 2: Hotel Setup (Optional) */}
+                {currentStep === 2 && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <div className="flex items-baseline justify-between">
+                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">Hotel Accommodation</h2>
+                        <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Optional</span>
+                      </div>
+                      <p className="text-[12.5px] text-slate-500">Provide where you stay. We start each day's route directly from your hotel.</p>
+                    </div>
+
+                    {hotel ? (
+                      <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm animate-pop-in">
+                        <Building2 size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13.5px] font-bold text-slate-900">{hotel.name}</p>
+                          {hotel.address && <p className="truncate text-[11.5px] text-slate-500 mt-0.5">{hotel.address}</p>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { setHotel(null); setHotelQuery('') }}
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded text-slate-400 hover:bg-white hover:text-red-500 hover:shadow-sm transition"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Hotel Search</label>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <input
+                            value={hotelQuery}
+                            onChange={(e) => setHotelQuery(e.target.value)}
+                            placeholder="e.g. Marina Bay Sands, Orchard Hotel"
+                            className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-400 transition"
+                          />
+                          {hotelLoading && (
+                            <Loader2 size={14} className="absolute right-3 top-3 animate-spin text-slate-400" />
+                          )}
+                        </div>
+                        
+                        {hotelResult && !hotelLoading && (
+                          <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-md z-10 absolute left-0 right-0">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[12px] font-semibold text-slate-800">{hotelQuery}</p>
+                              <p className="truncate text-[11px] text-slate-500">{hotelResult.address}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHotel({ name: hotelQuery.trim(), lat: hotelResult.lat, lng: hotelResult.lng, address: hotelResult.address })
+                                setHotelResult(null)
+                                setHotelQuery('')
+                              }}
+                              className="flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-500 shadow-sm"
+                            >
+                              <Check size={11} /> Use
+                            </button>
+                          </div>
+                        )}
+                        {hotelNotFound && !hotelLoading && (
+                          <p className="mt-1.5 text-[11.5px] font-medium text-red-500 inline-flex items-center gap-1">
+                            <AlertCircle size={12} /> No location found. Try a more specific name.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* STEP 3: Travel Style Presets */}
+                {currentStep === 3 && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <h2 className="font-display font-extrabold text-[18px] text-slate-900">Transit weights</h2>
+                      <p className="text-[12.5px] text-slate-500">Pick a travel profile to fine-tune how our routing ranks transport modes.</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPreset('fastest')}
+                        className={cn(
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          selectedPreset === 'fastest'
+                            ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
+                            : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
+                          <Zap size={14} className="text-amber-500" /> Fastest
+                        </div>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Minimizes travel duration. Prefers high-speed MRT lines.</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPreset('cheapest')}
+                        className={cn(
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          selectedPreset === 'cheapest'
+                            ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
+                            : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
+                          <Banknote size={14} className="text-emerald-500" /> Cheapest
+                        </div>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Minimizes fares. Prefers local bus lines and walk segments.</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPreset('leisure')}
+                        className={cn(
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          selectedPreset === 'leisure'
+                            ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
+                            : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
+                          <Footprints size={14} className="text-indigo-500" /> Least Walking
+                        </div>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Hates walking. Selects door-to-door transit links.</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPreset('direct')}
+                        className={cn(
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          selectedPreset === 'direct'
+                            ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
+                            : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
+                          <Shuffle size={14} className="text-purple-500" /> Least Transfers
+                        </div>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Avoids line switches. Recommends single-board options.</p>
+                      </button>
+
+                      {user && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPreset('user')}
+                          style={{ gridColumn: '1 / -1' }}
+                          className={cn(
+                            'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                            selectedPreset === 'user'
+                              ? 'border-emerald-400 bg-emerald-50/30 ring-1 ring-emerald-300 shadow-sm'
+                              : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
+                          )}
+                        >
+                          <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
+                            <User size={14} className="text-emerald-600" /> Use My Preferences Profile
+                          </div>
+                          <p className="text-[11.5px] text-slate-400 leading-relaxed">Automatically loads your personalized scoring weights configured in user account settings.</p>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Preset breakdown preview */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 mt-2">
+                      <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400 mb-3">Scoring Weights Allocation</p>
+                      
+                      {selectedPreset === 'user' ? (
+                        <div className="py-2 text-center text-[12.5px] font-medium text-slate-500 flex items-center justify-center gap-1.5">
+                          <Check size={14} className="text-emerald-600" /> Loads account profile values from database
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {[
+                            { label: 'Travel Duration', key: 'duration_w', icon: Clock },
+                            { label: 'Fare Cost', key: 'cost_w', icon: Banknote },
+                            { label: 'Walking Minutes', key: 'walking_w', icon: Footprints },
+                            { label: 'Number of Transfers', key: 'transfers_w', icon: Shuffle },
+                          ].map((dim) => {
+                            const val = PRESETS[selectedPreset][dim.key]
+                            return (
+                              <div key={dim.key} className="space-y-1">
+                                <div className="flex justify-between text-[12px] font-medium">
+                                  <span className="text-slate-700 inline-flex items-center gap-1.5">
+                                    <dim.icon size={13} className="text-slate-400" />
+                                    {dim.label}
+                                  </span>
+                                  <span className="font-mono text-blue-600 font-bold">{Math.round(val * 100)}%</span>
+                                </div>
+                                <div className="h-1.5 w-full bg-slate-200/60 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-blue-600 rounded-full transition-all duration-500 ease-out"
+                                    style={{ width: `${val * 100}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* STEP 4: Places Selection */}
+                {currentStep === 4 && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div>
+                      <div className="flex justify-between items-baseline">
+                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">Singapore attractions</h2>
+                        <span className="text-[11.5px] font-semibold text-slate-400">Step 4 of 4</span>
+                      </div>
+                      <p className="text-[12.5px] text-slate-500">Pick sights. Select at least 2 places. You can search or use AI suggestions.</p>
+                    </div>
+
+                    <div className="grid grid-cols-[1fr_260px] gap-6">
+                      {/* Left: Place Browser */}
+                      <div className="border-r border-slate-100 pr-6">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[12px] font-bold text-slate-500">Curated POI Search</span>
+                          <button
+                            type="button"
+                            onClick={suggestPlaces}
+                            disabled={suggestState === 'thinking' || placesLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-extrabold rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition"
+                          >
+                            {suggestState === 'thinking' ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                            Auto AI Shortlist
+                          </button>
+                        </div>
+
+                        {suggestState === 'thinking' && (
+                          <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 flex items-start gap-2 animate-pulse">
+                            <Loader2 size={14} className="animate-spin text-blue-600 shrink-0 mt-0.5" />
+                            <p className="text-[11.5px] text-blue-700 leading-normal">
+                              AI is analyzing {numDays} days and routing to shortlist matching sights...
+                            </p>
+                          </div>
+                        )}
+
+                        {suggestState === 'done' && (
+                          <div className="mb-3 flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-[11.5px] font-bold text-emerald-700 animate-pop-in">
+                            <Check size={13} /> AI Shortlist pre-selected. Edit as you wish!
+                          </div>
+                        )}
+
+                        <PlaceBrowser selectedIds={selectedIds} onToggle={togglePlace} />
+                      </div>
+
+                      {/* Right: Selected List */}
+                      <div className="flex flex-col">
+                        <div>
+                          <span className="text-[12px] font-bold text-slate-500 block mb-2">Selected Shortlist ({selected.length})</span>
+                          <SelectedList places={selected} onRemove={removePlace} />
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={createPlan}
+                            disabled={creating || selected.length < 2}
+                            className="h-10 w-full rounded-lg bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-500 transition shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {creating ? (
+                              <>
+                                <Loader2 size={14} className="animate-spin" /> Generating...
+                              </>
+                            ) : (
+                              <>
+                                Generate plan <Navigation2 size={13} />
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handlePrev}
+                            className="h-10 w-full rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition inline-flex items-center justify-center gap-1.5"
+                          >
+                            <ArrowLeft size={14} /> Back
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               </div>
             </div>
-          </section>
 
-          {mode === 'ai' && (
-            <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
-              <h2 className="font-display text-[16px] font-extrabold text-slate-950">AI inputs</h2>
-              <div className="mt-4 space-y-5">
-                <div>
-                  <p className="mb-2 text-[12px] font-bold text-slate-500">Travelling with</p>
-                  <div className="flex flex-wrap gap-2">
-                    {COMPANIONS.map((item) => (
-                      <Chip key={item.id} active={groupType === item.id} onClick={() => setGroupType(item.id)}>
-                        {item.label}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-2 text-[12px] font-bold text-slate-500">Styles</p>
-                  <div className="flex flex-wrap gap-2">
-                    {STYLES.map((item) => (
-                      <Chip key={item.id} active={travelStyles.includes(item.id)} onClick={() => toggleStyle(item.id)}>
-                        {item.label}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
+            {/* Navigation buttons */}
+            {currentStep !== 4 && (
+              <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-6">
                 <button
-                  onClick={suggestPlaces}
-                  disabled={suggestState === 'thinking' || placesLoading}
-                  className="flex h-11 w-full items-center justify-center gap-2 rounded-md bg-slate-900 text-[13px] font-bold text-white hover:bg-slate-800 disabled:opacity-60"
+                  type="button"
+                  onClick={handlePrev}
+                  disabled={currentStep === 1}
+                  className="h-10 px-4 rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                 >
-                  {suggestState === 'thinking' ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                  {suggestState === 'done' ? 'Regenerate shortlist' : 'Suggest places'}
+                  <ArrowLeft size={14} /> Back
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={creating}
+                  className="h-10 px-5 rounded-lg bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-500 transition shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next <ArrowRight size={14} />
                 </button>
               </div>
-            </section>
-          )}
-        </aside>
+            )}
 
-        <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <div>
-              <h2 className="font-display text-[18px] font-extrabold text-slate-950">Selected shortlist</h2>
-              <p className="mt-1 text-[13px] text-slate-500">{selected.length} places staged for planning</p>
-            </div>
-            <button
-              onClick={() => setDrawerOpen(true)}
-              className="flex h-10 items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-3 text-[13px] font-bold text-blue-700 hover:bg-blue-100"
-            >
-              <Search size={14} /> Browse all
-            </button>
           </div>
 
-          {suggestState === 'thinking' && (
-            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
-              <div className="flex items-center gap-3">
-                <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                <div>
-                  <p className="text-[13px] font-bold text-blue-900">AI is matching your style to Singapore POIs</p>
-                  <p className="text-[12px] text-blue-700">Filtering curated places, balancing distance, and preparing a shortlist.</p>
+          {/* Sidebar Info/JSON Panel (Right) */}
+          <aside className="space-y-4">
+            
+            {/* Summary Info */}
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-1.5 border-b border-slate-100 pb-3 mb-4">
+                <div className="grid h-7 w-7 place-items-center rounded bg-blue-50 text-blue-600 font-bold text-sm">🗓</div>
+                <h3 className="font-display font-bold text-[15px] text-slate-900">Trip Config Summary</h3>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex justify-between border-b border-slate-100/50 pb-2">
+                  <span className="text-[12px] text-slate-400 font-medium">Trip Name</span>
+                  <span className="text-[12.5px] font-bold text-slate-800 max-w-[160px] truncate" title={tripName}>{tripName}</span>
+                </div>
+
+                <div className="flex justify-between border-b border-slate-100/50 pb-2">
+                  <span className="text-[12px] text-slate-400 font-medium">Duration</span>
+                  <span className="text-[12.5px] font-bold text-slate-800">{numDays} Days</span>
+                </div>
+
+                <div className="flex justify-between border-b border-slate-100/50 pb-2">
+                  <span className="text-[12px] text-slate-400 font-medium">Transit Budget</span>
+                  <span className="text-[12.5px] font-bold text-slate-800">S${budget.toFixed(2)}</span>
+                </div>
+
+                <div className="flex justify-between border-b border-slate-100/50 pb-2">
+                  <span className="text-[12px] text-slate-400 font-medium">Hotel Start</span>
+                  <span 
+                    className="text-[12.5px] font-bold max-w-[180px] truncate" 
+                    style={{ color: hotel ? '#2563eb' : '#94a3b8' }}
+                    title={hotel ? hotel.name : 'Starts at first stop'}
+                  >
+                    {hotel ? hotel.name : 'Not Set'}
+                  </span>
+                </div>
+
+                <div className="flex justify-between border-b border-slate-100/50 pb-2">
+                  <span className="text-[12px] text-slate-400 font-medium">Travel Style</span>
+                  <span className="text-[12.5px] font-bold capitalize text-amber-600">{selectedPreset}</span>
+                </div>
+
+                <div className="flex justify-between pb-1">
+                  <span className="text-[12px] text-slate-400 font-medium">Stops Selected</span>
+                  <span className="text-[12.5px] font-bold text-slate-800">{selected.length} stops</span>
                 </div>
               </div>
-            </div>
-          )}
-
-          {suggestState === 'done' && (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-4 py-3 text-[13px] font-bold text-emerald-700">
-              <Check size={15} /> AI shortlist loaded. Edit it before generating the plan.
-            </div>
-          )}
-
-          <SelectedList places={selected} onRemove={removePlace} />
-        </section>
-
-        <aside className="space-y-4">
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
-            <h2 className="font-display text-[16px] font-extrabold text-slate-950">Quick search</h2>
-            <div className="mt-3">
-              <PlaceSearch onAdd={addPlace} addedIds={new Set(selectedIds)} />
-            </div>
-          </section>
-
-          {error && (
-            <section className="rounded-lg border border-red-200 bg-red-50 p-4">
-              <div className="flex gap-2">
-                <AlertCircle className="h-4 w-4 text-red-600" />
-                <p className="text-[13px] font-semibold text-red-700">{error}</p>
-              </div>
             </section>
-          )}
-        </aside>
-      </div>
 
-      {drawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40">
-          <div className="h-full w-[560px] overflow-y-auto bg-white p-6 shadow-pop">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">Browse all</p>
-                <h2 className="font-display text-[24px] font-extrabold text-slate-950">Curated Singapore POIs</h2>
+            {/* API Live Payload Debug Panel */}
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-1.5 border-b border-slate-100 pb-3 mb-3">
+                <span className="text-[12px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">API Live payload</span>
               </div>
-              <button
-                onClick={() => setDrawerOpen(false)}
-                className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-slate-100"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <PlaceBrowser selectedIds={selectedIds} onToggle={togglePlace} />
-            <button
-              onClick={() => setDrawerOpen(false)}
-              className="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
-            >
-              <Plus size={15} /> Use selected places
-            </button>
-          </div>
+              <pre className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 font-mono text-[10px] text-sky-400 overflow-x-auto max-h-[200px]">
+                {livePayload}
+              </pre>
+            </section>
+
+            {error && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 shadow-sm animate-pop-in">
+                <AlertCircle size={14} className="text-red-600 shrink-0 mt-0.5" />
+                <p className="text-[12px] font-medium text-red-700 leading-normal">{error}</p>
+              </div>
+            )}
+          </aside>
+
         </div>
-      )}
+      </div>
     </main>
   )
 }

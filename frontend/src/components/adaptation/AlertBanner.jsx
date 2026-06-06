@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { AlertTriangle, Info, CloudRain, X, ArrowRight, Loader2 } from 'lucide-react'
 import { api } from '../../services/api'
 import { cn } from '../../lib/utils'
+import { useT } from '../../contexts/LanguageContext'
 
 const TYPE_CONFIG = {
   train_delay: {
@@ -10,7 +11,7 @@ const TYPE_CONFIG = {
     iconClass: 'text-red-500',
     badgeClass: 'bg-red-100 text-red-700',
     textClass: 'text-red-900',
-    label: 'Train Delay',
+    labelKey: 'alertTransit',
     btnClass: 'border-red-300 text-red-700 hover:bg-red-100',
     showAdapt: true,
   },
@@ -20,7 +21,7 @@ const TYPE_CONFIG = {
     iconClass: 'text-red-500',
     badgeClass: 'bg-red-100 text-red-700',
     textClass: 'text-red-900',
-    label: 'Bus Cancellation',
+    labelKey: 'alertTransit',
     btnClass: 'border-red-300 text-red-700 hover:bg-red-100',
     showAdapt: true,
   },
@@ -30,7 +31,7 @@ const TYPE_CONFIG = {
     iconClass: 'text-red-500',
     badgeClass: 'bg-red-100 text-red-700',
     textClass: 'text-red-900',
-    label: 'Transit Alert',
+    labelKey: 'alertTransit',
     btnClass: 'border-red-300 text-red-700 hover:bg-red-100',
     showAdapt: true,
   },
@@ -40,7 +41,7 @@ const TYPE_CONFIG = {
     iconClass: 'text-sky-500',
     badgeClass: 'bg-sky-100 text-sky-700',
     textClass: 'text-sky-900',
-    label: 'Weather',
+    labelKey: 'alertWeather',
     btnClass: 'border-sky-300 text-sky-700 hover:bg-sky-100',
     showAdapt: true,
   },
@@ -50,7 +51,7 @@ const TYPE_CONFIG = {
     iconClass: 'text-slate-400',
     badgeClass: 'bg-slate-100 text-slate-600',
     textClass: 'text-slate-700',
-    label: 'Service Notice',
+    labelKey: 'alertService',
     btnClass: 'border-slate-300 text-slate-600 hover:bg-slate-100',
     showAdapt: false,
   },
@@ -88,6 +89,7 @@ function parseOutdoorCount(message) {
 
 function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
   const { containerClass, iconClass, badgeClass, textClass, btnClass } = TYPE_CONFIG.weather_warning
+  const { t } = useT()
 
   const [previewing, setPreviewing] = useState(false)
   const [proposal, setProposal] = useState(null)
@@ -139,16 +141,16 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
 
         <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className={cn('text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full', badgeClass)}>
-            Rain
+            {t('alertRain')}
           </span>
           {rainPct != null && (
-            <span className={cn('text-sm font-semibold', textClass)}>{rainPct}% chance</span>
+            <span className={cn('text-sm font-semibold', textClass)}>{t('alertChance', rainPct)}</span>
           )}
           {outdoorCount != null && (
-            <span className="text-sm text-sky-700/70">· {outdoorCount} outdoor stop{outdoorCount !== 1 ? 's' : ''} affected</span>
+            <span className="text-sm text-sky-700/70">{t('alertOutdoorAffected', outdoorCount)}</span>
           )}
           {rainPct == null && outdoorCount == null && (
-            <span className={cn('text-sm', textClass)}>Weather may affect outdoor stops</span>
+            <span className={cn('text-sm', textClass)}>{t('alertOutdoorFallback')}</span>
           )}
         </div>
 
@@ -163,7 +165,7 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
               )}
             >
               {loading ? <Loader2 size={11} className="animate-spin" /> : null}
-              {loading ? 'Loading…' : 'Preview swap'}
+              {loading ? t('alertUpdating') : t('alertPreview')}
             </button>
           )}
           <button
@@ -189,7 +191,7 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
               ))}
             </ul>
           ) : (
-            <p className="text-xs text-sky-700/70 mb-3">No swaps needed — all stops are indoor-friendly.</p>
+            <p className="text-xs text-sky-700/70 mb-3">{t('alertNoSwapsNeeded')}</p>
           )}
 
           {(proposal.delta_transit_cost || proposal.delta_active_time || proposal.delta_walking_distance) && (
@@ -210,14 +212,14 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
                   btnClass
                 )}
               >
-                {accepting ? 'Applying…' : 'Accept swap'}
+                {accepting ? t('alertApplying') : t('alertAcceptSwap')}
               </button>
             )}
             <button
               onClick={() => { setPreviewing(false); setProposal(null) }}
               className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}
             >
-              Discard
+              {t('alertDiscard')}
             </button>
           </div>
         </div>
@@ -229,12 +231,14 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
 }
 
 export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
+  const { t } = useT()
+
   if (alert.alert_type === 'weather_warning') {
     return <WeatherAlertBanner alert={alert} tripId={tripId} onDismiss={onDismiss} onAdapted={onAdapted} />
   }
 
   const config = TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.service_unavailable
-  const { Icon, containerClass, iconClass, badgeClass, textClass, label, btnClass, showAdapt } = config
+  const { Icon, containerClass, iconClass, badgeClass, textClass, labelKey, btnClass, showAdapt } = config
 
   const [adapting, setAdapting] = useState(false)
   const [adaptError, setAdaptError] = useState(null)
@@ -300,7 +304,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
 
       <div className="flex-1 min-w-0">
         <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide', badgeClass)}>
-          {label}
+          {t(labelKey)}
         </span>
         <p className={cn('text-sm mt-1.5 leading-relaxed', textClass)}>{alert.message}</p>
 
@@ -326,7 +330,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
               disabled={adapting}
               className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60', btnClass)}
             >
-              {adapting ? 'Fetching...' : 'Preview swap'}
+              {adapting ? t('alertUpdating') : t('alertPreview')}
             </button>
           )}
           {showAdapt && proposal && (
@@ -335,7 +339,7 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
               disabled={accepting}
               className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60', btnClass)}
             >
-              {accepting ? 'Applying...' : 'Accept'}
+              {accepting ? t('alertApplying') : t('alertAccept')}
             </button>
           )}
           <button
@@ -343,20 +347,20 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
             disabled={adapting || accepting}
             className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60', btnClass)}
           >
-            {proposal ? 'Discard' : showAdapt ? 'Dismiss' : 'Got it'}
+            {proposal ? t('alertDiscard') : showAdapt ? t('alertDismiss') : t('alertGotIt')}
           </button>
           {!feedbackSent ? (
             <>
               <button onClick={() => sendFeedback(5)} className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}>
-                Helpful
+                {t('alertHelpful')}
               </button>
               <button onClick={() => sendFeedback(1)} className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', btnClass)}>
-                Not helpful
+                {t('alertNotHelpful')}
               </button>
             </>
           ) : (
             <span className="inline-flex items-center rounded-lg bg-white/60 px-3 py-1.5 text-xs font-semibold text-slate-500">
-              Feedback sent
+              {t('alertFeedbackSent')}
             </span>
           )}
         </div>

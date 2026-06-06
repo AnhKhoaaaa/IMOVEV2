@@ -6,6 +6,7 @@ const mockSubscribe = vi.fn()
 const mockOn = vi.fn()
 const mockChannel = vi.fn()
 const mockRemoveChannel = vi.fn()
+const mockIs = vi.fn()
 const mockEq = vi.fn()
 const mockSelect = vi.fn()
 const mockFrom = vi.fn()
@@ -23,7 +24,8 @@ vi.mock('../../lib/supabase', () => ({
 // getHandler() returns the realtime INSERT handler captured from .on() call.
 function setupMocks({ initialData = [] } = {}) {
   const channelRef = { _name: 'mock-channel' }
-  mockEq.mockResolvedValue({ data: initialData, error: null })
+  mockIs.mockResolvedValue({ data: initialData, error: null })
+  mockEq.mockReturnValue({ is: mockIs })
   mockSelect.mockReturnValue({ eq: mockEq })
   mockFrom.mockReturnValue({ select: mockSelect })
   mockSubscribe.mockReturnValue(channelRef)
@@ -53,13 +55,13 @@ describe('useAlerts', () => {
     expect(mockChannel).toHaveBeenCalledWith('trip-alerts-trip-abc')
   })
 
-  it('subscribes only to INSERT events on lta_alerts', async () => {
+  it('subscribes to realtime events on lta_alerts', async () => {
     setupMocks()
     renderHook(() => useAlerts('trip-1'))
     await act(async () => {})
     expect(mockOn).toHaveBeenCalledWith(
       'postgres_changes',
-      expect.objectContaining({ event: 'INSERT', table: 'lta_alerts' }),
+      expect.objectContaining({ event: '*', table: 'lta_alerts' }),
       expect.any(Function)
     )
   })
@@ -79,7 +81,7 @@ describe('useAlerts', () => {
     await act(async () => {})
 
     const newAlert = { id: '99', alert_type: 'weather_warning', message: 'Rain', trip_id: 'trip-1' }
-    act(() => getHandler()({ new: newAlert }))
+    act(() => getHandler()({ eventType: 'INSERT', new: newAlert }))
 
     expect(result.current.alerts).toHaveLength(1)
     expect(result.current.alerts[0]).toEqual(newAlert)
@@ -109,7 +111,9 @@ describe('useAlerts', () => {
 
   it('ignores initial fetch result after unmount (ignore flag)', async () => {
     let resolveQuery
-    mockEq.mockReturnValue(new Promise((r) => { resolveQuery = r }))
+    const mockPromise = new Promise((r) => { resolveQuery = r })
+    mockIs.mockReturnValue(mockPromise)
+    mockEq.mockReturnValue({ is: mockIs })
     mockSelect.mockReturnValue({ eq: mockEq })
     mockFrom.mockReturnValue({ select: mockSelect })
     mockSubscribe.mockReturnValue({})
