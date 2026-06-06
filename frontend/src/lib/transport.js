@@ -1,25 +1,28 @@
-import { Bus, Bike, Footprints, Route, Train } from 'lucide-react'
+import { Bus, Bike, Car, Footprints, Route, Train } from 'lucide-react'
 
 export const TRANSPORT_OPTIONS = [
-  { mode: 'METRO', label: 'MRT', Icon: Train },
-  { mode: 'BUS', label: 'Bus', Icon: Bus },
-  { mode: 'WALK', label: 'Walk', Icon: Footprints },
+  { mode: 'METRO', label: 'MRT',  Icon: Train },
+  { mode: 'BUS',   label: 'Bus',  Icon: Bus },
+  { mode: 'WALK',  label: 'Walk', Icon: Footprints },
   { mode: 'CYCLE', label: 'Cycle', Icon: Bike },
+  { mode: 'GRAB',  label: 'Grab', Icon: Car },
 ]
 
 export const TRANSPORT_META = {
-  METRO: { label: 'MRT', Icon: Train, tone: 'bg-blue-50 text-blue-700 border-blue-100', color: '#2563eb' },
-  MRT: { label: 'MRT', Icon: Train, tone: 'bg-blue-50 text-blue-700 border-blue-100', color: '#2563eb' },
-  LRT: { label: 'MRT', Icon: Train, tone: 'bg-violet-50 text-violet-700 border-violet-100', color: '#7c3aed' },
-  BUS: { label: 'Bus', Icon: Bus, tone: 'bg-emerald-50 text-emerald-700 border-emerald-100', color: '#10b981' },
-  WALK: { label: 'Walk', Icon: Footprints, tone: 'bg-orange-50 text-orange-700 border-orange-100', color: '#f97316' },
-  CYCLE: { label: 'Cycle', Icon: Bike, tone: 'bg-teal-50 text-teal-700 border-teal-100', color: '#0d9488' },
+  METRO: { label: 'MRT',   Icon: Train,      tone: 'bg-blue-50 text-blue-700 border-blue-100',     color: '#2563eb' },
+  MRT:   { label: 'MRT',   Icon: Train,      tone: 'bg-blue-50 text-blue-700 border-blue-100',     color: '#2563eb' },
+  LRT:   { label: 'MRT',   Icon: Train,      tone: 'bg-violet-50 text-violet-700 border-violet-100', color: '#7c3aed' },
+  BUS:   { label: 'Bus',   Icon: Bus,        tone: 'bg-emerald-50 text-emerald-700 border-emerald-100', color: '#10b981' },
+  WALK:  { label: 'Walk',  Icon: Footprints, tone: 'bg-orange-50 text-orange-700 border-orange-100', color: '#f97316' },
+  CYCLE: { label: 'Cycle', Icon: Bike,       tone: 'bg-teal-50 text-teal-700 border-teal-100',     color: '#0d9488' },
+  GRAB:  { label: 'Grab',  Icon: Car,        tone: 'bg-green-50 text-green-700 border-green-100',  color: '#00b14f' },
 }
 
 export function normalizeTransportMode(mode) {
   const upper = String(mode ?? '').toUpperCase()
   if (upper === 'MRT' || upper === 'LRT') return 'METRO'
   if (upper === 'DRIVE') return 'METRO'
+  if (upper === 'GRAB') return 'GRAB'
   return upper || 'METRO'
 }
 
