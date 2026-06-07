@@ -7,47 +7,19 @@
 - Thêm mục thời gian bắt đầu mỗi ngày vào Planner. để điều chỉnh thời gian.
 - Ở phần chọn địa điểm du lịch, Giới hạn danh sách POIs còn tầm 20 địa điểm, không hiển thị toàn bộ 499 cái.
 - Kiểm tra logic tính Gap giữa các địa điểm: Gap giữa địa điểm ban ngày và địa điểm ban đêm, gap giữa 2 địa điểm có thời gian bắt đầu quá cách xa nhau.
+
+
+- Nút continue khi người dùng tới địa điểm sẽ ghi đè lên nút Arrived, không cần tạo thông báo emerald riêng.
+- Khi người dùng adapt với thời tiết, hệ thống đã đổi địa điểm, kiểm tra xem đã gọi lại OneMap để tính quảng đường mới chưa, các mode phương tiện không tìm thấy hiện đang chưa được giảm opacity.
 - Logic tự tính toán lại đường đi từ GPS của người dùng đến địa điểm tiếp theo, dùng khi người dùng bấm nút: I'm Lost.
+=> Tôi muốn thêm tính năng hệ thống sẽ dựa vào GPS của người dùng để gọi API OneMap, nhằm tính toán lại đường đi khi người dùng đi bộ hoặc đạp xe Có 2 hướng có thể làm: Tự động trigger khi người dùng đi lệch xa điểm đến, người dùng kích hoạt khi bấm i'm Lost!
+
+- Lựa chọn keep my order khi update route bị lỗi.
+- Đang đổi mode giữa các places thì tap Day 1 bị đóng, Nút update Route xuất hiện nhưng không thể lựa chọn keep my order, trong khi  Let AI Optimize thì hiện đã optimize rồi.
 
 - Vẽ cụ thể từng bước trong chặn:
  - cách 1: Đổi màu khi đổi phương tiện
  - Cách 2: Thêm các chấm để biết đó là trạm ga (Sẽ hơi r)
-
-/
-
-3. Trip.test.jsx — chưa sửa (11 tests)
-
-Tôi đang chuẩn bị sửa nhóm này. Các vấn đề:
-
-┌──────────────────────────────────┬──────────────────────────────────────────────────────────────────────┬─────────────────────────────────────┐
-│               Test               │                                Vấn đề                                │              Hướng sửa              │
-├──────────────────────────────────┼──────────────────────────────────────────────────────────────────────┼─────────────────────────────────────┤
-│ shows loading skeleton           │ Tìm aria-label="Loading trip" nhưng <main> trong Trip.jsx không có   │ Thêm aria-label="Loading trip" vào  │
-│                                  │ label đó                                                             │ Trip.jsx                            │
-├──────────────────────────────────┼──────────────────────────────────────────────────────────────────────┼─────────────────────────────────────┤
-│ renders day by day board, opens  │ Click button[name=/Day by day/i] — tab này không còn tồn tại, UI mới │ Bỏ bước click "Day by day", click   │
-│ map view, allows changing        │  là Overview | Day 1 | Summary trực tiếp                             │ thẳng "Day 1"                       │
-│ transport mode (3 tests)         │                                                                      │                                     │
-├──────────────────────────────────┼──────────────────────────────────────────────────────────────────────┼─────────────────────────────────────┤
-│                                  │ Tìm button dismiss warnings — warnings banner mới không có nút       │ Thêm dismiss button vào Trip.jsx,   │
-│ dismisses warnings banner        │ dismiss                                                              │ hoặc bỏ test (phụ thuộc ý định của  │
-│                                  │                                                                      │ bạn)                                │
-├──────────────────────────────────┼──────────────────────────────────────────────────────────────────────┼─────────────────────────────────────┤
-│ shows multiple warnings joined   │ Expect 'Warning A · Warning B' nhưng mỗi warning là <p> riêng        │ Sửa test hoặc sửa render logic      │
-│ by separator                     │                                                                      │                                     │
-├──────────────────────────────────┼─────────────────────────────────────────┼─────────────────────────────────────┤
-│ Compare modes, Arrived/Continue  │ Sau Start Trip, DOM khn: test trước đó  │ Thêm sessionStorage.clear() vào     │
-│ (5 tests)                        │ ghi imove_trip_startednStorage, test    │ beforeEach của các describe block   │
-│                                  │ sau khởi tạo với tripStarted=true nên "Start Trip" không render      │ liên quan                           │
-└──────────────────────────────────┴──────────────────────────────────────────────────────────────────────┴─────────────────────────────────────┘
-
----
-Câu hỏi trước khi tiếp tục:
-
-Với 2 test về warnings (dismisses warnings banner và shows eparator) — UI mới không có dismiss button và không join
-bằng ·. Tôi cần biết bạn muốn:
-- Sửa Trip.jsx để khôi phục dismiss button + join separator (giữ behavior cũ), hay
-- Sửa test để match UI mới (không có dismiss, warnings riêng từng dòng)?
 
 
 ---

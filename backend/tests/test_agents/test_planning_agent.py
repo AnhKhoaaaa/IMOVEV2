@@ -23,7 +23,7 @@ from app.services.onemap import NoRouteError
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _mock_route(duration=15, fare=1.80, mode="SUBWAY"):
+def _mock_route(duration=15, fare=1.80, mode="SUBWAY", distance_km=1.5):
     return {
         "duration_minutes": duration,
         "fare_sgd": fare,
@@ -33,6 +33,7 @@ def _mock_route(duration=15, fare=1.80, mode="SUBWAY"):
         "instructions": [],
         "sub_legs": [],
         "is_estimated": False,
+        "distance_km": distance_km,
     }
 
 
@@ -367,6 +368,22 @@ async def test_long_distance_no_transit_falls_back_to_grab():
 
 
 @pytest.mark.asyncio
+async def test_mid_distance_no_transit_falls_back_to_walk():
+    # clarke-quay → bugis-junction ≈ 1.5km (1.5–2.0km gap)
+    # When all transit fails, planning falls back to haversine WALK (not GRAB, not NoRouteError).
+    ids = ["clarke-quay", "bugis-junction"]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        side_effect=NoRouteError("no route"),
+    ):
+        result = await plan_trip("t-mid-gap", ids, 1, budget_sgd=999.0, optimize_order=False, preferences=None)
+    leg = result.days[0].legs[0]
+    assert leg.transport_mode == "WALK"
+    assert leg.is_estimated is True
+
+
+@pytest.mark.asyncio
 async def test_short_distance_leg_has_walk_transport_mode():
     """clarke-quay → boat-quay ≈ 530m < 1.5km → WALK wins scoring (free 6 min vs S$1.80 20 min PT).
 
@@ -535,14 +552,14 @@ async def test_fetch_all_alternatives_returns_available_modes():
         if mode == "walk":
             return {"duration_minutes": 10, "fare_sgd": 0.0,
                     "legs": [{"mode": "WALK"}], "geometry": None,
-                    "geometries": [], "instructions": [], "sub_legs": []}
+                    "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 0.8}
         if transit_modes == "BUS":
             return {"duration_minutes": 20, "fare_sgd": 1.20,
                     "legs": [{"mode": "WALK"}, {"mode": "BUS"}], "geometry": None,
-                    "geometries": [], "instructions": [], "sub_legs": []}
+                    "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
         return {"duration_minutes": 15, "fare_sgd": 1.80,
                 "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
-                "geometries": [], "instructions": [], "sub_legs": []}
+                "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
 
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
@@ -561,7 +578,7 @@ async def test_fetch_all_alternatives_bus_only_not_stored_when_returns_metro():
         # All calls return SUBWAY regardless of transit_modes
         return {"duration_minutes": 15, "fare_sgd": 1.80,
                 "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
-                "geometries": [], "instructions": [], "sub_legs": []}
+                "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
 
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
@@ -580,7 +597,7 @@ async def test_fetch_all_alternatives_partial_failure_returns_available():
             raise NoRouteError("no walk route")
         return {"duration_minutes": 15, "fare_sgd": 1.80,
                 "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
-                "geometries": [], "instructions": [], "sub_legs": []}
+                "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
 
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
@@ -653,13 +670,13 @@ async def test_switch_leg_mode_cache_miss_fetches_on_demand():
     """When BUS not in alternatives → on-demand fetch, then switch."""
     bus_route = {"duration_minutes": 25, "fare_sgd": 1.10, "is_estimated": False,
                  "legs": [{"mode": "WALK"}, {"mode": "BUS"}],
-                 "geometry": None, "geometries": [], "instructions": [], "sub_legs": []}
+                 "geometry": None, "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
     metro_route = {"duration_minutes": 10, "fare_sgd": 1.80, "is_estimated": False,
                    "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}],
-                   "geometry": None, "geometries": [], "instructions": [], "sub_legs": []}
+                   "geometry": None, "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
     walk_route  = {"duration_minutes": 40, "fare_sgd": 0.0, "is_estimated": False,
                    "legs": [{"mode": "WALK"}],
-                   "geometry": None, "geometries": [], "instructions": [], "sub_legs": []}
+                   "geometry": None, "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 0.8}
 
     async def _mock(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
         if mode == "walk":
@@ -939,6 +956,51 @@ async def test_switch_live_mid_journey_bus_fallback_to_metro_raises():
             await switch_leg_mode_live("BUS", leg, plan,
                                        current_lat=_GPS_MID[0],
                                        current_lng=_GPS_MID[1])
+
+
+@pytest.mark.asyncio
+async def test_switch_live_grab_mid_journey_uses_drive_mode():
+    """GRAB in realtime path: OneMap drive called from GPS for realistic polyline/distance."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+    drive_result = {
+        "duration_minutes": 8, "fare_sgd": 0.0, "distance_km": 3.2,
+        "geometry": "mock_polyline", "geometries": ["mock_polyline"],
+        "instructions": [], "legs": [{"mode": "DRIVE", "duration_minutes": 8}],
+        "is_estimated": False,
+    }
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, return_value=drive_result) as mock_api:
+        result = await switch_leg_mode_live("GRAB", leg, plan,
+                                            current_lat=_GPS_MID[0],
+                                            current_lng=_GPS_MID[1])
+
+    mock_api.assert_called_once()
+    assert mock_api.call_args.kwargs.get("mode") == "drive"
+    assert result.updated_leg.transport_mode == "GRAB"
+    assert result.updated_leg.is_estimated is True
+    assert result.updated_leg.cost_sgd > 0
+    assert result.updated_leg.distance_km == pytest.approx(3.2)
+    assert result.routed_from_current_position is True
+
+
+@pytest.mark.asyncio
+async def test_switch_live_grab_mid_journey_drive_fails_falls_back():
+    """GRAB in realtime path: drive mode fails → haversine fallback, still returns GRAB."""
+    plan = _make_plan_for_switch()
+    leg = plan.days[0].legs[0]
+
+    with patch("app.agents.planning_agent.onemap.get_route",
+               AsyncMock(side_effect=NoRouteError("drive unavailable"))):
+        result = await switch_leg_mode_live("GRAB", leg, plan,
+                                            current_lat=_GPS_MID[0],
+                                            current_lng=_GPS_MID[1])
+
+    assert result.updated_leg.transport_mode == "GRAB"
+    assert result.updated_leg.is_estimated is True
+    assert result.updated_leg.cost_sgd > 0
+    assert result.routed_from_current_position is True
 
 
 @pytest.mark.asyncio
