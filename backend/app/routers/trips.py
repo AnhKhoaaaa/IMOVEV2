@@ -250,12 +250,15 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
             # geometry/instructions columns not yet in schema — update core fields only
             supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
 
-        supabase.table("trip_feedback").insert({
-            "trip_id":       trip_id,
-            "leg_id":        leg_id,
-            "feedback_type": "implicit",
-            "comment":       f"Mode changed: {old_mode} → {leg.transport_mode}",
-        }).execute()
+        try:
+            supabase.table("trip_feedback").insert({
+                "trip_id":       trip_id,
+                "leg_id":        leg_id,
+                "feedback_type": "implicit",
+                "comment":       f"Mode changed: {old_mode} → {leg.transport_mode}",
+            }).execute()
+        except Exception as fb_err:
+            log.warning("trip_feedback insert skipped for leg %s: %s", leg_id, fb_err)
 
     return result
 
@@ -329,12 +332,15 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
         }).eq("id", leg_id).execute()
 
         origin_note = "from GPS" if result.routed_from_current_position else "from place"
-        supabase.table("trip_feedback").insert({
-            "trip_id":       trip_id,
-            "leg_id":        leg_id,
-            "feedback_type": "implicit",
-            "comment":       f"Live switch ({origin_note}): {old_mode} → {leg.transport_mode}",
-        }).execute()
+        try:
+            supabase.table("trip_feedback").insert({
+                "trip_id":       trip_id,
+                "leg_id":        leg_id,
+                "feedback_type": "implicit",
+                "comment":       f"Live switch ({origin_note}): {old_mode} → {leg.transport_mode}",
+            }).execute()
+        except Exception as fb_err:
+            log.warning("trip_feedback insert skipped for leg %s: %s", leg_id, fb_err)
 
     return result
 

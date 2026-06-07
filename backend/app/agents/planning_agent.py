@@ -486,7 +486,7 @@ _GRAB_LOCATION_SURCHARGES: dict[str, float] = {
 
 
 def _estimate_grab(distance_km: float, from_place_name: str = "") -> dict:
-    """Synthetic GRAB route dict — estimated fare only, no real-time data or geometry.
+    """Haversine-based GRAB fallback — used when OneMap drive mode is unavailable.
 
     Formula based on Singapore 2026 Grab pricing (JustGrab/GrabCar):
       road_km  = distance_km × 1.3  (road ≈ 1.3× straight-line)
@@ -499,9 +499,20 @@ def _estimate_grab(distance_km: float, from_place_name: str = "") -> dict:
     """
     road_km  = distance_km * 1.3
     road_min = (road_km / 30.0) * 60.0
-    f_base   = 3.00 + (road_km * 0.70) + (road_min * 0.16)
-    f_trip   = max(5.80, f_base)
-    s_loc    = next(
+    return _grab_fare(road_km, road_min, from_place_name, geometry=None, geometries=[])
+
+
+def _grab_fare(
+    road_km: float,
+    road_min: float,
+    from_place_name: str = "",
+    geometry: str | None = None,
+    geometries: list[str] | None = None,
+) -> dict:
+    """Build a GRAB route dict from computed road_km / road_min and optional drive geometry."""
+    f_base = 3.00 + (road_km * 0.70) + (road_min * 0.16)
+    f_trip = max(5.80, f_base)
+    s_loc  = next(
         (v for k, v in _GRAB_LOCATION_SURCHARGES.items()
          if k in from_place_name.lower()),
         0.0,
@@ -511,8 +522,8 @@ def _estimate_grab(distance_km: float, from_place_name: str = "") -> dict:
         "duration_minutes": max(1, round(road_min)),
         "fare_sgd":         fare,
         "is_estimated":     True,
-        "geometry":         None,
-        "geometries":       [],
+        "geometry":         geometry,
+        "geometries":       geometries or [],
         "instructions":     [],
         "distance_km":      round(road_km, 2),
         "sub_legs":         [],
@@ -542,11 +553,12 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
                       mode, from_p.get("id"), to_p.get("id"), exc)
             return None
 
-    pt_route, bus_route, walk_route, cycle_route = await asyncio.gather(
+    pt_route, bus_route, walk_route, cycle_route, drive_route = await asyncio.gather(
         _safe("pt"),
         _safe("pt", transit_modes="BUS"),
         _safe("walk"),
         _safe("cycle"),
+        _safe("drive"),
     )
 
     result: dict[str, dict] = {}
@@ -574,9 +586,18 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
     if cycle_route:
         result["CYCLE"] = cycle_route
 
-    # GRAB — synthetic estimate; always available as a fallback option
-    dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
-    result["GRAB"] = _estimate_grab(dist_km, from_place_name=from_p.get("name", ""))
+    # GRAB — use real drive polyline/distance/duration; fall back to haversine if drive fails
+    if drive_route:
+        result["GRAB"] = _grab_fare(
+            road_km=drive_route["distance_km"],
+            road_min=float(drive_route["duration_minutes"]),
+            from_place_name=from_p.get("name", ""),
+            geometry=drive_route.get("geometry"),
+            geometries=drive_route.get("geometries", []),
+        )
+    else:
+        dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
+        result["GRAB"] = _estimate_grab(dist_km, from_place_name=from_p.get("name", ""))
 
     return result
 
@@ -726,7 +747,8 @@ async def plan_trip(
             dist_km = _haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
             transit_only = {m: r for m, r in alts.items() if m != "GRAB"}
             if not transit_only:
-                if dist_km < 1.5:
+                if dist_km < 2.0:
+                    # < 2km without any API route: haversine walk is always feasible
                     dur = max(1, round(dist_km / 5.0 * 60))
                     alts["WALK"] = {
                         "duration_minutes": dur,
@@ -740,8 +762,8 @@ async def plan_trip(
                         "sub_legs": [],
                     }
                     transit_only = {m: r for m, r in alts.items() if m != "GRAB"}
-                elif dist_km >= 2.0 and "GRAB" in alts:
-                    # No transit at all; long route → GRAB is the only viable option
+                elif "GRAB" in alts:
+                    # ≥ 2km no transit → GRAB is the only viable option
                     alt_cache[(a["id"], b["id"])]    = alts
                     route_cache[(a["id"], b["id"])]  = alts["GRAB"]
                     best_key_cache[(a["id"], b["id"])] = "GRAB"
@@ -756,7 +778,7 @@ async def plan_trip(
             alt_models = {m: _to_alternative(r) for m, r in transit_only.items()}
             scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx)
             best_key   = scoring.recommended_mode
-            # Safety guard: WALK > 1.5km is physically impractical in Singapore heat
+            # Safety guard: prefer PT over WALK for routes ≥ 1.5km; fall back to GRAB at ≥ 2km
             if dist_km >= 1.5 and best_key == "WALK":
                 pt_key = next((m for m in ("METRO", "BUS") if m in alts), None)
                 if pt_key:
@@ -918,7 +940,8 @@ async def plan_trip(
                     fresh_transit = {m: r for m, r in fresh_alts.items() if m != "GRAB"}
                     best_key_used = None
                     if not fresh_transit:
-                        if dist_km < 1.5:
+                        if dist_km < 2.0:
+                            # < 2km without any API route: haversine walk is always feasible
                             dur = max(1, round(dist_km / 5.0 * 60))
                             fresh_alts["WALK"] = {
                                 "duration_minutes": dur, "fare_sgd": 0.0,
@@ -927,8 +950,8 @@ async def plan_trip(
                                 "distance_km": round(dist_km, 2), "sub_legs": [],
                             }
                             fresh_transit = {m: r for m, r in fresh_alts.items() if m != "GRAB"}
-                        elif dist_km >= 2.0 and "GRAB" in fresh_alts:
-                            best_key_used = "GRAB"  # no transit at all → Grab only viable option
+                        elif "GRAB" in fresh_alts:
+                            best_key_used = "GRAB"  # ≥ 2km no transit → Grab only viable option
                         else:
                             raise NoRouteError(
                                 f"No route from '{from_p['id']}' to '{to_p['id']}' — "
@@ -938,7 +961,7 @@ async def plan_trip(
                         fresh_models  = {m: _to_alternative(r) for m, r in fresh_transit.items()}
                         fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx)
                         best_key_used = fresh_scoring.recommended_mode
-                        # Safety guard: WALK > 1.5km impractical
+                        # Safety guard: prefer PT over WALK for routes ≥ 1.5km; fall back to GRAB at ≥ 2km
                         if dist_km >= 1.5 and best_key_used == "WALK":
                             pt_fallback = next((m for m in ("METRO", "BUS") if m in fresh_alts), None)
                             if pt_fallback:
@@ -1262,49 +1285,65 @@ async def switch_leg_mode_live(
         return result
 
     # ── Realtime path: user has left the departure point ─────────────────────
-    if new_mode == "WALK":
-        onemap_mode   = "walk"
-        transit_modes = None
-    elif new_mode == "BUS":
-        onemap_mode   = "pt"
-        transit_modes = "BUS"
-    else:  # METRO (or CYCLE)
-        onemap_mode   = "pt"
-        transit_modes = None
-
-    try:
-        route = await onemap.get_route(
-            current_lat, current_lng,
-            to_place.lat, to_place.lng,
-            mode=onemap_mode,
-            transit_modes=transit_modes,
-        )
-        route["is_estimated"] = False
-    except NoRouteError:
-        raise NoRouteError(
-            f"No {new_mode} route from your current position to '{target_leg.to_place_id}'. "
-            "Try a different transport mode."
-        )
-    except Exception as exc:
-        raise NoRouteError(
-            f"Routing unavailable from current position to '{target_leg.to_place_id}': {exc}"
-        ) from exc
-
-    # Sanity check: BUS-only request but OneMap returned a METRO-primary route
-    if new_mode == "BUS":
-        actual_primary = _primary_mode(route.get("legs", []))
-        if actual_primary != "BUS":
-            raise NoRouteError(
-                f"No BUS-only route available from your current position "
-                f"to '{target_leg.to_place_id}'."
+    if new_mode == "GRAB":
+        # Use drive route from GPS for realistic polyline/distance; fall back to haversine
+        try:
+            drive = await onemap.get_route(
+                current_lat, current_lng, to_place.lat, to_place.lng, mode="drive"
             )
+            route = _grab_fare(
+                road_km=drive["distance_km"],
+                road_min=float(drive["duration_minutes"]),
+                geometry=drive.get("geometry"),
+                geometries=drive.get("geometries", []),
+            )
+        except Exception:
+            dist_km = _haversine_km(current_lat, current_lng, to_place.lat, to_place.lng)
+            route = _estimate_grab(dist_km, from_place_name="")
+    else:
+        if new_mode == "WALK":
+            onemap_mode   = "walk"
+            transit_modes = None
+        elif new_mode == "BUS":
+            onemap_mode   = "pt"
+            transit_modes = "BUS"
+        else:  # METRO (or CYCLE)
+            onemap_mode   = "pt"
+            transit_modes = None
+
+        try:
+            route = await onemap.get_route(
+                current_lat, current_lng,
+                to_place.lat, to_place.lng,
+                mode=onemap_mode,
+                transit_modes=transit_modes,
+            )
+            route["is_estimated"] = False
+        except NoRouteError:
+            raise NoRouteError(
+                f"No {new_mode} route from your current position to '{target_leg.to_place_id}'. "
+                "Try a different transport mode."
+            )
+        except Exception as exc:
+            raise NoRouteError(
+                f"Routing unavailable from current position to '{target_leg.to_place_id}': {exc}"
+            ) from exc
+
+        # Sanity check: BUS-only request but OneMap returned a METRO-primary route
+        if new_mode == "BUS":
+            actual_primary = _primary_mode(route.get("legs", []))
+            if actual_primary != "BUS":
+                raise NoRouteError(
+                    f"No BUS-only route available from your current position "
+                    f"to '{target_leg.to_place_id}'."
+                )
 
     # Build updated leg — preserve existing alternatives (A-based, still valid for planning view)
     updated_leg = target_leg.model_copy(update={
         "transport_mode":   new_mode,
         "duration_minutes": route["duration_minutes"],
         "cost_sgd":         route.get("fare_sgd", 0.0),
-        "is_estimated":     False,
+        "is_estimated":     route.get("is_estimated", False),
         "geometry":         route.get("geometry"),
         "geometries":       route.get("geometries", []),
         "instructions":     _normalize_instructions(route.get("instructions", [])),

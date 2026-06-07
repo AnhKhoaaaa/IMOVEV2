@@ -267,10 +267,22 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
             )}
             {leg.is_estimated && (
               <span className="rounded-md bg-amber-50 px-2 py-1 text-[12px] font-bold text-amber-700">
-                {normalizeTransportMode(leg.transport_mode) === 'GRAB'
-                  ? 'Estimated · Excl. surge & ERP'
-                  : 'Estimated'}
+                Estimated
               </span>
+            )}
+            {tripStarted && normalizeTransportMode(leg.transport_mode) === 'GRAB' && (
+              <button
+                onClick={() => {
+                  const pickup = position
+                    ? { lat: position.lat, lng: position.lng, name: 'Your location' }
+                    : { lat: from?.lat, lng: from?.lng, name: from?.name ?? '' }
+                  openGrab({ fromLat: pickup.lat, fromLng: pickup.lng, fromName: pickup.name,
+                             toLat: to?.lat, toLng: to?.lng, toName: to?.name ?? '' })
+                }}
+                className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-[12px] font-bold text-white hover:bg-green-500"
+              >
+                <Car size={12} /> Open Grab
+              </button>
             )}
           </div>
         </div>
@@ -374,37 +386,27 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
               }
 
               {compare && (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    {Object.entries(compare).map(([key, value]) => (
-                      <div key={key} className="rounded-md border border-slate-200 bg-white p-3">
-                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
-                        <p className="mt-1 text-[13px] font-extrabold text-slate-900">
-                          {value.available ? formatDuration(value.duration_minutes) : 'Unavailable'}
-                        </p>
-                        {value.available && <p className="text-[11px] text-slate-500">{formatCost(value.fare_sgd)}</p>}
-                      </div>
-                    ))}
-                  </div>
-                  {/* Grab row — always shown when Compare is open */}
-                  <div className="flex items-center justify-between rounded-md border border-green-100 bg-green-50 px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <Car size={13} className="text-green-700" />
-                      <span className="text-[13px] font-bold text-green-700">Grab</span>
-                      <span className="text-[11px] text-green-500">Estimated · Excl. surge &amp; ERP</span>
+                <div className="grid grid-cols-3 gap-2">
+                  {Object.entries(compare).map(([key, value]) => (
+                    <div key={key} className="rounded-md border border-slate-200 bg-white p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
+                      <p className="mt-1 text-[13px] font-extrabold text-slate-900">
+                        {value.available ? formatDuration(value.duration_minutes) : 'Unavailable'}
+                      </p>
+                      {value.available && <p className="text-[11px] text-slate-500">{formatCost(value.fare_sgd)}</p>}
                     </div>
-                    <button
-                      onClick={() => {
-                        const pickup = (tripStarted && position)
-                          ? { lat: position.lat, lng: position.lng, name: 'Your location' }
-                          : { lat: from?.lat, lng: from?.lng, name: from?.name ?? '' }
-                        openGrab({ fromLat: pickup.lat, fromLng: pickup.lng, fromName: pickup.name,
-                                   toLat: to?.lat, toLng: to?.lng, toName: to?.name ?? '' })
-                      }}
-                      className="rounded-md bg-green-600 px-3 py-1 text-[12px] font-bold text-white hover:bg-green-500"
-                    >
-                      Open Grab
-                    </button>
+                  ))}
+                  {/* Grab card — always shown in compare, data from leg.alternatives */}
+                  <div className="rounded-md border border-green-100 bg-green-50 p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-green-600">Grab</p>
+                    <p className="mt-1 text-[13px] font-extrabold text-green-900">
+                      {leg.alternatives?.GRAB ? formatDuration(leg.alternatives.GRAB.duration_minutes) : '—'}
+                    </p>
+                    {leg.alternatives?.GRAB && (
+                      <p className="text-[11px] text-green-600">
+                        {formatCost(leg.alternatives.GRAB.fare_sgd)} · Estimated
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
@@ -893,12 +895,19 @@ export default function Trip() {
   }, [trip, allPlacesById])
 
   // Route quality flags — drive badge + Day tab locking + button visibility
+  // GRAB is always estimated by design — exclude it so a GRAB leg doesn't permanently lock Day tabs
   const isEstimated = useMemo(
-    () => (trip?.days ?? []).flatMap((d) => d.legs ?? []).some((l) => l.is_estimated),
+    () => (trip?.days ?? []).flatMap((d) => d.legs ?? [])
+      .some((l) => l.is_estimated && normalizeTransportMode(l.transport_mode) !== 'GRAB'),
     [trip]
   )
   const hasDirtyDays   = Object.keys(pendingByDay).length > 0
   const needsRouteUpdate = isEstimated || hasDirtyDays
+
+  // When routes become estimated again (e.g. after switching to GRAB), allow Keep My Order to run
+  useEffect(() => {
+    if (needsRouteUpdate) setKeepOrderDone(false)
+  }, [needsRouteUpdate])
 
   // Estimated times for pending (dirty) days — computed purely from haversine, no API call
   const startTimeStr = savedMeta?.startTime ?? '09:00'
@@ -1090,49 +1099,64 @@ export default function Trip() {
 
     const existingLegs = (trip?.days ?? []).flatMap((d) => d.legs ?? []).filter((l) => !l.is_estimated)
     const dirtyDays = Object.keys(pendingByDay).map(Number).sort()
-    if (!dirtyDays.length) return
+    // When no dirty days but routes are still estimated, process all days with current server order
+    if (!dirtyDays.length && !isEstimated) return
 
     setMutating(true)
     setUiWarning(null)
     let lastResult = null
     try {
-      for (const dayNum of dirtyDays) {
+      const daysToProcess = dirtyDays.length > 0
+        ? dirtyDays
+        : (trip?.days ?? []).map((d) => d.day)
+
+      for (const dayNum of daysToProcess) {
         const day = trip?.days?.find((d) => d.day === dayNum)
         const pendingIds = pendingByDay[dayNum]
-        if (!pendingIds || !day) continue
+        if (!day) continue
 
-        const serverIds = new Set(
-          timelineForDay(day, allPlacesById)
-            .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
-            .map((i) => i.place.id)
-        )
-        const pendingSet = new Set(pendingIds)
-        const toRemove = [...serverIds].filter((pid) => !pendingSet.has(pid))
-        const toAdd    = pendingIds.filter((pid) => !serverIds.has(pid) && pendingPlaces[pid])
-
-        for (const placeId of toRemove) await api.removePlaceFromDay(id, placeId)
-        for (const placeId of toAdd)    await api.addPlaceToDay(id, { place_id: placeId, day: dayNum })
-
-        if (toRemove.length > 0 || toAdd.length > 0) {
-          const freshTrip = await api.getTrip(id)
-          const freshDay  = freshTrip?.days?.find((d) => d.day === dayNum)
-          if (freshDay) {
-            const freshPlacesById = buildPlacesById(freshTrip.places ?? [])
-            const freshIds = timelineForDay(freshDay, freshPlacesById)
+        if (pendingIds) {
+          const serverIds = new Set(
+            timelineForDay(day, allPlacesById)
               .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
               .map((i) => i.place.id)
-            const freshSet = new Set(freshIds)
-            const safeIds  = pendingIds.filter((pid) => freshSet.has(pid))
-            const extraIds = freshIds.filter((pid) => !new Set(safeIds).has(pid))
-            const finalIds = [...safeIds, ...extraIds]
-            lastResult = JSON.stringify(finalIds) !== JSON.stringify(freshIds)
-              ? await api.reorderPlaces(id, dayNum, finalIds, existingLegs)
-              : freshTrip
+          )
+          const pendingSet = new Set(pendingIds)
+          const toRemove = [...serverIds].filter((pid) => !pendingSet.has(pid))
+          const toAdd    = pendingIds.filter((pid) => !serverIds.has(pid) && pendingPlaces[pid])
+
+          for (const placeId of toRemove) await api.removePlaceFromDay(id, placeId)
+          for (const placeId of toAdd)    await api.addPlaceToDay(id, { place_id: placeId, day: dayNum })
+
+          if (toRemove.length > 0 || toAdd.length > 0) {
+            const freshTrip = await api.getTrip(id)
+            const freshDay  = freshTrip?.days?.find((d) => d.day === dayNum)
+            if (freshDay) {
+              const freshPlacesById = buildPlacesById(freshTrip.places ?? [])
+              const freshIds = timelineForDay(freshDay, freshPlacesById)
+                .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
+                .map((i) => i.place.id)
+              const freshSet = new Set(freshIds)
+              const safeIds  = pendingIds.filter((pid) => freshSet.has(pid))
+              const extraIds = freshIds.filter((pid) => !new Set(safeIds).has(pid))
+              const finalIds = [...safeIds, ...extraIds]
+              lastResult = JSON.stringify(finalIds) !== JSON.stringify(freshIds)
+                ? await api.reorderPlaces(id, dayNum, finalIds, existingLegs)
+                : freshTrip
+            } else {
+              lastResult = freshTrip
+            }
           } else {
-            lastResult = freshTrip
+            lastResult = await api.reorderPlaces(id, dayNum, pendingIds, existingLegs)
           }
         } else {
-          lastResult = await api.reorderPlaces(id, dayNum, pendingIds, existingLegs)
+          // Non-dirty day: recalculate with current server order to replace haversine estimates
+          const currentIds = timelineForDay(day, allPlacesById)
+            .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
+            .map((i) => i.place.id)
+          if (currentIds.length > 0) {
+            lastResult = await api.reorderPlaces(id, dayNum, currentIds, existingLegs)
+          }
         }
       }
       await refresh(lastResult?.days ? lastResult : undefined)
