@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 from app.services import onemap
 from app.services.onemap import NoRouteError
 from app.services.scoring import score_alternatives
-from app.exceptions import PlaceDataMissingError, BudgetExceededError
+from app.exceptions import PlaceDataMissingError
 from app.models.trip import (
     TripPlan, DayPlan, LegResponse, GapNotification,
     AlternativeRoute, LegSwapResult, TransportMode,
@@ -381,67 +381,6 @@ def _check_schedule_fit(
     if has_underfull:
         return "underfull", days_summary
     return None, days_summary
-
-
-async def _get_route_with_fallback(from_p: dict, to_p: dict) -> dict:
-    """Distance-based routing: < 1.5km → walk API; ≥ 1.5km → PT API.
-    For walk mode: NoRouteError falls back to haversine walking estimate (is_estimated=True).
-    For PT mode: NoRouteError is re-raised — a haversine walk estimate for long distances
-    would be physically impossible and mislead the user.
-    Generic network exceptions always re-raise as NoRouteError.
-    """
-    dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
-    mode = "walk" if dist_km < 1.5 else "pt"
-    try:
-        route = await onemap.get_route(
-            from_p["lat"], from_p["lng"],
-            to_p["lat"], to_p["lng"],
-            mode=mode,
-        )
-        route["is_estimated"] = False
-        return route
-    except NoRouteError:
-        if mode != "walk":
-            raise  # PT route unavailable — don't fake a walking estimate
-    except Exception as exc:
-        raise NoRouteError(
-            f"Transit routing unavailable from '{from_p['id']}' to '{to_p['id']}': {exc}"
-        ) from exc
-
-    # Try cycle to get real road geometry before resorting to a featureless haversine estimate.
-    # Cycle and walk share the same road network for short distances, so the path is accurate
-    # even though the leg remains WALK mode. Duration stays haversine (is_estimated=True).
-    duration_min = max(1, round(dist_km / 5.0 * 60))
-    try:
-        cycle_route = await onemap.get_route(
-            from_p["lat"], from_p["lng"],
-            to_p["lat"], to_p["lng"],
-            mode="cycle",
-        )
-        return {
-            "duration_minutes": duration_min,
-            "fare_sgd": 0.0,
-            "legs": [{"mode": "WALK", "duration_minutes": duration_min, "instruction": ""}],
-            "geometry": cycle_route.get("geometry"),
-            "geometries": cycle_route.get("geometries", []),
-            "instructions": [],
-            "distance_km": cycle_route.get("distance_km") or round(dist_km, 2),
-            "is_estimated": True,
-        }
-    except NoRouteError:
-        pass
-
-    # Pure haversine fallback — only when both walk and cycle fail
-    return {
-        "duration_minutes": duration_min,
-        "fare_sgd": 0.0,
-        "legs": [{"mode": "WALK", "duration_minutes": duration_min, "instruction": ""}],
-        "geometry": None,
-        "geometries": [],
-        "instructions": [],
-        "distance_km": round(dist_km, 2),
-        "is_estimated": True,
-    }
 
 
 def _normalize_instructions(raw: list) -> list[str]:
