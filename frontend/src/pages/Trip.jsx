@@ -870,7 +870,6 @@ export default function Trip() {
   // Route status state
   const [keepOrderDone, setKeepOrderDone] = useState(false)
   const [confirmOptimise, setConfirmOptimise] = useState(false)
-  const [updateRouteOpen, setUpdateRouteOpen] = useState(false)
   // Task 8: live GPS trail (only for WALK/CYCLE legs)
   const [trackingPath, setTrackingPath] = useState([])
   const lastTrackPointRef = useRef(null)
@@ -1094,7 +1093,6 @@ export default function Trip() {
   // Global "Update Route" handler — processes ALL dirty days using OneMap (force_real_routes=True)
   const handleUpdateRoute = async (keepOrder) => {
     if (mutating) return
-    setUpdateRouteOpen(false)
     if (!keepOrder) { setConfirmOptimise(true); return }
 
     const existingLegs = (trip?.days ?? []).flatMap((d) => d.legs ?? []).filter((l) => !l.is_estimated)
