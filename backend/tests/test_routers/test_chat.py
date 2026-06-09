@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_current_user
 from app.models.trip import TripPlan, DayPlan, LegResponse
 from app.models.place import Place
 from app.models.chat import ChatResponse
@@ -25,13 +25,17 @@ client = TestClient(app)
 
 @contextmanager
 def _auth_as(user_id):
-    async def _mock():
+    async def _mock_get():
         return user_id
-    app.dependency_overrides[get_current_user] = _mock
+    async def _mock_require():
+        return user_id  # bypasses the 401 raise so tests can inject None or a real id
+    app.dependency_overrides[get_current_user] = _mock_get
+    app.dependency_overrides[require_current_user] = _mock_require
     try:
         yield
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(require_current_user, None)
 
 
 @pytest.fixture(autouse=True)
