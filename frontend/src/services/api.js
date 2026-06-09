@@ -76,6 +76,11 @@ export const api = {
   getUserPreferences: () => request('/users/me/preferences'),
   updateUserPreferences: (body) => request('/users/me/preferences', { method: 'PUT', body: JSON.stringify(body) }),
 
+  // Chatbot assistant — sendChat returns { reply, proposed_action, pending_action_id };
+  // confirmChatAction executes a pending write via existing trip handlers.
+  sendChat: (body) => request('/chat', { method: 'POST', body: JSON.stringify(body) }),
+  confirmChatAction: (body) => request('/chat/confirm', { method: 'POST', body: JSON.stringify(body) }),
+
   // localStorage trip metadata helpers — per-user isolated via userId key suffix
   saveTrip(tripId, meta, userId) {
     try {

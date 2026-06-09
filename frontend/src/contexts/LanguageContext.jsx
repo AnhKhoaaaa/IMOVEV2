@@ -301,6 +301,20 @@ const EN = {
   alertOutdoorAffected: (count) => `· ${count} outdoor stop${count !== 1 ? 's' : ''} affected`,
   alertOutdoorFallback: 'Weather may affect outdoor stops',
   alertNoSwapsNeeded: 'No swaps needed — all stops are indoor-friendly.',
+
+  /* ── Chatbot ─────────────────────── */
+  chatTitle: 'IMOVE Assistant',
+  chatGreeting: "Hi! Ask me for place ideas or to tweak your itinerary — I'll suggest changes for you to confirm.",
+  chatPlaceholder: 'Ask anything about your trip…',
+  chatSend: 'Send',
+  chatThinking: 'Thinking…',
+  chatOpen: 'Open assistant',
+  chatClose: 'Close assistant',
+  chatProposalLabel: 'Proposed change',
+  chatConfirm: 'Confirm',
+  chatCancel: 'Cancel',
+  chatApplying: 'Applying…',
+  chatError: 'Something went wrong. Please try again.',
 }
 
 const VI = {
@@ -565,6 +579,20 @@ const VI = {
   alertOutdoorAffected: (count) => `· ảnh hưởng ${count} điểm ngoài trời`,
   alertOutdoorFallback: 'Thời tiết có thể ảnh hưởng điểm ngoài trời',
   alertNoSwapsNeeded: 'Không cần thay đổi — tất cả các điểm đều thân thiện trong nhà.',
+
+  /* ── Chatbot ─────────────────────── */
+  chatTitle: 'Trợ lý IMOVE',
+  chatGreeting: 'Chào bạn! Hỏi mình gợi ý địa điểm hoặc nhờ chỉnh lịch trình — mình sẽ đề xuất để bạn xác nhận.',
+  chatPlaceholder: 'Hỏi bất cứ điều gì về chuyến đi…',
+  chatSend: 'Gửi',
+  chatThinking: 'Đang xử lý…',
+  chatOpen: 'Mở trợ lý',
+  chatClose: 'Đóng trợ lý',
+  chatProposalLabel: 'Đề xuất thay đổi',
+  chatConfirm: 'Xác nhận',
+  chatCancel: 'Huỷ',
+  chatApplying: 'Đang áp dụng…',
+  chatError: 'Đã có lỗi xảy ra. Vui lòng thử lại.',
 }
 
 export { EN, VI }
