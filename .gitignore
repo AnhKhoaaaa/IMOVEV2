@@ -21,3 +21,11 @@ Thumbs.db
 
 # Generated artifacts
 backend/missing_images.txt
+
+# GCP service account credentials — never commit
+backend/application_default_credentials.json
+backend/*-credentials.json
+backend/*-key.json
+backend/service-account*.json
+*-credentials.json
+*-key.json

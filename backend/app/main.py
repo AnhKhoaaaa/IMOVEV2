@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import health, places, trips, alerts, transit, preferences
+from app.routers import health, places, trips, alerts, transit, preferences, chat
 from app.agents import adaptation_agent
 
 _scheduler = AsyncIOScheduler()
@@ -46,3 +46,6 @@ app.include_router(transit.router, prefix="/transit")
 app.include_router(preferences.router, prefix="/users")
 # → GET  /users/me/preferences
 # → PUT  /users/me/preferences
+app.include_router(chat.router, prefix="/chat")
+# → POST /chat
+# → POST /chat/confirm
