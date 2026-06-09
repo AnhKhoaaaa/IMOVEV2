@@ -23,6 +23,7 @@ import {
   User,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   HelpCircle,
 } from 'lucide-react'
 import { api } from '../services/api'
@@ -35,6 +36,19 @@ const PRESETS = {
   cheapest: { duration_w: 0.10, cost_w: 0.70, walking_w: 0.10, transfers_w: 0.10 },
   leisure: { duration_w: 0.20, cost_w: 0.10, walking_w: 0.60, transfers_w: 0.10 },
   direct: { duration_w: 0.20, cost_w: 0.20, walking_w: 0.10, transfers_w: 0.50 },
+}
+
+// Qualitative priority shown to users instead of raw percentages (matches Settings).
+const LEVEL_META = {
+  high: { label: 'High', segs: 3 },
+  med:  { label: 'Medium', segs: 2 },
+  low:  { label: 'Low', segs: 1 },
+}
+function weightLevel(weight) {
+  const w = Number(weight ?? 0)
+  if (w >= 0.30) return 'high'
+  if (w >= 0.18) return 'med'
+  return 'low'
 }
 
 const generateId = () =>
@@ -146,6 +160,15 @@ const user = auth?.user
   const [suggestState, setSuggestState] = useState('idle')
   const [error, setError] = useState(null)
   const [creating, setCreating] = useState(false)
+
+  // Floating "back to top" button for the long Sightseeing list (step 4)
+  const [showScrollTop, setShowScrollTop] = useState(false)
+  useEffect(() => {
+    const onScroll = () => setShowScrollTop(window.scrollY > 600)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   // Fetch Curated Places
   useEffect(() => {
@@ -428,7 +451,10 @@ const user = auth?.user
                           type="number"
                           min="0"
                           value={budget}
-                          onChange={(e) => setBudget(Number(e.target.value))}
+                          onChange={(e) => {
+                            const n = Number(e.target.value)
+                            setBudget(Number.isNaN(n) ? 0 : Math.max(0, n))
+                          }}
                           className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
                         />
                       </div>
@@ -442,7 +468,11 @@ const user = auth?.user
                           min="1"
                           max="14"
                           value={numDays}
-                          onChange={(e) => setNumDays(Number(e.target.value))}
+                          onChange={(e) => {
+                            // parseInt strips leading zeros ("001" → 1); clamp to 1–14, never empty/0
+                            const n = parseInt(e.target.value, 10)
+                            setNumDays(Number.isNaN(n) ? 1 : Math.min(14, Math.max(1, n)))
+                          }}
                           className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
                         />
                       </div>
@@ -715,22 +745,27 @@ const user = auth?.user
                             { label: 'Walking Minutes', key: 'walking_w', icon: Footprints },
                             { label: 'Number of Transfers', key: 'transfers_w', icon: Shuffle },
                           ].map((dim) => {
-                            const val = PRESETS[selectedPreset][dim.key]
+                            const meta = LEVEL_META[weightLevel(PRESETS[selectedPreset][dim.key])]
                             return (
-                              <div key={dim.key} className="space-y-1">
-                                <div className="flex justify-between text-[12px] font-medium">
-                                  <span className="text-slate-700 inline-flex items-center gap-1.5">
-                                    <dim.icon size={13} className="text-slate-400" />
-                                    {dim.label}
+                              <div key={dim.key} className="flex items-center justify-between gap-3">
+                                <span className="text-[12px] font-medium text-slate-700 inline-flex items-center gap-1.5">
+                                  <dim.icon size={13} className="text-slate-400" />
+                                  {dim.label}
+                                </span>
+                                <span className="inline-flex items-center gap-2">
+                                  <span className="flex gap-0.5" aria-hidden="true">
+                                    {[1, 2, 3].map((s) => (
+                                      <span
+                                        key={s}
+                                        className={cn(
+                                          'h-1.5 w-4 rounded-full transition-colors',
+                                          s <= meta.segs ? 'bg-blue-600' : 'bg-slate-200'
+                                        )}
+                                      />
+                                    ))}
                                   </span>
-                                  <span className="font-mono text-blue-600 font-bold">{Math.round(val * 100)}%</span>
-                                </div>
-                                <div className="h-1.5 w-full bg-slate-200/60 rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-blue-600 rounded-full transition-all duration-500 ease-out"
-                                    style={{ width: `${val * 100}%` }}
-                                  />
-                                </div>
+                                  <span className="w-14 text-right text-[12px] font-bold text-blue-700">{meta.label}</span>
+                                </span>
                               </div>
                             )
                           })}
@@ -929,6 +964,18 @@ const user = auth?.user
 
         </div>
       </div>
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          title="Back to top"
+          aria-label="Back to top"
+          className="fixed bottom-6 right-6 z-40 grid h-11 w-11 place-items-center rounded-full bg-slate-900 text-white shadow-pop transition hover:bg-slate-800 active:scale-95"
+        >
+          <ArrowUp size={18} />
+        </button>
+      )}
     </main>
   )
 }
