@@ -1,12 +1,44 @@
 import asyncio
 import json
+import os
 import re
 import time
 
 from google import genai
+from google.genai import types
 from app.config import settings
 
-_client = genai.Client(api_key=settings.gemini_api_key)
+
+def _make_client() -> genai.Client:
+    """Build the Gemini client per settings.
+
+    Vertex mode (google_genai_use_vertexai=True): authenticate via service account
+    (GOOGLE_APPLICATION_CREDENTIALS) — no api key needed. Otherwise use the api key.
+    Raises RuntimeError if neither path is configured.
+    """
+    if settings.google_genai_use_vertexai:
+        # Push credentials path to os.environ so GCP SDK's ADC picks it up.
+        # pydantic_settings loads .env into the Settings object but does NOT
+        # export variables to os.environ, so we do it explicitly here.
+        if settings.google_application_credentials:
+            os.environ.setdefault(
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                settings.google_application_credentials,
+            )
+        return genai.Client(
+            vertexai=True,
+            project=settings.google_cloud_project,
+            location=settings.google_cloud_location,
+        )
+    if not settings.gemini_api_key:
+        raise RuntimeError(
+            "Gemini not configured: set GEMINI_API_KEY, or enable "
+            "GOOGLE_GENAI_USE_VERTEXAI=true with a service account."
+        )
+    return genai.Client(api_key=settings.gemini_api_key)
+
+
+_client = _make_client()
 
 _last_call_at: float = 0
 _MIN_INTERVAL = 4  # seconds — enforces max 15 RPM
@@ -211,3 +243,32 @@ async def suggest_places(
     result = json.loads(text)
     valid_ids = {p["id"] for p in all_places}
     return [pid for pid in result if pid in valid_ids]
+
+
+async def generate_chat(
+    contents: list,
+    tools: list | None = None,
+    system_instruction: str | None = None,
+    model: str | None = None,
+):
+    """[LLM] One turn of the chatbot's tool-calling loop.
+
+    Automatic function calling is DISABLED so the caller (chat_agent) drives the
+    tool loop in-process. Returns the raw GenerateContentResponse.
+
+    Rate-limit: the shared 15-RPM guard applies ONLY in api_key mode. Vertex has
+    much higher quotas, so the guard is skipped when google_genai_use_vertexai=True.
+    """
+    if not settings.google_genai_use_vertexai:
+        await _rate_limit()
+
+    config = types.GenerateContentConfig(
+        tools=tools or None,
+        system_instruction=system_instruction,
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+    )
+    return await _client.aio.models.generate_content(
+        model=model or settings.chat_model,
+        contents=contents,
+        config=config,
+    )
