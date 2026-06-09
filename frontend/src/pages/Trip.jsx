@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Clock,
   FileText,
-  GripVertical,
   Loader2,
   MapPin,
   Navigation2,
@@ -201,12 +200,32 @@ function PlaceCard({ place, onRemove, arriveAt, departAt }) {
   )
 }
 
-function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWarning }) {
-  const [open, setOpen] = useState(false)
+function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWarning, open: openProp, onOpenChange }) {
+  // Controlled when a parent passes open/onOpenChange (DayView keeps only one menu open);
+  // falls back to local state for the standalone active-leg card.
+  const controlled = openProp !== undefined
+  const [openLocal, setOpenLocal] = useState(false)
+  const open = controlled ? openProp : openLocal
+  const setOpen = (next) => {
+    const value = typeof next === 'function' ? next(open) : next
+    if (controlled) onOpenChange?.(value)
+    else setOpenLocal(value)
+  }
+  const menuRef = useRef(null)
   const [savingMode, setSavingMode] = useState(null)
   const [compare, setCompare] = useState(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const meta = transportMeta(leg.transport_mode)
+
+  // Close the mode menu when clicking outside it (e.g. switching to another leg)
+  useEffect(() => {
+    if (!open) return
+    const onDocMouseDown = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeMode = async (mode) => {
     if (!tripId || !leg.id || savingMode) return
@@ -298,7 +317,7 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <div className="relative">
+          <div className="relative" ref={menuRef}>
             <button
               onClick={() => setOpen((value) => !value)}
               className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700"
@@ -334,13 +353,6 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
               </div>
             )}
           </div>
-          <button
-            onClick={() => setOpen(false)}
-            className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:text-blue-700"
-            title="Drag handle"
-          >
-            <GripVertical size={14} />
-          </button>
         </div>
       </div>
 
@@ -693,6 +705,8 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
   const placeTimes = computePlaceTimes(day, placesById, startTime ?? '09:00')
   const dayGaps = gapNotifications.filter((g) => g.day_index === day.day - 1)
   const [gapsOpen, setGapsOpen] = useState(false)
+  // E1: only one transit "Change" menu open at a time within the day
+  const [openLegId, setOpenLegId] = useState(null)
   // Detect return-to-hotel leg so we can append the hotel destination card
   const hasReturnToHotel = (day?.legs ?? []).at(-1)?.to_place_id === 'hotel' && !!placesById['hotel']
 
@@ -780,6 +794,8 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
               position={position}
               onUpdated={onUpdated}
               onWarning={onWarning}
+              open={openLegId === item.leg.id}
+              onOpenChange={(next) => setOpenLegId(next ? item.leg.id : null)}
             />
           ))}
           {hasReturnToHotel && (
@@ -908,6 +924,26 @@ export default function Trip() {
     }
     return map
   }, [trip, allPlacesById])
+
+  // E3: day ownership for map colour-coding (place → day, leg → day)
+  const placeDays = useMemo(() => {
+    const map = {}
+    for (const day of trip?.days ?? []) {
+      timelineForDay(day, allPlacesById)
+        .filter(i => i.type === 'place')
+        .forEach(i => { map[i.place.id] = day.day })
+    }
+    return map
+  }, [trip, allPlacesById])
+  const legDays = useMemo(() => {
+    const map = {}
+    for (const day of trip?.days ?? []) {
+      for (const leg of day.legs ?? []) {
+        if (leg.id != null) map[leg.id] = day.day
+      }
+    }
+    return map
+  }, [trip])
 
   // Route quality flags — drive badge + Day tab locking + button visibility
   // GRAB is always estimated by design — exclude it so a GRAB leg doesn't permanently lock Day tabs
@@ -1630,6 +1666,9 @@ export default function Trip() {
               placeSequences={placeSequences}
               activeDayPlaceIds={activeDayPlaceIds}
               trackingPath={isWalkOrCycle ? trackingPath : []}
+              placeDays={placeDays}
+              legDays={legDays}
+              colorByDay={activeTab === 'overview' || activeTab === 'summary'}
             />
           </div>
         </aside>
