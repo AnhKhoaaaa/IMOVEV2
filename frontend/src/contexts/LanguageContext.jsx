@@ -315,6 +315,8 @@ const EN = {
   chatCancel: 'Cancel',
   chatApplying: 'Applying…',
   chatError: 'Something went wrong. Please try again.',
+  chatLoginRequired: 'Sign in to use the assistant',
+  chatLoginHint: 'The AI assistant is only available for logged-in users.',
 }
 
 const VI = {
@@ -593,6 +595,8 @@ const VI = {
   chatCancel: 'Huỷ',
   chatApplying: 'Đang áp dụng…',
   chatError: 'Đã có lỗi xảy ra. Vui lòng thử lại.',
+  chatLoginRequired: 'Đăng nhập để sử dụng trợ lý',
+  chatLoginHint: 'Trợ lý AI chỉ dành cho tài khoản đã đăng nhập.',
 }
 
 export { EN, VI }
