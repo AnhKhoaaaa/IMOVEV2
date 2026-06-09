@@ -253,6 +253,7 @@ const user = auth?.user
         end_date: flexible || !startDate ? null : endDate(startDate, numDays),
         day_start_times: dayStartTimes,
         name: tripName.trim() || 'Singapore Trip',
+        user_id: user?.id ?? null,
       }
       
       const trip = await api.createTrip(body)
