@@ -22,6 +22,8 @@ log = logging.getLogger(__name__)
 _chat_history: dict[str, list] = {}
 # session_id -> {id, tool, args, trip_id, preview}
 _pending_actions: dict[str, dict] = {}
+# session_id -> {trip_id, ...} — persists resolved context across requests
+_chat_ctx: dict[str, dict] = {}
 
 _MAX_TURNS = 4
 
@@ -42,9 +44,11 @@ SYSTEM_PROMPT = (
     "reply in that exact language (Vietnamese or English). "
     "Only recommend places that exist in the curated dataset — never invent a place or "
     "a place_id; use search_places / get_curated_places to look them up. "
-    "If the user mentions a trip by name but you don't have an active trip open, call "
-    "list_my_trips to find their trips. If exactly one trip matches the name, it becomes "
-    "the active trip for this conversation. If multiple match, ask the user to confirm. "
+    "IMPORTANT — Trip resolution rule: if the user mentions a trip by name (e.g. 'my trip "
+    "called X', 'chuyến X'), you MUST call list_my_trips with name_filter=<that name> "
+    "BEFORE calling get_current_trip or any write tool. Do NOT call get_current_trip first "
+    "without resolving the trip. If list_my_trips returns exactly one result it becomes the "
+    "active trip automatically. If multiple match, ask the user to pick one. "
     "To inspect the user's itinerary, call get_current_trip (it returns leg ids and place "
     "ids you must reference in write tools). "
     "ANY change to the itinerary MUST go through the matching write tool as a PROPOSAL — "
@@ -180,6 +184,7 @@ def reset() -> None:
     """Clear all in-memory chat state (used by tests)."""
     _chat_history.clear()
     _pending_actions.clear()
+    _chat_ctx.clear()
 
 
 async def run_chat(
@@ -192,9 +197,13 @@ async def run_chat(
     history = _chat_history.setdefault(session_id, [])
     history.append(types.Content(role="user", parts=[types.Part(text=message)]))
 
+    # Use trip_id from this request; fall back to one resolved in a previous turn
+    session_ctx = _chat_ctx.setdefault(session_id, {})
+    resolved_trip_id = trip_id or session_ctx.get("trip_id")
+
     ctx = {
         "session_id": session_id,
-        "trip_id": trip_id,
+        "trip_id": resolved_trip_id,
         "gps": gps,
         "current_user": current_user,
     }
@@ -215,6 +224,8 @@ async def run_chat(
             history.append(model_content)
 
         if not fcs:
+            if ctx.get("trip_id"):
+                session_ctx["trip_id"] = ctx["trip_id"]
             return ChatResponse(reply=text or _FALLBACK)
 
         response_parts = []
@@ -240,7 +251,14 @@ async def run_chat(
 
         if proposal_stop is not None:
             proposal, pending_id, preview = proposal_stop
+            # Persist any trip_id resolved in this turn (e.g. by list_my_trips)
+            if ctx.get("trip_id"):
+                session_ctx["trip_id"] = ctx["trip_id"]
             return ChatResponse(reply=preview, proposed_action=proposal, pending_action_id=pending_id)
+
+        # Persist resolved trip_id after each turn so the next message can use it
+        if ctx.get("trip_id"):
+            session_ctx["trip_id"] = ctx["trip_id"]
 
     # Hit the turn cap without a final text or proposal — polite fallback, no mutation.
     return ChatResponse(reply=_FALLBACK)
