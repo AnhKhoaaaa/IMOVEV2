@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { MessageCircle, X, Send, Loader2, Check } from 'lucide-react'
+import { MessageCircle, X, Send, Loader2, Check, Lock } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useT } from '../../contexts/LanguageContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import { api } from '../../services/api'
 
@@ -26,6 +27,7 @@ function tripIdFromPath(pathname) {
 
 export default function ChatWidget() {
   const { t } = useT()
+  const { user } = useAuth()
   const { position } = useGeolocation()
   const location = useLocation()
   const tripId = tripIdFromPath(location.pathname)
@@ -111,6 +113,35 @@ export default function ChatWidget() {
       e.preventDefault()
       send()
     }
+  }
+
+  // Guest users see a locked FAB — clicking shows a small login prompt panel
+  if (!user) {
+    return open ? (
+      <div className="fixed bottom-5 right-5 z-50 flex w-[min(92vw,320px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-slide-up">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-900 px-4 py-3 text-white">
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            <MessageCircle className="h-4 w-4" /> {t('chatTitle')}
+          </span>
+          <button onClick={() => setOpen(false)} aria-label={t('chatClose')} className="grid h-7 w-7 place-items-center rounded-md text-white/70 hover:bg-white/10">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-col items-center gap-3 p-6 text-center">
+          <Lock className="h-8 w-8 text-slate-400" />
+          <p className="text-sm font-medium text-slate-700">{t('chatLoginRequired')}</p>
+          <p className="text-xs text-slate-500">{t('chatLoginHint')}</p>
+        </div>
+      </div>
+    ) : (
+      <button
+        onClick={() => setOpen(true)}
+        aria-label={t('chatOpen')}
+        className="fixed bottom-5 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-slate-400 text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
+      >
+        <Lock className="h-5 w-5" />
+      </button>
+    )
   }
 
   if (!open) {
