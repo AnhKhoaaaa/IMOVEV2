@@ -859,6 +859,12 @@ export default function Trip() {
     if (location.state?.autoStart) return true
     return sessionStorage.getItem(`imove_trip_started_${id}`) === 'true'
   })
+  // editMode=true when returning from dashboard (no autoStart) while trip is already running.
+  // Shows all edit controls without stopping GPS/autoArrive on the backend.
+  const [editMode, setEditMode] = useState(() => {
+    if (location.state?.autoStart) return false
+    return sessionStorage.getItem(`imove_trip_started_${id}`) === 'true'
+  })
   const [activeLegIndex, setActiveLegIndex] = useState(
     () => parseInt(sessionStorage.getItem(`imove_active_leg_${id}`) ?? '0', 10)
   )
@@ -912,6 +918,8 @@ export default function Trip() {
   )
   const hasDirtyDays   = Object.keys(pendingByDay).length > 0
   const needsRouteUpdate = isEstimated || hasDirtyDays
+  // isLive drives all UI decisions; raw tripStarted drives GPS/backend effects
+  const isLive = tripStarted && !editMode
 
   // When routes become estimated again (e.g. after switching to GRAB), allow Keep My Order to run
   useEffect(() => {
@@ -950,8 +958,8 @@ export default function Trip() {
 
   // Hoist active leg computation so mapPlaces/mapLegs can use it
   const activeLeg = useMemo(
-    () => (tripStarted ? currentDay?.legs?.[activeLegIndex] ?? null : null),
-    [tripStarted, currentDay, activeLegIndex]
+    () => (isLive ? currentDay?.legs?.[activeLegIndex] ?? null : null),
+    [isLive, currentDay, activeLegIndex]
   )
   const activeFrom = activeLeg ? allPlacesById[activeLeg.from_place_id] : null
   const activeTo   = activeLeg ? allPlacesById[activeLeg.to_place_id]   : null
@@ -968,16 +976,16 @@ export default function Trip() {
 
   // Map data: when trip started → only active leg; day tab → all places (TripMap dims others); overview → all
   const mapLegs = useMemo(() => {
-    if (tripStarted && activeLeg) return [activeLeg]
+    if (isLive && activeLeg) return [activeLeg]
     if (activeTab === 'overview' || activeTab === 'summary')
       return trip?.days?.flatMap((day) => day.legs ?? []) ?? []
     return currentDay?.legs ?? []
-  }, [tripStarted, activeLeg, activeTab, trip, currentDay])
+  }, [isLive, activeLeg, activeTab, trip, currentDay])
 
   // Task 4a: during trip — hide visited, dim future, show active at full opacity
   const mapPlaces = useMemo(() => {
     if (!trip) return []
-    if (tripStarted && currentDay) {
+    if (isLive && currentDay) {
       const legs = currentDay.legs ?? []
       const visitedIds = new Set(legs.slice(0, activeLegIndex).map(l => l.from_place_id))
       const activeIds = activeLeg
@@ -991,7 +999,7 @@ export default function Trip() {
     const serverIds = new Set((trip.places ?? []).map((p) => p.id))
     const pendingPins = Object.values(pendingPlaces).filter((p) => !serverIds.has(p.id))
     return [...(trip.places ?? []), ...pendingPins]
-  }, [trip, tripStarted, currentDay, activeLeg, activeLegIndex, pendingPlaces])
+  }, [trip, isLive, currentDay, activeLeg, activeLegIndex, pendingPlaces])
 
   useEffect(() => {
     if (!trip?.days?.length) return
@@ -1061,6 +1069,13 @@ export default function Trip() {
   const selectDayTab = (dayNum) => {
     setSelectedDay(dayNum)
     setActiveTab(`day-${dayNum}`)
+  }
+
+  const resumeNavigation = () => {
+    setEditMode(false)
+    const day = trip?.days?.find((d) => d.day === selectedDay) ? selectedDay : (trip?.days?.[0]?.day ?? 1)
+    setSelectedDay(day)
+    setActiveTab(`day-${day}`)
   }
 
   const mutate = async (fn) => {
@@ -1396,7 +1411,8 @@ export default function Trip() {
               </h1>
               <p className="mt-1 text-[12px] font-semibold text-slate-400">
                 {trip.days?.length ?? 0} days · {trip.places?.length ?? 0} places
-                {tripStarted && <span className="ml-2 text-emerald-600">Live</span>}
+                {isLive && <span className="ml-2 text-emerald-600">Live</span>}
+                {tripStarted && editMode && <span className="ml-2 text-amber-500">Paused</span>}
               </p>
             </div>
           </div>
@@ -1422,7 +1438,7 @@ export default function Trip() {
                 >
                   Day {day.day}
                 </button>
-                {(trip.days?.length ?? 0) > 1 && !tripStarted && (
+                {(trip.days?.length ?? 0) > 1 && !isLive && (
                   <button
                     onClick={() => removeDay(day.day)}
                     className="mr-1 grid h-7 w-7 place-items-center rounded text-slate-300 hover:bg-red-50 hover:text-red-500"
@@ -1442,7 +1458,7 @@ export default function Trip() {
           </nav>
 
           <div className="flex shrink-0 items-center gap-2">
-            {!tripStarted && (
+            {!isLive && (
               <>
                 <button onClick={addDay} disabled={mutating} className="grid h-9 w-9 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" title="Add day">
                   {mutating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
@@ -1452,7 +1468,15 @@ export default function Trip() {
                 </button>
               </>
             )}
-            {tripStarted && (
+            {tripStarted && editMode && (
+              <button
+                onClick={resumeNavigation}
+                className="flex h-9 items-center gap-2 rounded-md bg-emerald-600 px-3 text-[13px] font-bold text-white hover:bg-emerald-500"
+              >
+                <Navigation2 size={14} /> Resume Trip
+              </button>
+            )}
+            {isLive && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-[12px] font-bold text-emerald-700">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> Live
               </span>
@@ -1464,30 +1488,34 @@ export default function Trip() {
       {/* Mode banner */}
       <div className={cn(
         'shrink-0 border-b px-6 py-2 text-[12.5px] font-semibold flex items-center gap-2',
-        tripStarted
+        isLive
           ? 'border-emerald-100 bg-emerald-50 text-emerald-800'
-          : 'border-slate-100 bg-slate-50 text-slate-500'
+          : tripStarted && editMode
+            ? 'border-amber-100 bg-amber-50 text-amber-800'
+            : 'border-slate-100 bg-slate-50 text-slate-500'
       )}>
-        {tripStarted
+        {isLive
           ? <><Navigation2 size={13} /> Live · Day {selectedDay} — tap Arrived when you reach each stop.</>
-          : <>
-              <FileText size={13} /> Planning mode — review your itinerary before you start.
-              <span className={cn(
-                'ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold',
-                needsRouteUpdate
-                  ? 'bg-amber-100 text-amber-700'
-                  : 'bg-emerald-100 text-emerald-700'
-              )}>
-                <span className={cn('h-1.5 w-1.5 rounded-full', needsRouteUpdate ? 'bg-amber-500' : 'bg-emerald-500')} />
-                {needsRouteUpdate ? 'Estimated' : 'Good To Go'}
-              </span>
-            </>
+          : tripStarted && editMode
+            ? <><Settings size={13} /> Edit mode — trip is paused. Resume when ready to navigate.</>
+            : <>
+                <FileText size={13} /> Planning mode — review your itinerary before you start.
+                <span className={cn(
+                  'ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold',
+                  needsRouteUpdate
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-emerald-100 text-emerald-700'
+                )}>
+                  <span className={cn('h-1.5 w-1.5 rounded-full', needsRouteUpdate ? 'bg-amber-500' : 'bg-emerald-500')} />
+                  {needsRouteUpdate ? 'Estimated' : 'Good To Go'}
+                </span>
+              </>
         }
       </div>
 
-      {(isOffline || todayBanner || optimizeMsg || (tripStarted && geoError) || alerts.length > 0 || uiWarning) && (
+      {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || alerts.length > 0 || uiWarning) && (
         <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
-          {tripStarted && geoError && (
+          {isLive && geoError && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
               <MapPin size={15} className="shrink-0" />
               GPS unavailable — auto-arrive is off. Tap{' '}
@@ -1538,7 +1566,7 @@ export default function Trip() {
               onUpdateRoute={handleUpdateRoute}
               onOptimiseOrder={() => setConfirmOptimise(true)}
               onStartTrip={null}
-              tripStarted={tripStarted}
+              tripStarted={isLive}
               startTime={savedMeta?.startTime ?? '09:00'}
               needsRouteUpdate={needsRouteUpdate}
               keepOrderDone={keepOrderDone}
@@ -1551,7 +1579,7 @@ export default function Trip() {
               day={currentDay}
               placesById={allPlacesById}
               tripId={id}
-              tripStarted={tripStarted && currentDay.day === selectedDay}
+              tripStarted={isLive && currentDay.day === selectedDay}
               position={position}
               activeLegIndex={activeLegIndex}
               onUpdated={refresh}
