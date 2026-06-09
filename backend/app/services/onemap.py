@@ -111,7 +111,13 @@ async def get_all_routes(
     async def _safe(mode: str) -> dict:
         try:
             r = await get_route(from_lat, from_lng, to_lat, to_lng, mode)
-            summary = _pt_summary(r.get("sub_legs", [])) if mode == "pt" else "direct"
+            if mode == "pt":
+                sub_legs = r.get("sub_legs", [])
+                if not any(s.get("mode") != "WALK" for s in sub_legs):
+                    return dict(_UNAVAILABLE)
+                summary = _pt_summary(sub_legs)
+            else:
+                summary = "direct"
             return {
                 "available": True,
                 "duration_minutes": r["duration_minutes"],

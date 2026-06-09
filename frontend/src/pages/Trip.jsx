@@ -218,11 +218,16 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
       if (result?.warnings?.length) onWarning?.(result.warnings.join(' '))
       await onUpdated?.()
       if (mode === 'GRAB') {
-        const pickup = (tripStarted && position)
-          ? { lat: position.lat, lng: position.lng, name: 'Your location' }
-          : { lat: from?.lat, lng: from?.lng, name: from?.name ?? '' }
-        openGrab({ fromLat: pickup.lat, fromLng: pickup.lng, fromName: pickup.name,
-                   toLat: to?.lat, toLng: to?.lng, toName: to?.name ?? '' })
+        const pickup   = (tripStarted && position) ? { lat: position.lat, lng: position.lng } : { lat: from?.lat, lng: from?.lng }
+        const fromName = (tripStarted && position) ? 'Your location' : (from?.name ?? '')
+        const toName   = to?.name ?? ''
+        openGrab(
+          { fromLat: pickup.lat, fromLng: pickup.lng, toLat: to?.lat, toLng: to?.lng, fromName, toName },
+          ({ appOpened }) => onWarning?.(appOpened
+            ? `Grab opened — enter pickup: ${fromName}, drop-off: ${toName}`
+            : `Grab app not found — opened Google Maps instead (${fromName} → ${toName})`
+          ),
+        )
       }
     } catch (err) {
       onWarning?.(err.message)
@@ -273,11 +278,16 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
             {tripStarted && normalizeTransportMode(leg.transport_mode) === 'GRAB' && (
               <button
                 onClick={() => {
-                  const pickup = position
-                    ? { lat: position.lat, lng: position.lng, name: 'Your location' }
-                    : { lat: from?.lat, lng: from?.lng, name: from?.name ?? '' }
-                  openGrab({ fromLat: pickup.lat, fromLng: pickup.lng, fromName: pickup.name,
-                             toLat: to?.lat, toLng: to?.lng, toName: to?.name ?? '' })
+                  const pickup   = position ? { lat: position.lat, lng: position.lng } : { lat: from?.lat, lng: from?.lng }
+                  const fromName = position ? 'Your location' : (from?.name ?? '')
+                  const toName   = to?.name ?? ''
+                  openGrab(
+                    { fromLat: pickup.lat, fromLng: pickup.lng, toLat: to?.lat, toLng: to?.lng, fromName, toName },
+                    ({ appOpened }) => onWarning?.(appOpened
+                      ? `Grab opened — enter pickup: ${fromName}, drop-off: ${toName}`
+                      : `Grab app not found — opened Google Maps instead (${fromName} → ${toName})`
+                    ),
+                  )
                 }}
                 className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-[12px] font-bold text-white hover:bg-green-500"
               >
