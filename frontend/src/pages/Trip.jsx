@@ -908,6 +908,13 @@ export default function Trip() {
     if (needsRouteUpdate) setKeepOrderDone(false)
   }, [needsRouteUpdate])
 
+  // Chatbot confirmed a write → refresh the itinerary from the server.
+  useEffect(() => {
+    const onTripUpdated = () => { refresh() }
+    window.addEventListener('imove:trip-updated', onTripUpdated)
+    return () => window.removeEventListener('imove:trip-updated', onTripUpdated)
+  }, [refresh])
+
   // Estimated times for pending (dirty) days — computed purely from haversine, no API call
   const startTimeStr = savedMeta?.startTime ?? '09:00'
   const pendingTimes = useMemo(() => {

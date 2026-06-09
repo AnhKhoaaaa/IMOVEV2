@@ -8,6 +8,7 @@ import Planner from './pages/Planner'
 import Trip from './pages/Trip'
 import Settings from './pages/Settings'
 import Header from './components/layout/Header'
+import ChatWidget from './components/chat/ChatWidget'
 
 export default function App() {
   useEffect(() => { migrateLocalStorage() }, [])
@@ -16,6 +17,7 @@ export default function App() {
     <LanguageProvider>
       <AuthProvider>
         <Header />
+        <ChatWidget />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/plan" element={<Planner />} />
