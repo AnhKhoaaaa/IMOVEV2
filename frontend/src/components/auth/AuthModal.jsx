@@ -46,11 +46,15 @@ export default function AuthModal({ onClose }) {
     }
   }
 
-  const signInWithGoogle = () =>
-    supabase.auth.signInWithOAuth({
+  const signInWithGoogle = async () => {
+    setAuthError(null)
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin },
     })
+    // Surface config errors (e.g. provider not enabled) instead of failing silently.
+    if (error) setAuthError(String(error.message))
+  }
 
   const switchMode = () => {
     setMode(mode === 'signin' ? 'signup' : 'signin')
