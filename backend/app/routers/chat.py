@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.dependencies import get_current_user
+from app.dependencies import require_current_user
 from app.agents import chat_agent
 from app.models.chat import (
     ChatRequest, ChatResponse, ChatConfirmRequest, ChatConfirmResponse,
@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(body: ChatRequest, current_user: Optional[str] = Depends(get_current_user)):
+async def chat(body: ChatRequest, current_user: str = Depends(require_current_user)):
     return await chat_agent.run_chat(
         session_id=body.session_id,
         message=body.message,
@@ -35,7 +35,7 @@ async def chat(body: ChatRequest, current_user: Optional[str] = Depends(get_curr
 @router.post("/confirm", response_model=ChatConfirmResponse)
 async def chat_confirm(
     body: ChatConfirmRequest,
-    current_user: Optional[str] = Depends(get_current_user),
+    current_user: str = Depends(require_current_user),
 ):
     pending = chat_agent._pending_actions.get(body.session_id)
     if pending is None:

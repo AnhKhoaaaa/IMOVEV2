@@ -17,6 +17,7 @@ class TripCreate(BaseModel):
     budget_sgd: float = Field(ge=0)
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    name: Optional[str] = None
 
 
 class TripPlanRequest(BaseModel):
@@ -90,6 +91,7 @@ class GapNotification(BaseModel):
 
 class TripPlan(BaseModel):
     id: str
+    name: Optional[str] = None
     days: list[DayPlan]
     places: list[Place]
     warnings: list[str]

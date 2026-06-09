@@ -26,7 +26,7 @@ _pending_actions: dict[str, dict] = {}
 _MAX_TURNS = 4
 
 READ_TOOLS = {
-    "get_current_trip", "search_places", "get_curated_places",
+    "get_current_trip", "list_my_trips", "search_places", "get_curated_places",
     "compare_routes", "get_bus_arrivals", "get_trip_alerts", "get_weather",
 }
 WRITE_TOOLS = {
@@ -42,6 +42,9 @@ SYSTEM_PROMPT = (
     "reply in that exact language (Vietnamese or English). "
     "Only recommend places that exist in the curated dataset — never invent a place or "
     "a place_id; use search_places / get_curated_places to look them up. "
+    "If the user mentions a trip by name but you don't have an active trip open, call "
+    "list_my_trips to find their trips. If exactly one trip matches the name, it becomes "
+    "the active trip for this conversation. If multiple match, ask the user to confirm. "
     "To inspect the user's itinerary, call get_current_trip (it returns leg ids and place "
     "ids you must reference in write tools). "
     "ANY change to the itinerary MUST go through the matching write tool as a PROPOSAL — "
@@ -71,6 +74,15 @@ def _build_tool() -> types.Tool:
             name="get_current_trip",
             description="Return the user's current itinerary: places (id, name) and per-day legs (id, from, to, mode, duration).",
             parameters=_obj(),
+        ),
+        types.FunctionDeclaration(
+            name="list_my_trips",
+            description=(
+                "List all trips belonging to the logged-in user. "
+                "Use when the user refers to a trip by name but no trip is currently open. "
+                "Optionally filter by name keyword. Returns id, name, num_days, start_date, status."
+            ),
+            parameters=_obj({"name_filter": _S(STR, description="Optional keyword to filter trips by name (case-insensitive).")}),
         ),
         types.FunctionDeclaration(
             name="search_places",
@@ -323,6 +335,9 @@ async def _execute_read_tool(tool, args, ctx) -> object:
             plan = await _load_plan(ctx)
             return _trip_summary(plan) if plan else {"error": "No trip is currently open."}
 
+        if tool == "list_my_trips":
+            return await _list_user_trips(args.get("name_filter"), ctx)
+
         if tool == "search_places":
             from app.routers.places import _CURATED
             q = (args.get("query") or "").lower()
@@ -364,6 +379,60 @@ async def _execute_read_tool(tool, args, ctx) -> object:
         return {"error": str(exc)}
 
     return {"error": f"Unknown read tool: {tool}"}
+
+
+async def _list_user_trips(name_filter: Optional[str], ctx: dict) -> object:
+    """Query trips for the current user, optionally filtered by name.
+
+    If exactly one trip matches the filter, sets ctx["trip_id"] so subsequent
+    write tools in the same turn can target it without the user navigating first.
+    """
+    current_user = ctx.get("current_user")
+    if not current_user:
+        return {"error": "You must be logged in to list your trips."}
+
+    from app.database import supabase
+    from app.routers.trips import _trip_meta
+
+    rows = []
+
+    if supabase:
+        try:
+            resp = (
+                supabase.table("trips")
+                .select("id, name, num_days, start_date, status, created_at")
+                .eq("user_id", current_user)
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+            )
+            rows = resp.data or []
+        except Exception as exc:
+            return {"error": str(exc)}
+    else:
+        # Offline fallback: scan in-memory meta cache
+        rows = [
+            {
+                "id": tid,
+                "name": meta.get("name"),
+                "num_days": meta.get("num_days"),
+                "start_date": None,
+                "status": None,
+                "created_at": None,
+            }
+            for tid, meta in _trip_meta.items()
+            if meta.get("user_id") == current_user
+        ]
+
+    if name_filter:
+        kw = name_filter.lower()
+        rows = [r for r in rows if r.get("name") and kw in r["name"].lower()]
+
+    # Auto-activate trip when the filter narrows it to exactly one
+    if len(rows) == 1 and not ctx.get("trip_id"):
+        ctx["trip_id"] = rows[0]["id"]
+
+    return rows
 
 
 async def _build_pending_action(tool, args, ctx):

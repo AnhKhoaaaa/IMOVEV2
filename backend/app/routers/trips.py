@@ -35,12 +35,13 @@ _pending_swaps: dict[str, dict] = {}  # trip_id → {alert_id, updated_trip}
 async def create_trip(body: TripCreate):
     trip_id = str(uuid.uuid4())
 
-    # Cache for no-DB fallback path (budget, num_days, session_id, user_id)
+    # Cache for no-DB fallback path (budget, num_days, session_id, user_id, name)
     _trip_meta[trip_id] = {
         "num_days": body.num_days,
         "budget_sgd": float(body.budget_sgd),
         "session_id": body.session_id,
         "user_id": str(body.user_id) if body.user_id else None,
+        "name": body.name,
     }
 
     if supabase:
@@ -53,6 +54,7 @@ async def create_trip(body: TripCreate):
             "status": "DRAFT",
             "start_date": body.start_date.isoformat() if body.start_date else None,
             "end_date": body.end_date.isoformat() if body.end_date else None,
+            "name": body.name,
         }).execute()
 
     return {"trip_id": trip_id}
@@ -161,6 +163,7 @@ async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_curre
                 if current_user and trip_user_id and trip_user_id != current_user:
                     raise HTTPException(status_code=403, detail="Access denied")
                 # Repopulate in-memory caches so subsequent mutations work after server restart
+                plan.name = t.get("name")
                 _trip_store[trip_id] = plan
                 if trip_id not in _trip_meta:
                     _trip_meta[trip_id] = {
@@ -171,6 +174,7 @@ async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_curre
                         "hotel_name": t.get("hotel_name"),
                         "hotel_lat":  _float_or_none(t.get("hotel_lat")),
                         "hotel_lng":  _float_or_none(t.get("hotel_lng")),
+                        "name":       t.get("name"),
                     }
             return plan
 
