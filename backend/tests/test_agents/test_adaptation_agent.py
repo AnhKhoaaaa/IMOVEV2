@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +12,11 @@ from app.agents.adaptation_agent import (
     _apply_weather_swap,
     _leg_uses_disrupted_line,
     _reroute_mrt_legs,
+    _day_date,
+    _weather_alert_message,
+    _ordered_place_ids_from_legs,
+    _effective_rain_prob,
+    _check_live_rain,
 )
 from app.agents.planning_agent import _PLACES
 from app.models.trip import TripPlan, DayPlan, LegResponse, AdaptResponse
@@ -165,37 +172,52 @@ async def test_poll_weather_unavailable_does_not_crash():
         await poll_weather_alerts()  # No supabase → return immediately
 
 
+def _window_today(rain_probability, condition="Rain", slots=None):
+    import datetime as _dt
+    return {_dt.date.today().isoformat(): {
+        "rain_probability": rain_probability, "condition": condition,
+        "temp_max": 31, "temp_min": 26, "slots": slots or [],
+    }}
+
+
+_DRY_NOW = {"condition": "Clouds", "temp_c": 30.0, "rain_1h": 0.0}
+
+
 @pytest.mark.asyncio
 async def test_poll_weather_error_does_not_crash():
-    sb = _make_supabase_mock(trips=[{"id": "trip-1"}])
+    sb = _make_supabase_mock(
+        trips=[{"id": "trip-1", "start_date": None}],
+        places_data=[{"trip_id": "trip-1", "place_id": "gardens-by-the-bay-supertree-grove", "day_number": 1}],
+    )
     with patch("app.agents.adaptation_agent.supabase", sb):
-        with patch("app.agents.adaptation_agent.openweather.get_forecast",
-                   new_callable=AsyncMock,
-                   side_effect=WeatherUnavailableError("API down")):
+        with patch("app.agents.adaptation_agent.openweather.get_forecast_window",
+                   new_callable=AsyncMock, side_effect=WeatherUnavailableError("API down")):
             await poll_weather_alerts()  # Should log warning and return, not raise
 
 
 @pytest.mark.asyncio
 async def test_poll_weather_low_rain_no_alert():
-    sb = _make_supabase_mock(trips=[{"id": "trip-1"}])
+    sb = _make_supabase_mock(
+        trips=[{"id": "trip-1", "start_date": None}],
+        places_data=[{"trip_id": "trip-1", "place_id": "gardens-by-the-bay-supertree-grove", "day_number": 1}],
+    )
     with patch("app.agents.adaptation_agent.supabase", sb):
-        with patch("app.agents.adaptation_agent.openweather.get_forecast",
-                   new_callable=AsyncMock,
-                   return_value={"rain_probability": 30, "condition": "Clear", "date": "2026-05-20", "temp_max": 32, "temp_min": 26}):
-            await poll_weather_alerts()
+        with patch("app.agents.adaptation_agent.openweather.get_forecast_window",
+                   new_callable=AsyncMock, return_value=_window_today(30, "Clouds")):
+            with patch("app.agents.adaptation_agent.openweather.get_current_weather",
+                       new_callable=AsyncMock, return_value=_DRY_NOW):
+                await poll_weather_alerts()
 
-    # No alert should be inserted
-    calls = [str(call) for call in sb.table.call_args_list]
-    assert not any("lta_alerts" in c for c in calls)
+    assert not sb.table("lta_alerts").insert.called
 
 
 @pytest.mark.asyncio
 async def test_poll_weather_high_rain_with_outdoor_places_inserts_alert():
     outdoor_place_id = "gardens-by-the-bay-supertree-grove"  # is_outdoor=True in _PLACES
-    # places_data now includes trip_id because poll_weather_alerts uses a bulk IN query
+    # places_data now includes trip_id + day_number — poll groups places per day
     sb = _make_supabase_mock(
-        trips=[{"id": "trip-1"}],
-        places_data=[{"trip_id": "trip-1", "place_id": outdoor_place_id}],
+        trips=[{"id": "trip-1", "start_date": None}],
+        places_data=[{"trip_id": "trip-1", "place_id": outdoor_place_id, "day_number": 1}],
     )
     insert_calls = []
 
@@ -208,15 +230,18 @@ async def test_poll_weather_high_rain_with_outdoor_places_inserts_alert():
     sb.table("lta_alerts").insert = track_insert
 
     with patch("app.agents.adaptation_agent.supabase", sb):
-        with patch("app.agents.adaptation_agent.openweather.get_forecast",
-                   new_callable=AsyncMock,
-                   return_value={"rain_probability": 80, "condition": "Rain",
-                                 "date": "2026-05-20", "temp_max": 29, "temp_min": 25}):
-            await poll_weather_alerts()
+        with patch("app.agents.adaptation_agent.openweather.get_forecast_window",
+                   new_callable=AsyncMock, return_value=_window_today(80, "Rain")):
+            with patch("app.agents.adaptation_agent.openweather.get_current_weather",
+                       new_callable=AsyncMock, return_value=_DRY_NOW):
+                await poll_weather_alerts()
 
     assert len(insert_calls) == 1
     assert insert_calls[0]["alert_type"] == "weather_warning"
+    assert insert_calls[0]["day_number"] == 1
+    assert insert_calls[0]["severity"] == "light"
     assert "80%" in insert_calls[0]["message"]
+    assert "Day 1" in insert_calls[0]["message"]
 
 
 # ── adapt_trip ────────────────────────────────────────────────────────────────
@@ -281,8 +306,10 @@ async def test_adapt_trip_weather_swap_outdoor_to_indoor():
     alert_data = [{"id": "alert-1", "alert_type": "weather_warning", "message": "Rain 80%"}]
     sb = _make_supabase_mock(alert=alert_data)
 
-    # gardens-by-the-bay is outdoor in _PLACES — should be swapped
-    mock_route = {"duration_minutes": 10, "fare_sgd": 0.0, "legs": [{"mode": "WALK"}]}
+    # gardens-by-the-bay is outdoor in _PLACES — should be swapped.
+    # distance_km is required by _fetch_all_alternatives (drive→GRAB fare).
+    mock_route = {"duration_minutes": 10, "fare_sgd": 0.0, "legs": [{"mode": "WALK"}],
+                  "distance_km": 1.0, "sub_legs": [], "geometry": None, "geometries": [], "instructions": []}
     with patch("app.agents.adaptation_agent.supabase", sb):
         with patch("app.agents.adaptation_agent.onemap.get_route",
                    new_callable=AsyncMock, return_value=mock_route):
@@ -360,6 +387,139 @@ def test_apply_weather_swap_no_duplicate_targets():
     assert len(swapped_ids) == len(set(swapped_ids)), (
         f"Duplicate swap target detected: {swapped_ids}"
     )
+
+
+# ── dev18: per-day weather scoping ───────────────────────────────────────────
+
+def test_day_date_offsets_from_start():
+    assert _day_date("2026-06-12", 1) == "2026-06-12"
+    assert _day_date("2026-06-12", 3) == "2026-06-14"
+
+
+def test_day_date_falls_back_to_today_when_missing():
+    import datetime as _dt
+    assert _day_date(None, 1) == _dt.date.today().isoformat()
+
+
+def test_weather_alert_message_names_day_and_reason():
+    msg = _weather_alert_message(2, "2026-06-13", 80, ["Gardens → ArtScience Museum"])
+    assert "Day 2" in msg
+    assert "80%" in msg
+    assert "Gardens → ArtScience Museum" in msg
+
+
+def test_ordered_place_ids_from_legs_reconstructs_chain():
+    legs = [
+        LegResponse(id="L1", from_place_id="hotel", to_place_id="a",
+                    transport_mode="WALK", duration_minutes=5, cost_sgd=0.0, is_estimated=False),
+        LegResponse(id="L2", from_place_id="a", to_place_id="hotel",
+                    transport_mode="WALK", duration_minutes=5, cost_sgd=0.0, is_estimated=False),
+    ]
+    assert _ordered_place_ids_from_legs(legs) == ["hotel", "a"]
+    assert _ordered_place_ids_from_legs([]) == []
+
+
+def test_apply_weather_swap_scoped_to_single_day():
+    """day=1 must swap only day-1 outdoor places; day-2 outdoor places stay put."""
+    # Day 1 outdoor place near Merlion; Day 2 outdoor place elsewhere
+    d1 = Place(id="merlion-park", name="Merlion Park", lat=1.2868, lng=103.8545,
+               dwell_minutes=30, best_time_start="07:00", best_time_end="10:00",
+               category="landmark", is_outdoor=True, in_curated_dataset=True)
+    d2 = Place(id="gardens-by-the-bay", name="Gardens by the Bay", lat=1.2816, lng=103.8636,
+               dwell_minutes=180, best_time_start="08:00", best_time_end="11:00",
+               category="nature", is_outdoor=True, in_curated_dataset=True)
+    leg1 = LegResponse(id="L1", from_place_id="hotel", to_place_id="merlion-park",
+                       transport_mode="WALK", duration_minutes=10, cost_sgd=0.0, is_estimated=False)
+    leg2 = LegResponse(id="L2", from_place_id="hotel", to_place_id="gardens-by-the-bay",
+                       transport_mode="WALK", duration_minutes=10, cost_sgd=0.0, is_estimated=False)
+    hotel = Place(id="hotel", name="Hotel", lat=1.30, lng=103.85, dwell_minutes=0,
+                  best_time_start="09:00", best_time_end="23:59", category="Hotel",
+                  is_outdoor=False, in_curated_dataset=False)
+    plan = TripPlan(
+        id="t-scope",
+        days=[
+            DayPlan(day=1, legs=[leg1], place_ids=["hotel", "merlion-park"]),
+            DayPlan(day=2, legs=[leg2], place_ids=["hotel", "gardens-by-the-bay"]),
+        ],
+        places=[hotel, d1, d2],
+        warnings=[],
+    )
+
+    async def _run():
+        with patch("app.agents.adaptation_agent.onemap.get_route", new_callable=AsyncMock,
+                   return_value={"duration_minutes": 9, "fare_sgd": 0.0, "legs": [{"mode": "WALK"}],
+                                 "sub_legs": [], "geometry": None, "geometries": [], "instructions": []}):
+            with patch("app.agents.adaptation_agent._fetch_all_alternatives", new_callable=AsyncMock,
+                       return_value={"WALK": {"duration_minutes": 9, "fare_sgd": 0.0,
+                                              "legs": [{"mode": "WALK"}], "sub_legs": [],
+                                              "geometry": None, "geometries": [], "instructions": []}}):
+                return await _apply_weather_swap(plan, day=1)
+
+    updated, changes = asyncio.run(_run())
+    ids = {p.id for p in updated.places}
+    assert "merlion-park" not in ids        # day-1 outdoor → swapped
+    assert "gardens-by-the-bay" in ids      # day-2 outdoor → untouched
+    assert all("Gardens by the Bay" not in c for c in changes)
+
+
+def test_effective_rain_prob_respects_outdoor_window():
+    """Morning downpour must not warn an afternoon-outdoor day (dev19 P2.1)."""
+    day_agg = {"rain_probability": 90, "slots": [
+        {"hour": 6, "pop": 0.9},   # heavy, but before the user is out
+        {"hour": 15, "pop": 0.2},  # the slot that actually overlaps the outdoor window
+    ]}
+    outdoor = [{"id": "x", "is_outdoor": True, "best_time_start": "14:00", "best_time_end": "17:00"}]
+    assert _effective_rain_prob(day_agg, outdoor) == 20
+
+
+def test_effective_rain_prob_falls_back_to_daily_max_without_slots():
+    day_agg = {"rain_probability": 80, "slots": []}
+    outdoor = [{"id": "x", "is_outdoor": True, "best_time_start": "09:00", "best_time_end": "18:00"}]
+    assert _effective_rain_prob(day_agg, outdoor) == 80
+
+
+@pytest.mark.asyncio
+async def test_check_live_rain_inserts_weather_live_when_raining_now():
+    sb = _make_supabase_mock()
+    sb.table("lta_alerts").execute.return_value = MagicMock(data=[])
+    insert_calls = []
+
+    def cap(rows):
+        insert_calls.append(rows)
+        m = MagicMock()
+        m.execute.return_value = MagicMock(data=[])
+        return m
+
+    sb.table("lta_alerts").insert = cap
+    places = [{"id": "merlion-park", "name": "Merlion Park",
+               "lat": 1.2868, "lng": 103.8545, "is_outdoor": True}]
+
+    with patch("app.agents.adaptation_agent.supabase", sb):
+        with patch("app.agents.adaptation_agent.openweather.get_current_weather",
+                   new_callable=AsyncMock,
+                   return_value={"condition": "Rain", "temp_c": 27.0, "rain_1h": 9.0}):
+            inserted = await _check_live_rain("t1", 1, places)
+
+    assert inserted is True
+    assert insert_calls[0]["alert_type"] == "weather_live"
+    assert insert_calls[0]["day_number"] == 1
+    assert insert_calls[0]["severity"] == "heavy"      # 9.0mm ≥ 7.5
+    assert "raining now" in insert_calls[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_check_live_rain_silent_when_dry():
+    sb = _make_supabase_mock()
+    sb.table("lta_alerts").insert = MagicMock()
+    places = [{"id": "merlion-park", "name": "Merlion Park",
+               "lat": 1.2868, "lng": 103.8545, "is_outdoor": True}]
+    with patch("app.agents.adaptation_agent.supabase", sb):
+        with patch("app.agents.adaptation_agent.openweather.get_current_weather",
+                   new_callable=AsyncMock,
+                   return_value={"condition": "Clouds", "temp_c": 30.0, "rain_1h": 0.0}):
+            inserted = await _check_live_rain("t1", 1, places)
+    assert inserted is False
+    assert not sb.table("lta_alerts").insert.called
 
 
 # ── _leg_uses_disrupted_line — bulletproof mode-first check ──────────────────
@@ -570,14 +730,14 @@ async def test_check_alerts_for_trip_weather_inserts_on_heavy_rain():
     sb = _make_supabase_mock()
     sb.table("lta_alerts").execute.return_value = MagicMock(data=[])
 
-    forecast = {"rain_probability": 80, "temp_c": 28, "description": "Heavy rain"}
-
     with patch("app.agents.adaptation_agent.supabase", sb):
         with patch("app.agents.adaptation_agent.lta.get_train_alerts",
                    new_callable=AsyncMock, return_value=[]):
-            with patch("app.agents.adaptation_agent.openweather.get_forecast",
-                       new_callable=AsyncMock, return_value=forecast):
-                result = await check_alerts_for_trip("t1", plan)
+            with patch("app.agents.adaptation_agent.openweather.get_forecast_window",
+                       new_callable=AsyncMock, return_value=_window_today(80, "Rain")):
+                with patch("app.agents.adaptation_agent.openweather.get_current_weather",
+                           new_callable=AsyncMock, return_value=_DRY_NOW):
+                    result = await check_alerts_for_trip("t1", plan)
 
     assert result["weather_checked"] is True
     insert_calls = [

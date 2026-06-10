@@ -45,6 +45,17 @@ const TYPE_CONFIG = {
     btnClass: 'border-sky-300 text-sky-700 hover:bg-sky-100',
     showAdapt: true,
   },
+  // dev19: rain happening right now (current weather), styled warmer than the forecast warning
+  weather_live: {
+    Icon: CloudRain,
+    containerClass: 'bg-amber-50 border-amber-200',
+    iconClass: 'text-amber-500',
+    badgeClass: 'bg-amber-100 text-amber-700',
+    textClass: 'text-amber-900',
+    labelKey: 'alertWeather',
+    btnClass: 'border-amber-300 text-amber-700 hover:bg-amber-100',
+    showAdapt: true,
+  },
   service_unavailable: {
     Icon: Info,
     containerClass: 'bg-slate-50 border-slate-200',
@@ -88,8 +99,11 @@ function parseOutdoorCount(message) {
 }
 
 function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
-  const { containerClass, iconClass, badgeClass, textClass, btnClass } = TYPE_CONFIG.weather_warning
+  const { containerClass, iconClass, badgeClass, textClass, btnClass } =
+    TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.weather_warning
   const { t } = useT()
+  const isLive = alert.alert_type === 'weather_live'
+  const severity = alert.severity ?? null
 
   const [previewing, setPreviewing] = useState(false)
   const [proposal, setProposal] = useState(null)
@@ -105,6 +119,7 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
 
   const rainPct = alert.metadata?.rain_probability ?? parseRainPct(alert.message)
   const outdoorCount = alert.metadata?.outdoor_count ?? parseOutdoorCount(alert.message)
+  const dayNum = alert.day_number ?? null
 
   const handlePreview = async () => {
     setLoading(true)
@@ -141,8 +156,21 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
 
         <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className={cn('text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full', badgeClass)}>
-            {t('alertRain')}
+            {isLive ? 'Raining now' : t('alertRain')}
           </span>
+          {dayNum != null && (
+            <span className="text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-sky-600 text-white">
+              Day {dayNum}
+            </span>
+          )}
+          {severity && (
+            <span className={cn(
+              'text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full text-white',
+              severity === 'heavy' ? 'bg-red-600' : 'bg-amber-500'
+            )}>
+              {severity}
+            </span>
+          )}
           {rainPct != null && (
             <span className={cn('text-sm font-semibold', textClass)}>{t('alertChance', rainPct)}</span>
           )}
@@ -177,6 +205,11 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
           </button>
         </div>
       </div>
+
+      {/* Full reason: which day, the date, rain odds, and why this appeared */}
+      {alert.message && (
+        <p className={cn('mt-2 text-[12.5px] leading-relaxed', textClass)}>{alert.message}</p>
+      )}
 
       {/* Expanded: swap details */}
       {previewing && proposal && (
@@ -233,7 +266,7 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
 export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
   const { t } = useT()
 
-  if (alert.alert_type === 'weather_warning') {
+  if (alert.alert_type === 'weather_warning' || alert.alert_type === 'weather_live') {
     return <WeatherAlertBanner alert={alert} tripId={tripId} onDismiss={onDismiss} onAdapted={onAdapted} />
   }
 

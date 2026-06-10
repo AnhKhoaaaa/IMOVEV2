@@ -18,10 +18,12 @@ from app.agents.planning_agent import get_all_places, _haversine_km, _primary_mo
 from app.models.trip import TripPlan, DayPlan, LegResponse, AdaptResponse
 from app.models.place import Place
 from app.database import supabase
+from app.config import settings
 
 log = logging.getLogger(__name__)
 
-_WEATHER_RAIN_THRESHOLD = 70  # % — alert if rain_probability exceeds this
+# Forecast severity band: a forecast >= this pop% is treated as "heavy" rain (dev19 P2.3).
+_HEAVY_POP_PCT = 85
 
 # Maps LTA affected_line names → route code prefix used in OneMap sub_legs.
 # e.g. "East West Line" → sub_legs with route "EW2", "EW12", ...
@@ -120,82 +122,197 @@ async def poll_lta_alerts() -> None:
 
 
 async def poll_weather_alerts() -> None:
-    """[CODE] Check OpenWeather per-trip; insert weather_warning if rain > 70% and trip has outdoor places."""
+    """[CODE] Check OpenWeather per-day; insert a day-scoped weather_warning when that
+    day's forecast shows rain > 70% and the day has outdoor places."""
     if not supabase:
         return
 
-    today = date.today().isoformat()
-
-    trips_resp = supabase.table("trips").select("id").eq("status", "HAPPENING_TODAY").execute()
-    active_ids = [t["id"] for t in (trips_resp.data or [])]
-    if not active_ids:
+    trips_resp = supabase.table("trips").select("id,start_date").eq("status", "HAPPENING_TODAY").execute()
+    active = {t["id"]: t.get("start_date") for t in (trips_resp.data or [])}
+    if not active:
         return
 
-    # Bulk query all trip_places in one round-trip — avoids N+1 per trip
+    # Bulk query all trip_places in one round-trip — avoids N+1 per trip.
+    # day_number groups places per day so each day is forecast against its own date.
     all_places_resp = (
         supabase.table("trip_places")
-        .select("trip_id,place_id")
-        .in_("trip_id", active_ids)
+        .select("trip_id,place_id,day_number")
+        .in_("trip_id", list(active.keys()))
         .execute()
     )
-    places_by_trip: dict[str, list[str]] = {}
+    days_by_trip: dict[str, dict[int, list[str]]] = {}
     for row in (all_places_resp.data or []):
-        places_by_trip.setdefault(row["trip_id"], []).append(row["place_id"])
+        d = row.get("day_number")
+        if d is None:
+            continue  # hotel / unassigned — not tied to a single day
+        days_by_trip.setdefault(row["trip_id"], {}).setdefault(d, []).append(row["place_id"])
 
     _places = get_all_places()
-
-    for trip_id in active_ids:
-        place_ids = places_by_trip.get(trip_id, [])
-        outdoor_places = [_places[pid] for pid in place_ids if pid in _places and _places[pid]["is_outdoor"]]
-        if not outdoor_places:
+    today_iso = date.today().isoformat()
+    for trip_id, start_date in active.items():
+        days = days_by_trip.get(trip_id, {})
+        if not days:
             continue
-
-        # Localized forecast at this itinerary's centroid (§3.1 Weather Engine)
-        centroid = _compute_centroid(place_ids)
-        clat, clng = centroid if centroid else (SINGAPORE_LAT, SINGAPORE_LNG)
-
+        # One forecast fetch per trip at its centroid — SG is small enough that per-day
+        # centroid drift is below OpenWeather's resolution (dev19 P1.3).
+        all_pids = [pid for pids in days.values() for pid in pids]
+        clat, clng = _centroid([_places[pid] for pid in all_pids if pid in _places])
         try:
-            forecast = await openweather.get_forecast(today, clat, clng)
+            window = await openweather.get_forecast_window(clat, clng)
         except WeatherUnavailableError as exc:
             log.warning("OpenWeather unavailable for trip %s: %s", trip_id, exc)
-            continue  # Soft failure per trip — do not crash the loop
-
-        if forecast["rain_probability"] <= _WEATHER_RAIN_THRESHOLD:
             continue
+        for day, place_ids in sorted(days.items()):
+            day_places = [_places[pid] for pid in place_ids if pid in _places]
+            day_date = _day_date(start_date, day)
+            day_agg = window.get(day_date)
+            if day_agg:
+                _forecast_swap_alert(trip_id, day, day_date, day_places, day_agg)
+            if day_date == today_iso:
+                await _check_live_rain(trip_id, day, day_places)
 
-        already_suggested: set[str] = {p["id"] for p in outdoor_places}
-        suggestions = []
-        for place in outdoor_places:
-            indoor_alt = _nearest_indoor(place["lat"], place["lng"], exclude_ids=already_suggested)
-            if indoor_alt:
-                suggestions.append(f"{place['name']} → {indoor_alt['name']}")
-                already_suggested.add(indoor_alt["id"])
 
-        if not suggestions:
-            continue
+def _centroid(places: list[dict]) -> tuple[float, float]:
+    """Mean (lat, lng) of place dicts; falls back to Singapore centre."""
+    coords = [(p["lat"], p["lng"]) for p in places if p.get("lat") is not None and p.get("lng") is not None]
+    if not coords:
+        return SINGAPORE_LAT, SINGAPORE_LNG
+    return sum(la for la, _ in coords) / len(coords), sum(ln for _, ln in coords) / len(coords)
 
-        # Dedup: skip if same alert type was inserted in the last 10 minutes
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-        existing = (
-            supabase.table("lta_alerts")
-            .select("id")
-            .eq("trip_id", trip_id)
-            .eq("alert_type", "weather_warning")
-            .gte("created_at", cutoff)
-            .execute()
-        )
-        if existing.data:
-            continue
 
-        supabase.table("lta_alerts").insert({
-            "trip_id": trip_id,
-            "alert_type": "weather_warning",
-            "affected_line": None,
-            "message": (
-                f"Rain forecast ({forecast['rain_probability']}%). "
-                f"Suggested indoor swaps: {'; '.join(suggestions)}"
-            ),
-        }).execute()
+def _outdoor_window(outdoor_places: list[dict]) -> tuple[int, int] | None:
+    """[start_hour, end_hour] (SGT) the user is at outdoor stops, from best_time_*; None if unknown."""
+    starts, ends = [], []
+    for p in outdoor_places:
+        s, e = p.get("best_time_start"), p.get("best_time_end")
+        if isinstance(s, str) and ":" in s:
+            starts.append(int(s.split(":")[0]))
+        if isinstance(e, str) and ":" in e:
+            ends.append(int(e.split(":")[0]))
+    if not starts or not ends:
+        return None
+    return min(starts), max(ends)
+
+
+def _effective_rain_prob(day_agg: dict, outdoor_places: list[dict]) -> int:
+    """Rain % the user actually faces: max pop over 3h slots overlapping the outdoor window.
+
+    Falls back to the day's max pop when slots or best_time_* are unavailable (dev19 P2.1).
+    """
+    slots = day_agg.get("slots") or []
+    window = _outdoor_window(outdoor_places)
+    if slots and window:
+        start_h, end_h = window
+        overlap = [s["pop"] for s in slots if start_h <= s.get("hour", -1) <= end_h]
+        if overlap:
+            return round(max(overlap) * 100)
+    return day_agg.get("rain_probability", 0)
+
+
+def _forecast_swap_alert(trip_id: str, day: int, day_date: str, places: list[dict], day_agg: dict) -> bool:
+    """Insert a day-scoped weather_warning (forecast swap) when rain over the outdoor window
+    exceeds the configured threshold. Returns True if inserted."""
+    outdoor_places = [p for p in places if p.get("is_outdoor")]
+    if not outdoor_places:
+        return False
+
+    rain_pct = _effective_rain_prob(day_agg, outdoor_places)
+    if rain_pct <= settings.weather_forecast_threshold:
+        return False
+
+    suggestions = _build_indoor_swaps(outdoor_places)
+    if not suggestions:
+        return False
+
+    # Dedup: skip if a warning for THIS day was inserted in the last 10 minutes
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    existing = (
+        supabase.table("lta_alerts")
+        .select("id")
+        .eq("trip_id", trip_id)
+        .eq("alert_type", "weather_warning")
+        .eq("day_number", day)
+        .gte("created_at", cutoff)
+        .execute()
+    )
+    if existing.data:
+        return False
+
+    supabase.table("lta_alerts").insert({
+        "trip_id": trip_id,
+        "alert_type": "weather_warning",
+        "affected_line": None,
+        "day_number": day,
+        "severity": "heavy" if rain_pct >= _HEAVY_POP_PCT else "light",
+        "message": _weather_alert_message(day, day_date, rain_pct, suggestions),
+    }).execute()
+    return True
+
+
+def _rain_level(rain_mm: float) -> str:
+    """Map live rain rate (mm/h) to severity — thresholds match ContextSnapshot.rain_level."""
+    if rain_mm >= 7.5:
+        return "heavy"
+    if rain_mm >= 2.5:
+        return "light"
+    return "light"  # any measurable rain is at least "light"
+
+
+async def _check_live_rain(trip_id: str, day: int, places: list[dict]) -> bool:
+    """Insert a `weather_live` alert when it is raining RIGHT NOW near today's stops.
+
+    Uses OpenWeather current-weather (free tier). Lighter than a forecast swap: it names the
+    next outdoor stop and an optional indoor alternative. Returns True if inserted (dev19 P1.4).
+    """
+    outdoor_places = [p for p in places if p.get("is_outdoor")]
+    if not outdoor_places:
+        return False
+
+    clat, clng = _centroid(places)
+    try:
+        current = await openweather.get_current_weather(clat, clng)
+    except WeatherUnavailableError as exc:
+        log.warning("Current weather unavailable for trip %s day %s: %s", trip_id, day, exc)
+        return False
+
+    rain_mm = float(current.get("rain_1h", 0.0) or 0.0)
+    is_raining = rain_mm > 0 or current.get("condition") == "Rain"
+    if not is_raining:
+        return False
+
+    severity = _rain_level(rain_mm)
+    nxt = outdoor_places[0]
+    alt = _nearest_indoor(nxt["lat"], nxt["lng"], exclude_ids={p["id"] for p in places})
+    swap_hint = f" — consider sheltering or swapping to {alt['name']}" if alt else " — consider sheltering"
+    rate = f"{rain_mm:.1f}mm/h" if rain_mm > 0 else current.get("condition", "rain")
+    message = (
+        f"Day {day}: it's raining now near your route ({severity}, {rate}). "
+        f"Your next outdoor stop is {nxt['name']}{swap_hint}."
+    )
+
+    # Dedup: live rain changes faster than a forecast, so use a shorter window
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=settings.weather_live_dedup_min)).isoformat()
+    existing = (
+        supabase.table("lta_alerts")
+        .select("id")
+        .eq("trip_id", trip_id)
+        .eq("alert_type", "weather_live")
+        .eq("day_number", day)
+        .gte("created_at", cutoff)
+        .execute()
+    )
+    if existing.data:
+        return False
+
+    supabase.table("lta_alerts").insert({
+        "trip_id": trip_id,
+        "alert_type": "weather_live",
+        "affected_line": None,
+        "day_number": day,
+        "severity": severity,
+        "message": message,
+    }).execute()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -224,8 +341,9 @@ async def adapt_trip(
     alert = alert_resp.data[0]
     alert_type = alert.get("alert_type", "")
 
-    if alert_type == "weather_warning":
-        updated_plan, changes = await _apply_weather_swap(current_plan)
+    if alert_type in ("weather_warning", "weather_live"):
+        # day_number scopes the swap to the affected day (NULL → legacy whole-trip).
+        updated_plan, changes = await _apply_weather_swap(current_plan, day=alert.get("day_number"))
     elif alert_type in ("train_delay", "bus_cancellation"):
         disrupted_lines = [alert["affected_line"]] if alert.get("affected_line") else []
         updated_plan, changes = await _reroute_mrt_legs(current_plan, disrupted_lines=disrupted_lines)
@@ -341,13 +459,50 @@ def _compute_delta(original: TripPlan, updated: TripPlan) -> dict:
     }
 
 
-def _compute_centroid(place_ids: list[str]) -> tuple[float, float] | None:
-    """Return mean (lat, lng) for a list of place IDs. Returns None if no known coords."""
-    _places = get_all_places()
-    coords = [(p["lat"], p["lng"]) for pid in place_ids if (p := _places.get(pid))]
-    if not coords:
-        return None
-    return sum(lat for lat, _ in coords) / len(coords), sum(lng for _, lng in coords) / len(coords)
+def _day_date(start_date, day: int) -> str:
+    """Calendar date (YYYY-MM-DD) for day N of a trip (1-based).
+
+    Each day is forecast against its OWN date so a rain warning is specific to that
+    day, not the whole trip. Falls back to today when start_date is missing/unparseable.
+    """
+    base: date | None = None
+    if isinstance(start_date, date):
+        base = start_date
+    elif isinstance(start_date, str) and start_date:
+        try:
+            base = date.fromisoformat(start_date[:10])
+        except ValueError:
+            base = None
+    if base is None:
+        base = date.today()
+    return (base + timedelta(days=max(0, day - 1))).isoformat()
+
+
+def _weather_alert_message(day: int, day_date: str, rain_prob: int, suggestions: list[str]) -> str:
+    """Human-readable weather warning that names the affected day, date, odds, and reason."""
+    try:
+        label = datetime.fromisoformat(day_date).strftime("%a %d %b")
+    except ValueError:
+        label = day_date
+    n = len(suggestions)
+    stops = f"{n} outdoor stop{'s' if n != 1 else ''}"
+    return (
+        f"Day {day} ({label}): {rain_prob}% chance of rain. "
+        f"{stops} may be wet — tap Preview to swap them for nearby indoor spots: "
+        f"{'; '.join(suggestions)}"
+    )
+
+
+def _build_indoor_swaps(outdoor_places: list[dict]) -> list[str]:
+    """Build 'Outdoor → Indoor' suggestion strings, never reusing a target twice."""
+    already: set[str] = {p["id"] for p in outdoor_places}
+    suggestions: list[str] = []
+    for place in outdoor_places:
+        alt = _nearest_indoor(place["lat"], place["lng"], exclude_ids=already)
+        if alt:
+            suggestions.append(f"{place['name']} → {alt['name']}")
+            already.add(alt["id"])
+    return suggestions
 
 
 def _is_open_now(place: dict) -> bool:
@@ -416,15 +571,46 @@ def _nearest_indoor(lat: float, lng: float, exclude_ids: set[str]) -> dict | Non
     return min(in_range, key=lambda item: item[1])[0]
 
 
-async def _apply_weather_swap(plan: TripPlan) -> tuple[TripPlan, list[str]]:
-    """Replace outdoor places with nearest indoor alternatives."""
+def _ordered_place_ids_from_legs(legs: list) -> list[str]:
+    """Reconstruct an ordered place-id list for a day from its leg chain ([] if no legs)."""
+    ids: list[str] = []
+    for leg in legs:
+        if leg.from_place_id not in ids:
+            ids.append(leg.from_place_id)
+    if legs and legs[-1].to_place_id not in ids:
+        ids.append(legs[-1].to_place_id)
+    return ids
+
+
+def _day_place_ids(plan: TripPlan, day: int) -> set[str]:
+    """All non-hotel place IDs belonging to a given day (from place_ids + legs)."""
+    target = next((d for d in plan.days if d.day == day), None)
+    if target is None:
+        return set()
+    ids: set[str] = set(target.place_ids or [])
+    for leg in target.legs:
+        ids.add(leg.from_place_id)
+        ids.add(leg.to_place_id)
+    ids.discard("hotel")
+    return ids
+
+
+async def _apply_weather_swap(plan: TripPlan, day: int | None = None) -> tuple[TripPlan, list[str]]:
+    """Replace outdoor places with nearest indoor alternatives.
+
+    When `day` is given, only the outdoor places belonging to that day are swapped —
+    legs and places of other days pass through untouched. `day=None` keeps the legacy
+    whole-trip behaviour (used by transit paths and pre-migration weather alerts).
+    """
+    scope: set[str] | None = _day_place_ids(plan, day) if day is not None else None
+
     swap_map: dict[str, dict] = {}  # old_place_id → new_place_dict
     # Seed with ALL place IDs already in the plan (indoor + outdoor).
     # This prevents two outdoor places from swapping to the same indoor target
     # (Bug #1) and prevents suggesting a place the user already visits (Bug #2).
     already_used: set[str] = {p.id for p in plan.places}
     for place in plan.places:
-        if place.is_outdoor:
+        if place.is_outdoor and (scope is None or place.id in scope):
             alt = _nearest_indoor(place.lat, place.lng, exclude_ids=already_used)
             if alt:
                 swap_map[place.id] = alt
@@ -691,12 +877,20 @@ async def _recalculate_leg(
     )
 
 
-async def check_alerts_for_trip(trip_id: str, plan: TripPlan) -> dict:
+async def check_alerts_for_trip(
+    trip_id: str,
+    plan: TripPlan,
+    active_day: int | None = None,
+    active_leg_index: int | None = None,
+) -> dict:
     """On-demand alert check for a specific trip (demand-triggered, UPCOMING trips).
 
     Runs both LTA train check and weather check using the same dedup logic as
     the scheduled poll jobs. Inserts into lta_alerts; frontend receives new rows
     via the existing Supabase Realtime WebSocket in useAlerts.js.
+
+    active_day / active_leg_index (live trips) limit the live-rain check to outdoor stops
+    the user has not yet passed (dev19 P2.2).
 
     Returns {"lta_checked": bool, "weather_checked": bool, "alerts_inserted": int}.
     """
@@ -745,49 +939,45 @@ async def check_alerts_for_trip(trip_id: str, plan: TripPlan) -> dict:
             }).execute()
             alerts_inserted += 1
 
-    # ── Weather check ─────────────────────────────────────────────────────────
-    place_ids = [p.id for p in plan.places]
-    outdoor_places = [p for p in plan.places if p.is_outdoor]
-    if outdoor_places:
+    # ── Weather check (per day) ───────────────────────────────────────────────
+    if any(p.is_outdoor for p in plan.places):
         weather_checked = True
-        centroid = _compute_centroid(place_ids)
-        clat, clng = centroid if centroid else (SINGAPORE_LAT, SINGAPORE_LNG)
-        today = date.today().isoformat()
-
+        start_date = None
         try:
-            forecast = await openweather.get_forecast(today, clat, clng)
+            trip_row = supabase.table("trips").select("start_date").eq("id", trip_id).execute()
+            if trip_row.data:
+                start_date = trip_row.data[0].get("start_date")
+        except Exception as exc:
+            log.warning("Could not read start_date for trip %s: %s", trip_id, exc)
+
+        places_by_id = {p.id: p for p in plan.places}
+
+        def _pdict(p):
+            return {"id": p.id, "name": p.name, "lat": p.lat, "lng": p.lng,
+                    "is_outdoor": p.is_outdoor, "best_time_start": p.best_time_start,
+                    "best_time_end": p.best_time_end}
+
+        clat, clng = _centroid([_pdict(p) for p in plan.places if p.id != "hotel"])
+        today_iso = date.today().isoformat()
+        try:
+            window = await openweather.get_forecast_window(clat, clng)
         except WeatherUnavailableError as exc:
             log.warning("OpenWeather unavailable for on-demand check trip %s: %s", trip_id, exc)
-            forecast = None
+            window = {}
 
-        if forecast and forecast["rain_probability"] > _WEATHER_RAIN_THRESHOLD:
-            already_suggested: set[str] = {p.id for p in outdoor_places}
-            suggestions = []
-            for place in outdoor_places:
-                indoor_alt = _nearest_indoor(place.lat, place.lng, exclude_ids=already_suggested)
-                if indoor_alt:
-                    suggestions.append(f"{place.name} → {indoor_alt['name']}")
-                    already_suggested.add(indoor_alt["id"])
-
-            if suggestions:
-                existing = (
-                    supabase.table("lta_alerts")
-                    .select("id")
-                    .eq("trip_id", trip_id)
-                    .eq("alert_type", "weather_warning")
-                    .gte("created_at", cutoff)
-                    .execute()
-                )
-                if not existing.data:
-                    supabase.table("lta_alerts").insert({
-                        "trip_id": trip_id,
-                        "alert_type": "weather_warning",
-                        "affected_line": None,
-                        "message": (
-                            f"Rain forecast ({forecast['rain_probability']}%). "
-                            f"Suggested indoor swaps: {'; '.join(suggestions)}"
-                        ),
-                    }).execute()
+        for day in plan.days:
+            ordered_ids = _ordered_place_ids_from_legs(day.legs) or list(_day_place_ids(plan, day.day))
+            day_places = [_pdict(places_by_id[pid]) for pid in ordered_ids
+                          if pid != "hotel" and pid in places_by_id]
+            day_date = _day_date(start_date, day.day)
+            day_agg = window.get(day_date)
+            if day_agg and _forecast_swap_alert(trip_id, day.day, day_date, day_places, day_agg):
+                alerts_inserted += 1
+            if day_date == today_iso:
+                # Skip stops already passed when we know live progress (P2.2)
+                start_idx = (active_leg_index if active_day == day.day and active_leg_index is not None else 0)
+                live_places = day_places[start_idx:] if 0 < start_idx < len(day_places) else day_places
+                if await _check_live_rain(trip_id, day.day, live_places):
                     alerts_inserted += 1
 
     return {"lta_checked": lta_checked, "weather_checked": weather_checked, "alerts_inserted": alerts_inserted}
@@ -802,7 +992,10 @@ def _persist_updated_legs(trip_id: str, plan: TripPlan) -> None:
     supabase.table("trip_places").delete().eq("trip_id", trip_id).execute()
     place_day_order: dict[str, tuple[int | None, int | None]] = {}
     for day in plan.days:
-        for order_idx, pid in enumerate(day.place_ids):
+        # Fall back to the leg chain when place_ids is empty (legacy plans), otherwise
+        # every place would persist with day_number=NULL and float to the end on reload.
+        ordered_ids = day.place_ids or _ordered_place_ids_from_legs(day.legs)
+        for order_idx, pid in enumerate(ordered_ids):
             if pid == "hotel":
                 place_day_order.setdefault("hotel", (None, None))
             else:

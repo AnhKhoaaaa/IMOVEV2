@@ -1027,8 +1027,10 @@ export default function Trip() {
       const activeIds = activeLeg
         ? new Set([activeLeg.from_place_id, activeLeg.to_place_id])
         : new Set()
+      // Keep a place if it's part of the active leg even when already visited —
+      // otherwise the hotel (leg 0's origin) vanishes on the final return-to-hotel leg.
       return (trip.places ?? [])
-        .filter(p => !visitedIds.has(p.id))
+        .filter(p => !visitedIds.has(p.id) || activeIds.has(p.id))
         .map(p => ({ ...p, _dim: !activeIds.has(p.id) }))
     }
     // Include pending places not yet on server as additional pins (no polylines — map stays clean)
@@ -1099,7 +1101,7 @@ export default function Trip() {
     setSelectedDay(firstDay)
     setActiveLegIndex(0)
     setActiveTab(`day-${firstDay}`)
-    api.checkAlerts(id, { session_id: getSessionId() }).catch(() => {})
+    api.checkAlerts(id, { session_id: getSessionId(), active_day: firstDay, active_leg_index: 0 }).catch(() => {})
   }, [trip?.days]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectDayTab = (dayNum) => {
@@ -1384,7 +1386,7 @@ export default function Trip() {
     setSelectedDay(dayNum)
     setActiveLegIndex(0)
     setActiveTab(`day-${dayNum}`)
-    api.checkAlerts(id, { session_id: getSessionId() }).catch(() => {})
+    api.checkAlerts(id, { session_id: getSessionId(), active_day: dayNum, active_leg_index: 0 }).catch(() => {})
   }
 
   // Task 7: step 1 — mark arrived; user sees Continue banner before leg advances
