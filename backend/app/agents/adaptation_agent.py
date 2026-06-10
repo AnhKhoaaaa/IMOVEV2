@@ -1,6 +1,6 @@
 """
 Adaptation Agent — 100% rule-based code, no LLM.
-- Automatic: poll_lta_alerts() every 2 min, poll_weather_alerts() every 30 min (APScheduler).
+- Automatic: poll_lta_alerts() every 2 min, poll_weather_alerts() every settings.weather_poll_minutes (default 120 min) via APScheduler.
 - Manual:    adapt_trip() called by POST /trips/{id}/adapt router.
 """
 
