@@ -198,6 +198,32 @@ async def test_get_route_auth_failure_raises():
 
 
 @pytest.mark.asyncio
+async def test_get_route_retries_once_on_transient_failure():
+    """A transient RequestError on the first attempt is retried and can still succeed."""
+    client = _mock_client(post_json=_TOKEN_JSON)
+    client.get.side_effect = [httpx.RequestError("timeout"), _resp(_ROUTE_JSON)]
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client), \
+         patch("app.services.onemap.asyncio.sleep", new=AsyncMock()):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+
+    assert client.get.call_count == 2
+    assert result["duration_minutes"] == 30
+
+
+@pytest.mark.asyncio
+async def test_get_route_raises_after_retry_exhausted():
+    """Two consecutive transient failures raise NoRouteError (no infinite retry)."""
+    client = _mock_client(post_json=_TOKEN_JSON)
+    client.get.side_effect = httpx.RequestError("timeout")
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client), \
+         patch("app.services.onemap.asyncio.sleep", new=AsyncMock()):
+        with pytest.raises(NoRouteError):
+            await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+
+    assert client.get.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_get_route_token_cached():
     """Auth endpoint must be called only once when token is still valid."""
     client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON)

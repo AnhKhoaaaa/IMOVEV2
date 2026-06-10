@@ -1242,9 +1242,12 @@ export default function Trip() {
   const handleConfirmOptimise = async () => {
     setConfirmOptimise(false)
     if (mutating) return
+    const countEstimated = (days) => (days ?? []).flatMap((d) => d.legs ?? [])
+      .filter((l) => l.is_estimated && normalizeTransportMode(l.transport_mode) !== 'GRAB').length
     const existingLegs = (trip?.days ?? []).flatMap((d) => d.legs ?? []).filter((l) => !l.is_estimated)
     const orderBefore = (trip?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
     const daysBefore  = trip?.days?.length ?? 0
+    const estimatedBefore = countEstimated(trip?.days)
     setMutating(true)
     setUiWarning(null)
     try {
@@ -1256,10 +1259,17 @@ export default function Trip() {
       const orderAfter = (result?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
       const daysAfter  = result?.days?.length ?? 0
       const reordered  = orderAfter.filter((v, i) => v !== orderBefore[i]).length
+      const estimatedAfter = countEstimated(result?.days)
       if (daysAfter !== daysBefore) {
         setOptimizeMsg(`Route optimised — distributed across ${daysAfter} day${daysAfter !== 1 ? 's' : ''}.`)
       } else if (reordered > 0) {
         setOptimizeMsg(`Route optimised! ${reordered} stop${reordered !== 1 ? 's' : ''} reordered.`)
+      } else if (estimatedBefore > 0 && estimatedAfter === 0) {
+        setOptimizeMsg('Routes updated with real transit times — itinerary unlocked.')
+      } else if (estimatedAfter > 0) {
+        setOptimizeMsg(
+          `Couldn't fetch real routes for ${estimatedAfter} leg${estimatedAfter !== 1 ? 's' : ''} — try Update Route again shortly.`
+        )
       } else {
         setOptimizeMsg('Already optimal — no reordering needed.')
       }

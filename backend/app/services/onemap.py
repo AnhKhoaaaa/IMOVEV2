@@ -135,6 +135,13 @@ async def get_all_routes(
 _SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search"
 _ROUTE_URL = "https://www.onemap.gov.sg/api/public/routingsvc/route"
 
+# /optimize fans out _fetch_all_alternatives() (5 routing calls) across every place
+# pair via asyncio.gather — without a cap, a multi-day plan can fire dozens of
+# concurrent requests and trip OneMap's rate limit, causing scattered failures
+# that fall back to is_estimated=True routes (locking the day tabs in the UI).
+_ROUTE_SEMAPHORE = asyncio.Semaphore(6)
+_ROUTE_RETRY_DELAY_S = 0.5
+
 
 async def _get_token() -> str:
     # Fast path — no lock needed for a cache hit
@@ -221,13 +228,21 @@ async def get_route(
         })
         if transit_modes:
             params["transitModes"] = transit_modes  # e.g. "BUS" for bus-only routing
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(_ROUTE_URL, params=params, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        raise NoRouteError(f"OneMap routing unavailable: {exc}") from exc
+    last_exc: Exception | None = None
+    for attempt in range(2):  # one retry on transient rate-limit/timeout
+        if attempt:
+            await asyncio.sleep(_ROUTE_RETRY_DELAY_S)
+        try:
+            async with _ROUTE_SEMAPHORE:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(_ROUTE_URL, params=params, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+            break
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+    else:
+        raise NoRouteError(f"OneMap routing unavailable: {last_exc}") from last_exc
 
     if mode.lower() == "pt":
         itineraries = data.get("plan", {}).get("itineraries", [])
