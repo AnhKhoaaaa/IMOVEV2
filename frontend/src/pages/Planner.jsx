@@ -164,7 +164,7 @@ const user = auth?.user
   // Floating "back to top" button for the long Sightseeing list (step 4)
   const [showScrollTop, setShowScrollTop] = useState(false)
   useEffect(() => {
-    const onScroll = () => setShowScrollTop(window.scrollY > 600)
+    const onScroll = () => setShowScrollTop(window.scrollY > 400)
     window.addEventListener('scroll', onScroll, { passive: true })
     onScroll()
     return () => window.removeEventListener('scroll', onScroll)
@@ -971,7 +971,7 @@ const user = auth?.user
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           title="Back to top"
           aria-label="Back to top"
-          className="fixed bottom-6 right-6 z-40 grid h-11 w-11 place-items-center rounded-full bg-slate-900 text-white shadow-pop transition hover:bg-slate-800 active:scale-95"
+          className="fixed bottom-[88px] right-5 z-40 grid h-11 w-11 place-items-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-pop transition hover:bg-slate-50 active:scale-95"
         >
           <ArrowUp size={18} />
         </button>
