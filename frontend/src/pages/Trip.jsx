@@ -891,7 +891,7 @@ export default function Trip() {
   const [optimizeMsg, setOptimizeMsg] = useState(null)
   const [todayBanner, setTodayBanner] = useState(false)
 
-  // Pending local changes: { [dayNum]: placeId[] } — set by reorder/add/remove before Recalculate
+  // Pending local changes: { [dayNum]: placeId[] } — set by reorder/add/remove before "Update Route"
   const [pendingByDay, setPendingByDay] = useState({})
   // Locally added places not yet in server data
   const [pendingPlaces, setPendingPlaces] = useState({})
@@ -1132,34 +1132,6 @@ export default function Trip() {
 
   const addDay = () => mutate(() => api.addDay(id))
   const removeDay = (dayNum) => mutate(() => api.removeDay(id, dayNum))
-  const optimize = async () => {
-    if (mutating) return
-    const orderBefore = (trip?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
-    const daysBefore = trip?.days?.length ?? 0
-    setMutating(true)
-    setUiWarning(null)
-    setOptimizeMsg(null)
-    try {
-      const result = await api.optimizeRoute(id)
-      await refresh(result?.days ? result : undefined)
-      const orderAfter = (result?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
-      const daysAfter = result?.days?.length ?? 0
-      const reordered = orderAfter.filter((v, i) => v !== orderBefore[i]).length
-      const redistributed = daysAfter !== daysBefore
-      if (redistributed) {
-        setOptimizeMsg(`Route optimised — distributed across ${daysAfter} day${daysAfter !== 1 ? 's' : ''}.`)
-      } else if (reordered > 0) {
-        setOptimizeMsg(`Route optimised! ${reordered} stop${reordered !== 1 ? 's' : ''} reordered.`)
-      } else {
-        setOptimizeMsg('Already optimal — no reordering needed.')
-      }
-      setTimeout(() => setOptimizeMsg(null), 4000)
-    } catch (err) {
-      setUiWarning(err.message)
-    } finally {
-      setMutating(false)
-    }
-  }
   // Global "Update Route" handler — processes ALL dirty days using OneMap (force_real_routes=True)
   const handleUpdateRoute = async (keepOrder) => {
     if (mutating) return
@@ -1289,7 +1261,7 @@ export default function Trip() {
       .map((i) => i.place.id)
   }
 
-  // Local remove: update display state only — API deferred to recalculateDay
+  // Local remove: update display state only — API call deferred to "Update Route"
   const removePlace = (placeId, dayNumHint) => {
     const dayOfPlace = trip?.days?.find((d) => {
       if (pendingByDay[d.day]) return pendingByDay[d.day].includes(placeId)
@@ -1306,7 +1278,7 @@ export default function Trip() {
     setPendingPlaces((prev) => { const next = { ...prev }; delete next[placeId]; return next })
   }
 
-  // Local add: update display state only — API deferred to recalculateDay
+  // Local add: update display state only — API call deferred to "Update Route"
   const addPlace = (place, dayNum) => {
     const day = trip?.days?.find((d) => d.day === dayNum)
     const currentIds = getDisplayIds(day ?? { day: dayNum, legs: [] })
@@ -1318,7 +1290,7 @@ export default function Trip() {
     setAddDayFor(null)
   }
 
-  // Local reorder only — no API call until Recalculate Route
+  // Local reorder only — no API call until "Update Route"
   const reorderLocal = (dayNum, ids, index, direction) => {
     const target = index + direction
     if (target < 0 || target >= ids.length) return
@@ -1326,69 +1298,6 @@ export default function Trip() {
     ;[next[index], next[target]] = [next[target], next[index]]
     setKeepOrderDone(false)
     setPendingByDay((prev) => ({ ...prev, [dayNum]: next }))
-  }
-
-  // Recalculate: compute diff vs server state, apply removes → adds → reorder sequentially
-  const recalculateDay = async (dayNum) => {
-    const day = trip?.days?.find((d) => d.day === dayNum)
-    const pendingIds = pendingByDay[dayNum]
-    if (!pendingIds || !day) return
-
-    const serverIds = new Set(
-      timelineForDay(day, placesById)
-        .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
-        .map((i) => i.place.id)
-    )
-    const pendingSet = new Set(pendingIds)
-    const toRemove = [...serverIds].filter((pid) => !pendingSet.has(pid))
-    const toAdd    = pendingIds.filter((pid) => !serverIds.has(pid) && pendingPlaces[pid])
-
-    setMutating(true)
-    setUiWarning(null)
-    try {
-      for (const placeId of toRemove) {
-        await api.removePlaceFromDay(id, placeId)
-      }
-      for (const placeId of toAdd) {
-        await api.addPlaceToDay(id, { place_id: placeId, day: dayNum })
-      }
-      if (toRemove.length > 0 || toAdd.length > 0) {
-        // Each remove/add triggers a full backend re-plan that may redistribute places
-        // across days. Fetch the updated state so reorderPlaces receives correct IDs.
-        const freshTrip = await api.getTrip(id)
-        const freshDay = freshTrip?.days?.find((d) => d.day === dayNum)
-        if (freshDay) {
-          const freshPlacesById = buildPlacesById(freshTrip.places ?? [])
-          const freshIds = timelineForDay(freshDay, freshPlacesById)
-            .filter((i) => i.type === 'place' && i.place.id !== 'hotel')
-            .map((i) => i.place.id)
-          const freshSet = new Set(freshIds)
-          // Preserve user's preferred order for IDs still in this day; append any extras
-          const safeIds = pendingIds.filter((pid) => freshSet.has(pid))
-          const safeSet = new Set(safeIds)
-          const extraIds = freshIds.filter((pid) => !safeSet.has(pid))
-          const finalIds = [...safeIds, ...extraIds]
-          if (JSON.stringify(finalIds) !== JSON.stringify(freshIds)) {
-            const result = await api.reorderPlaces(id, dayNum, finalIds)
-            await refresh(result?.days ? result : undefined)
-          } else {
-            await refresh(freshTrip)
-          }
-        } else {
-          await refresh(freshTrip)
-        }
-      } else {
-        const result = await api.reorderPlaces(id, dayNum, pendingIds)
-        await refresh(result?.days ? result : undefined)
-      }
-    } catch (err) {
-      setUiWarning(err.message)
-    } finally {
-      setMutating(false)
-    }
-
-    setPendingByDay((prev) => { const next = { ...prev }; delete next[dayNum]; return next })
-    setPendingPlaces({})
   }
 
   const startDay = (dayNum) => {

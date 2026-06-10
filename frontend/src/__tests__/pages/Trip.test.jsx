@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, MemoryRouter } from 'react-router-dom'
 import Trip from '../../pages/Trip'
 
 vi.mock('react-router-dom', async () => {
@@ -233,6 +233,13 @@ describe('dev13 — Task 1: no Start button in DayView', () => {
   })
 })
 
+/** Render Trip in live navigation mode (autoStart=true => tripStarted=true, editMode=false). */
+const renderLive = () => render(
+  <MemoryRouter initialEntries={[{ pathname: '/trip/trip-123', state: { autoStart: true } }]}>
+    <Trip />
+  </MemoryRouter>
+)
+
 describe('dev13 — Task 5: no instructions in LegCard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -248,10 +255,8 @@ describe('dev13 — Task 5: no instructions in LegCard', () => {
   })
 
   it('"Compare modes" button is still present in active leg view', () => {
-    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
+    renderLive()
     expect(screen.getByRole('button', { name: /Compare modes/i })).toBeInTheDocument()
   })
 })
@@ -263,20 +268,16 @@ describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
   })
 
   it('clicking Arrived changes the button to Continue (no separate banner)', () => {
-    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
+    renderLive()
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
     expect(screen.queryByText(/You've arrived/i)).not.toBeInTheDocument()
   })
 
   it('clicking Arrived does NOT immediately advance the leg', () => {
-    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
+    renderLive()
     // Single-leg trip — after arriving, should show Continue, NOT jump to Summary
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     // Summary tab should NOT have appeared yet
@@ -284,10 +285,8 @@ describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
   })
 
   it('clicking Continue advances to next leg and button resets to Arrived', () => {
-    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh: vi.fn() })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
+    renderLive()
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
@@ -296,10 +295,8 @@ describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
   })
 
   it('Continue → last leg → no more legs → trip ends (Summary shown)', () => {
-    sessionStorage.setItem('imove_trip_started_trip-123', 'true')
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getAllByRole('button', { name: /Day 1/ })[0])
+    renderLive()
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
     // After last leg, tripStarted becomes false and Summary tab is active
