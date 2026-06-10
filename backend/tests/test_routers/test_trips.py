@@ -478,6 +478,46 @@ def test_add_place_day_in_range_does_not_422():
         _cleanup(trip_id)
 
 
+def test_add_place_to_day_excludes_hotel_from_replan_ids():
+    """Day legs starting with hotel must not leak 'hotel' into plan_trip's place_ids
+    (was raising PlaceDataMissingError("hotel") -> 422 'not found in curated dataset')."""
+    trip_id = "trip-add-place-hotel"
+    place_a = Place(
+        id="place-a", name="Place A", lat=1.28, lng=103.85,
+        dwell_minutes=120, best_time_start="09:00", best_time_end="17:00",
+        category="nature", is_outdoor=True, in_curated_dataset=True,
+    )
+    hotel_place = Place(
+        id="hotel", name="My Hotel", lat=1.30, lng=103.84,
+        dwell_minutes=0, best_time_start="00:00", best_time_end="23:59",
+        category="hotel", is_outdoor=False, in_curated_dataset=False,
+    )
+    legs = [
+        LegResponse(id="leg-h-a", from_place_id="hotel", to_place_id="place-a",
+                     transport_mode="METRO", duration_minutes=10, cost_sgd=1.50, is_estimated=False),
+        LegResponse(id="leg-a-h", from_place_id="place-a", to_place_id="hotel",
+                     transport_mode="METRO", duration_minutes=10, cost_sgd=1.50, is_estimated=False),
+    ]
+    plan = TripPlan(id=trip_id, days=[DayPlan(day=1, legs=legs)], places=[place_a, hotel_place], warnings=[])
+    _seed_trip(trip_id, plan)  # num_days=1
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ) as mock_plan_trip, patch(
+            "app.routers.trips.planning_agent.get_curated_place", return_value={"id": "place-b"}
+        ):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-b", "day": 1})
+        assert resp.status_code == 200
+        place_ids = mock_plan_trip.call_args.kwargs["place_ids"]
+        assert "hotel" not in place_ids
+        assert "place-a" in place_ids
+        assert "place-b" in place_ids
+    finally:
+        _cleanup(trip_id)
+
+
 # ── P5-BUG-4: reorder validates place_ids match current day exactly ───────────
 
 def test_reorder_subset_ids_returns_422():

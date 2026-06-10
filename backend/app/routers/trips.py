@@ -629,11 +629,11 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
     all_ids: list[str] = []
     for day_num in sorted(days_map.keys()):
         for pid in days_map[day_num]:
-            if pid not in all_ids:
+            if pid not in all_ids and pid != "hotel":
                 all_ids.append(pid)
     # P5-BUG-2b: add any places that were in single-place days (no legs → not in days_map)
     for p in plan.places:
-        if p.id not in all_ids:
+        if p.id not in all_ids and p.id != "hotel":
             all_ids.append(p.id)
     if body.place_id not in all_ids:
         all_ids.append(body.place_id)
