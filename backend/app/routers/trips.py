@@ -796,7 +796,9 @@ async def check_trip_alerts(trip_id: str, body: CheckAlertsRequest):
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
-    result = await adaptation_agent.check_alerts_for_trip(trip_id, plan)
+    result = await adaptation_agent.check_alerts_for_trip(
+        trip_id, plan, active_day=body.active_day, active_leg_index=body.active_leg_index
+    )
     return result
 
 
@@ -946,7 +948,10 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
     # Hotel ("hotel") is stored with day_number=NULL (shared across all days).
     place_day_order: dict[str, tuple[int | None, int | None]] = {}
     for day in plan.days:
-        for order_idx, pid in enumerate(day.place_ids):
+        # Fall back to the leg chain when place_ids is empty so places never persist
+        # with day_number=NULL and float to the end of the itinerary on reload.
+        ordered_ids = day.place_ids or _ordered_place_ids(day.legs, plan.places)
+        for order_idx, pid in enumerate(ordered_ids):
             if pid == "hotel":
                 place_day_order.setdefault("hotel", (None, None))
             else:

@@ -142,6 +142,9 @@ class AdaptRequest(BaseModel):
 class CheckAlertsRequest(BaseModel):
     """Request body for POST /trips/{id}/check-alerts (demand-triggered, UPCOMING trips)."""
     session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    # Live-trip progress (dev19 P2.2): limits the live-rain check to outdoor stops not yet passed.
+    active_day: Optional[int] = Field(default=None, ge=1)
+    active_leg_index: Optional[int] = Field(default=None, ge=0)
 
 
 class AdaptResponse(BaseModel):

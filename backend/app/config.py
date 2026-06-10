@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # Optional: Adaptation Agent soft-error path
     openweather_api_key: Optional[str] = None
 
+    # Weather alert tuning (dev19)
+    weather_forecast_threshold: int = 70    # % pop to trigger a forecast swap suggestion
+    weather_poll_minutes: int = 120         # background weather poll cadence (min)
+    weather_forecast_ttl_s: int = 5400      # OpenWeather /forecast cache TTL (~90 min)
+    weather_live_dedup_min: int = 20        # dedup window for live-rain alerts (min)
+
     # Optional: production frontend URL for CORS (e.g. https://imove.vercel.app)
     frontend_url: Optional[str] = None
 

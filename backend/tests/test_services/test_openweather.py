@@ -3,8 +3,16 @@ import httpx
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.openweather import get_forecast, WeatherUnavailableError
+from app.services.openweather import get_forecast, get_forecast_window, WeatherUnavailableError
 import app.services.openweather as _ow
+
+
+@pytest.fixture(autouse=True)
+def _clear_weather_cache():
+    """The forecast window is cached per coord; clear it so tests stay isolated."""
+    _ow._clear_forecast_cache()
+    yield
+    _ow._clear_forecast_cache()
 
 
 def _make_entry(date_offset_days: int, hour: int = 12, pop: float = 0.82) -> dict:
@@ -116,6 +124,23 @@ async def test_get_forecast_no_key_raises(monkeypatch):
     monkeypatch.setattr(_ow.settings, "openweather_api_key", None)
     with pytest.raises(WeatherUnavailableError, match="not configured"):
         await get_forecast("2024-01-15")
+
+
+@pytest.mark.asyncio
+async def test_get_forecast_window_caches_single_http_call(monkeypatch):
+    """Second call within TTL is served from cache — only one HTTP request is made."""
+    monkeypatch.setattr(_ow.settings, "openweather_api_key", "test-key")
+    data = {"list": [_make_entry(1, hour=4, pop=0.82)]}  # 04:00 UTC → 12:00 SGT, same date
+    client = _mock_client(data)
+    with patch("app.services.openweather.httpx.AsyncClient", return_value=client):
+        w1 = await get_forecast_window(1.30, 103.85)
+        w2 = await get_forecast_window(1.30, 103.85)
+
+    assert client.get.call_count == 1
+    assert w1 == w2
+    day = next(iter(w1.values()))
+    assert "slots" in day and day["slots"][0]["pop"] == 0.82
+    assert day["rain_probability"] == 82
 
 
 @pytest.mark.asyncio
