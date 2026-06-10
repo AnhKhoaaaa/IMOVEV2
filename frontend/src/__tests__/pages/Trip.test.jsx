@@ -17,7 +17,7 @@ vi.mock('../../hooks/useSavedTrips', () => ({
   useSavedTrips: vi.fn(() => ({ trips: [], save: vi.fn(), remove: vi.fn(), reload: vi.fn() })),
 }))
 vi.mock('../../hooks/useAlerts', () => ({
-  useAlerts: () => ({ alerts: [], dismiss: vi.fn() }),
+  useAlerts: vi.fn(() => ({ alerts: [], dismiss: vi.fn() })),
 }))
 vi.mock('../../hooks/useGeolocation', () => ({
   useGeolocation: () => ({ position: null, error: null }),
@@ -41,6 +41,7 @@ vi.mock('../../components/map/TripMap', () => ({
 
 import { useTrip } from '../../hooks/useTrip'
 import { useSavedTrips } from '../../hooks/useSavedTrips'
+import { useAlerts } from '../../hooks/useAlerts'
 import { useAuth } from '../../contexts/AuthContext'
 import { api } from '../../services/api'
 
@@ -301,5 +302,60 @@ describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
     // After last leg, tripStarted becomes false and Summary tab is active
     expect(screen.queryByText(/Live/i)).not.toBeInTheDocument()
+  })
+})
+
+// ===========================================================================
+// Multi-day weather alert grouping
+// ===========================================================================
+
+const makeWeatherAlert = (id, day_number) => ({
+  id,
+  alert_type: 'weather_warning',
+  day_number,
+  message: `Day ${day_number}: rain warning`,
+})
+
+describe('weather alert grouping', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+
+  it('shows only the selected day alert directly, collapsing the rest behind a toggle', () => {
+    useAlerts.mockReturnValue({
+      alerts: [makeWeatherAlert('a1', 1), makeWeatherAlert('a2', 2), makeWeatherAlert('a3', 3)],
+      dismiss: vi.fn(),
+    })
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    // selectedDay defaults to 1 — its alert shows directly
+    expect(screen.getByText('Day 1: rain warning')).toBeInTheDocument()
+    // Days 2 and 3 are collapsed behind a single toggle
+    expect(screen.queryByText('Day 2: rain warning')).not.toBeInTheDocument()
+    expect(screen.queryByText('Day 3: rain warning')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Rain forecast for 2 more days/i })).toBeInTheDocument()
+  })
+
+  it('expands collapsed days when the toggle is clicked', () => {
+    useAlerts.mockReturnValue({
+      alerts: [makeWeatherAlert('a1', 1), makeWeatherAlert('a2', 2)],
+      dismiss: vi.fn(),
+    })
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Rain forecast for 1 more day/i }))
+    expect(screen.getByText('Day 2: rain warning')).toBeInTheDocument()
+  })
+
+  it('does not show a group toggle when only one day has a weather alert', () => {
+    useAlerts.mockReturnValue({
+      alerts: [makeWeatherAlert('a1', 1)],
+      dismiss: vi.fn(),
+    })
+    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+    expect(screen.getByText('Day 1: rain warning')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Rain forecast/i })).not.toBeInTheDocument()
   })
 })

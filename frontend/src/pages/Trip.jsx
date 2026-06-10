@@ -9,6 +9,7 @@ import {
   CheckCircle,
   ChevronDown,
   Clock,
+  CloudRain,
   FileText,
   Loader2,
   MapPin,
@@ -890,6 +891,9 @@ export default function Trip() {
   const [mutating, setMutating] = useState(false)
   const [optimizeMsg, setOptimizeMsg] = useState(null)
   const [todayBanner, setTodayBanner] = useState(false)
+  // Group multi-day weather forecast alerts: only the selected day's alert shows
+  // expanded by default, the rest collapse behind a "Rain forecast for N days" toggle.
+  const [showAllWeatherAlerts, setShowAllWeatherAlerts] = useState(false)
 
   // Pending local changes: { [dayNum]: placeId[] } — set by reorder/add/remove before "Update Route"
   const [pendingByDay, setPendingByDay] = useState({})
@@ -905,6 +909,20 @@ export default function Trip() {
   // Task 8: live GPS trail (only for WALK/CYCLE legs)
   const [trackingPath, setTrackingPath] = useState([])
   const lastTrackPointRef = useRef(null)
+
+  // Group multi-day weather forecast alerts so only the selected day's alert
+  // shows expanded by default; other days collapse behind a toggle.
+  const otherAlerts = useMemo(
+    () => alerts.filter((a) => a.alert_type !== 'weather_warning'),
+    [alerts]
+  )
+  const { weatherAlertsToShow, weatherAlertsCollapsed } = useMemo(() => {
+    const forecast = alerts.filter((a) => a.alert_type === 'weather_warning')
+    if (forecast.length <= 1) return { weatherAlertsToShow: forecast, weatherAlertsCollapsed: [] }
+    const current = forecast.find((a) => a.day_number === selectedDay)
+    const rest = forecast.filter((a) => a !== current)
+    return { weatherAlertsToShow: current ? [current] : [], weatherAlertsCollapsed: rest }
+  }, [alerts, selectedDay])
 
   const savedMeta = useMemo(() => savedTrips.find((item) => item.id === id), [savedTrips, id])
   const placesById = useMemo(() => buildPlacesById(trip?.places ?? []), [trip])
@@ -1502,9 +1520,31 @@ export default function Trip() {
               <button onClick={() => setUiWarning(null)} className="ml-auto"><X size={14} /></button>
             </div>
           )}
-          {alerts.map((alert) => (
+          {otherAlerts.map((alert) => (
             <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
           ))}
+          {weatherAlertsToShow.map((alert) => (
+            <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+          ))}
+          {weatherAlertsCollapsed.length > 0 && (
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3.5">
+              <button
+                onClick={() => setShowAllWeatherAlerts((v) => !v)}
+                className="flex w-full items-center gap-2 text-left text-[13px] font-semibold text-sky-900"
+              >
+                <CloudRain size={15} className="shrink-0 text-sky-500" />
+                Rain forecast for {weatherAlertsCollapsed.length} more day{weatherAlertsCollapsed.length !== 1 ? 's' : ''}
+                <ChevronDown size={14} className={cn('ml-auto shrink-0 transition-transform', showAllWeatherAlerts && 'rotate-180')} />
+              </button>
+              {showAllWeatherAlerts && (
+                <div className="mt-3 space-y-2">
+                  {weatherAlertsCollapsed.map((alert) => (
+                    <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </section>
       )}
 
