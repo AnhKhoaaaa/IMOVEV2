@@ -142,6 +142,16 @@ Bổ sung:
 Có nên thêm cảnh báo trễ giờ?
 Có, Thêm cảnh báo trễ giờ cho trường hợp người dùng ở lại quá lâu tại 1 địa điểm, và địa điểm tiếp theo sắp đóng cửa (Hỏi thêm với Agent)
 Sử dụng extension để fake giờ.
+=> Dev20: Update adaptation_agent để thêm cảnh báo trễ giờ, trong kế hoạch này đã cover khá kỹ các edge case:
+        - Người dùng rời địa điểm sớm.
+        - Cảnh báo rõ ràng về khả năgn dời qua ngày khác.
+        - Lựa chọn rời địa điểm sớm hơn để không phải dời ngày nếu có thể.
+        - Định vị dựa vào thời gian đến, dwell time, không dựa vào GPS.
+=> Cần bổ sung thêm: Nếu người dùng hoàn thành các địa điểm quá nhanh, bổ sung thêm một thông báo về việc người dùng sẽ kết thúc chuyến đi sớm hơn dự kiến lúc...
+Cập nhật phần thông báo thay đổi thời gian kết thúc và giá tiền khi đổi mode phương tiện, hiện tại: Về đích muộn hơn -12min (vô lý).
+
+=> Dev21: Update plan_time để hạn chế phải gọi dev21, chưa tối ưu nhưng tốt hơn bản cũ.
+
 
 LTA realtime có một số chuyến bus nhưng lại không kích hoạt. => Chưa thể tìm ra nguyên nhân, phải thêm log để chạy thử và xem xét, hãy thử chụp màn hình 1 số chuyến nếu gặp phải trường hợp này.
 
