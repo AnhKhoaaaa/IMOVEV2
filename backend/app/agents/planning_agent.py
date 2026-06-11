@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import uuid
+from datetime import date, timedelta
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -135,6 +136,63 @@ def _assign_evening_to_days(evening: list[dict], day_groups: list[list[dict]]) -
         day_groups[best].append(ep)
 
 
+# dev21 P2: a place whose opening window closes within this many minutes (relative to the
+# current schedule clock) is treated as "urgent" and picked before a merely-nearer place.
+_URGENCY_CLOSE_MIN = 90
+
+
+def _weekdays_for_days(start_date: date | None, num_days: int) -> list[str] | None:
+    """Map each day index 0..num_days-1 → weekday name (e.g. 'Monday', as date.strftime('%A')).
+
+    Returns None when start_date is unknown → all close_days gating becomes a graceful no-op.
+    """
+    if start_date is None:
+        return None
+    return [(start_date + timedelta(days=i)).strftime("%A") for i in range(num_days)]
+
+
+def _is_open_on_weekday(place: dict, weekday_name: str) -> bool:
+    """False only if the place explicitly lists this weekday in its close_days."""
+    return weekday_name not in (place.get("close_days") or [])
+
+
+def _relocate_closed_day_places(
+    day_groups: list[list[dict]],
+    weekdays: list[str] | None,
+    warnings_out: list[str],
+) -> None:
+    """[dev21 P1] Move any place scheduled on a day it is closed to the nearest open day.
+
+    Mutates day_groups in place; appends a clear warning per relocation and a distinct one
+    when a place is closed every day of the trip. No-op when weekdays is None (start_date
+    unknown). Hotel / 24h / no-close_days places are never affected (empty close_days).
+    """
+    if not weekdays:
+        return
+    num_days = len(day_groups)
+    for day_idx in range(min(num_days, len(weekdays))):
+        for place in list(day_groups[day_idx]):
+            if _is_open_on_weekday(place, weekdays[day_idx]):
+                continue
+            target = next(
+                (alt for alt in range(num_days)
+                 if alt != day_idx and alt < len(weekdays)
+                 and _is_open_on_weekday(place, weekdays[alt])),
+                None,
+            )
+            label = place.get("name") or place.get("id", "A place")
+            if target is not None:
+                day_groups[day_idx].remove(place)
+                day_groups[target].append(place)
+                warnings_out.append(
+                    f"{label}: closed on {weekdays[day_idx]} — moved to day {target + 1}"
+                )
+            else:
+                warnings_out.append(
+                    f"{label}: closed every day of your trip — consider different dates"
+                )
+
+
 def _day_bucketed_greedy(
     day_overlap: list[dict],
     num_days: int,
@@ -197,7 +255,17 @@ def _day_bucketed_greedy(
                 if not candidates:
                     break  # nothing fits today → remaining places flow to next day
 
-            pick = min(candidates, key=lambda p: _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]))
+            # dev21 P2: among feasible candidates, prefer one whose opening window is about to
+            # close over a merely-nearer one — so a tight-window stop isn't deferred until it
+            # becomes infeasible. When nothing is urgent (e.g. 24h places), nearest still wins.
+            def _pick_key(p: dict) -> tuple:
+                dist  = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"])
+                t_est = max(dist / _TRAVEL_SPEED_KM_MIN, _MIN_TRANSIT_MIN)
+                _, oh_close = _parse_opening_hours(p.get("opening_hours", "24h"))
+                slack = oh_close - (clock + t_est + p.get("dwell_minutes", 60))
+                return (0, slack) if slack < _URGENCY_CLOSE_MIN else (1, dist)
+
+            pick = min(candidates, key=_pick_key)
             dwell = pick.get("dwell_minutes", 60)
             travel_est = max(_haversine_km(last_pos["lat"], last_pos["lng"], pick["lat"], pick["lng"]) / _TRAVEL_SPEED_KM_MIN, _MIN_TRANSIT_MIN)
             clock += travel_est + dwell
@@ -567,6 +635,7 @@ async def plan_trip(
     preferences: dict | None,
     profile: UserPreferenceProfile | None = None,
     context: ContextSnapshot | None = None,
+    start_date: date | None = None,
     hotel_name: str | None = None,
     hotel_lat: float | None = None,
     hotel_lng: float | None = None,
@@ -653,6 +722,11 @@ async def plan_trip(
         # User can freely add/remove places without waiting for API round-trips.
         # Real routes are fetched only when the user explicitly clicks Optimize Route.
         day_groups = _distribute_days(places, num_days, hotel=hotel_place)
+
+    # [CODE] dev21 P1: relocate any place that landed on a day it is closed (close_days) to an
+    # open day — applies to both paths, before routes are built. No-op when start_date unknown.
+    closeday_warnings: list[str] = []
+    _relocate_closed_day_places(day_groups, _weekdays_for_days(start_date, len(day_groups)), closeday_warnings)
 
     # [CODE] 3. Build route data for all unique consecutive pairs + hotel→first pairs.
     # optimize_order=True  → parallel OneMap fetch (real transit routes).
@@ -766,7 +840,7 @@ async def plan_trip(
     # [CODE] 6. Build legs from pre-fetched routes + track estimated timing + opening-hours warnings
     days: list[DayPlan] = []
     total_cost = 0.0
-    warnings: list[str] = list(greedy_warnings)
+    warnings: list[str] = list(greedy_warnings) + closeday_warnings
     if schedule_warning:
         warnings.append(schedule_warning)
 

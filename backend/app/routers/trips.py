@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -42,6 +43,7 @@ async def create_trip(body: TripCreate):
         "session_id": body.session_id,
         "user_id": str(body.user_id) if body.user_id else None,
         "name": body.name,
+        "start_date": body.start_date,   # date | None — used for close_days-aware planning (dev21)
     }
 
     if supabase:
@@ -97,6 +99,7 @@ async def plan_trip(
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=body.place_ids,
             num_days=num_days,
             budget_sgd=budget_sgd,
@@ -419,6 +422,7 @@ async def optimize_trip(
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=replan_ids,
             num_days=num_days,
             budget_sgd=budget_sgd,
@@ -514,6 +518,7 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=replan_ids,
             num_days=new_num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
@@ -566,6 +571,7 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=remaining_ids,
             num_days=meta.get("num_days", len(plan.days)),
             budget_sgd=meta.get("budget_sgd", 999.0),
@@ -644,6 +650,7 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=all_ids,
             num_days=num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
@@ -717,6 +724,7 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=all_ids,
             num_days=num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
@@ -887,6 +895,35 @@ def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
             ),
         )
     return 1, budget_override
+
+
+def _get_trip_start_date(trip_id: str) -> Optional[date]:
+    """Return the trip's start_date for close_days-aware planning (dev21), or None.
+
+    Prefers the in-process meta cache, falls back to Supabase. None when unknown
+    (guest / no dates) → planning's close_days gate becomes a graceful no-op.
+    """
+    def _parse(v) -> Optional[date]:
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return None
+        return None
+
+    meta = _trip_meta.get(trip_id)
+    if meta and meta.get("start_date"):
+        return _parse(meta["start_date"])
+    if supabase:
+        try:
+            resp = supabase.table("trips").select("start_date").eq("id", trip_id).execute()
+            if resp.data and resp.data[0].get("start_date"):
+                return _parse(resp.data[0]["start_date"])
+        except Exception as exc:
+            log.warning("start_date fetch failed for trip %s: %s", trip_id, exc)
+    return None
 
 
 def _verify_user_ownership(trip_id: str, current_user: Optional[str]) -> None:
