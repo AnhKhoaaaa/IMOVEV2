@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-IMOVEV2 is a multi-agent web app for public transit trip planning in Singapore (for tourists). Architecture: FastAPI backend with 3 AI agents (Planning, Adaptation, Memory) → React 18 frontend → Supabase (DB + Auth + Realtime) → Gemini 2.5 Flash LLM.
+IMOVEV2 is a multi-agent web app for public transit trip planning in Singapore (for tourists). Architecture: FastAPI backend with 4 AI agents (Planning, Adaptation, Memory, Chat) → React 18 frontend → Supabase (DB + Auth + Realtime) → Gemini 2.5 Flash LLM.
 
 ## Workflow
 
@@ -49,49 +49,53 @@ npm test           # vitest
 
 ```
 backend/app/
-  main.py          — FastAPI app, registers all 4 routers
+  main.py          — FastAPI app, registers all 7 routers (health, places, trips, alerts, transit, preferences, chat) + starts APScheduler
   config.py        — Settings via pydantic_settings (reads backend/.env)
   database.py      — Supabase client (service_role key)
   routers/         — HTTP layer only; delegate all logic to agents/services
-  services/        — External API clients (OneMap, LTA, Gemini, OpenWeather)
-  agents/          — Business logic (Planning, Adaptation, Memory)
+  services/        — External API clients (OneMap, LTA, Gemini, OpenWeather) + scoring (weighted mode ranking)
+  agents/          — Business logic (Planning, Adaptation, Memory, Chat)
   models/          — Pydantic schemas shared across routers + agents
-  data/places.json — ~50 curated Singapore POIs (static, version-controlled)
+  data/singapore_places.json — ~50 curated Singapore POIs (static, version-controlled; loaded by planning_agent + places router)
 ```
 
 **Key constraints (from PRD + IMOVE_TechStack.md):**
 - 75% rule-based code, 25% LLM — Gemini only for natural-language parsing/edge cases
-- Gemini rate limit: max 1 call / 4 s (≤ 15 RPM) — guard already in `services/gemini.py`
-- No fallback estimates — all API failures raise typed exceptions (`NoRouteError`, `LTAUnavailableError`, `WeatherUnavailableError`); routers return explicit error responses
+- Gemini rate limit: max 1 call / 4 s (≤ 15 RPM) — guard already in `services/gemini.py` (skipped in Vertex AI mode)
+- Typed exceptions, never fake data — all external API failures raise typed exceptions (`NoRouteError`, `LTAUnavailableError`, `WeatherUnavailableError`); routers return explicit error responses. The non-optimize planning path *does* use instant haversine estimates, but they are explicitly flagged `is_estimated=True` so the UI never confuses them with real OneMap routes
 - Render free tier hibernates after 15 min idle → `GET /health` exists for keep-alive ping
 
 **Router → Service → Agent flow:**
 - `routers/places.py` calls `services/onemap.py` directly (no agent)
-- `routers/trips.py` calls `agents/planning_agent.py`, which calls `services/onemap.py` + `services/gemini.py`
-- `routers/alerts.py` calls `agents/adaptation_agent.py`, which calls `services/lta.py` + `services/openweather.py`
+- `routers/transit.py` calls `services/onemap.py` + `services/lta.py` directly (bus arrivals, route compare)
+- `routers/trips.py` calls `agents/planning_agent.py`, which calls `services/onemap.py` + `services/gemini.py` + `services/scoring.py`
+- `routers/alerts.py` + the APScheduler jobs call `agents/adaptation_agent.py` (mostly) and `agents/memory_agent.py` (feedback), which call `services/lta.py` + `services/openweather.py`
+- `routers/preferences.py` reads/writes the weighted-scoring `UserPreferenceProfile` (Supabase `user_preferences.profile` JSONB)
+- `routers/chat.py` calls `agents/chat_agent.py` (Gemini function-calling); confirmed writes are dispatched in-process to the existing `routers/trips.py` handlers (two-step propose → confirm)
 
 ### Frontend
 
 ```
 frontend/src/
-  App.jsx              — React Router: / → Home, /plan → Planner, /trip/:id → Trip
-  services/api.js      — All backend calls in one place (uses VITE_API_BASE_URL)
+  App.jsx              — React Router: / → Home, /plan → Planner, /trip/:id → Trip, /settings → Settings; renders Header + ChatWidget globally
+  services/api.js      — All backend calls in one place (uses VITE_API_BASE_URL) + localStorage trip helpers
   lib/supabase.js      — Supabase browser client (anon key)
-  hooks/               — useTrip (fetch), useAlerts (Supabase Realtime WebSocket)
-  pages/               — Home, Planner (multi-step form), Trip (list/map tabs)
-  components/          — planner/, map/, adaptation/, auth/, layout/
+  contexts/            — AuthContext (Supabase session), LanguageContext (VI/EN i18n)
+  hooks/               — useTrip (fetch), useAlerts (Supabase Realtime WebSocket), useSavedTrips, useGeolocation
+  pages/               — Home, Planner (multi-step wizard), Trip (list/map tabs), Settings
+  components/          — planner/, map/, adaptation/, auth/, chat/, transit/, layout/, ui/
 ```
 
 Realtime alerts use Supabase Postgres Changes (WebSocket), not polling — see `hooks/useAlerts.js`.
 
 ### Database (Supabase)
 
-Migrations live in `supabase/migrations/`. Auth is only required for the Memory Agent — Planning and Adaptation agents work without login.
+Migrations live in `supabase/migrations/` (001→015). Auth is only required for the Memory Agent, the Chat Agent, and `/users/me/preferences` — Planning and Adaptation work without login (guests are tracked by `session_id`). The backend also runs without Supabase via an in-memory fallback (`_trip_store`/`_trip_meta` in `routers/trips.py`) for offline demos.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **IMOVEV2** (3758 symbols, 6516 relationships, 178 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **IMOVEV2** (4151 symbols, 7199 relationships, 209 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

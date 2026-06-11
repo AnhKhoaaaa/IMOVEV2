@@ -698,7 +698,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
   )
 }
 
-function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onContinue, arrivedPending, onAddPlace, startTime, gapNotifications = [] }) {
+function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onContinue, onGoBack, canGoBack, arrivedPending, onAddPlace, startTime, gapNotifications = [] }) {
   const items = timelineForDay(day, placesById)
   const activeLeg = day?.legs?.[activeLegIndex]
   const activeFrom = activeLeg ? placesById[activeLeg.from_place_id] : null
@@ -721,26 +721,37 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
               Day {day.day} · Leg {activeLegIndex + 1} of {day.legs?.length ?? 1}
             </p>
           </div>
-          <div className="relative">
-            <button
-              onClick={arrivedPending ? onContinue : onMarkArrived}
-              className={cn(
-                'flex h-10 items-center gap-2 rounded-md px-4 text-[13px] font-bold text-white transition-colors duration-300',
-                arrivedPending
-                  ? 'bg-teal-600 hover:bg-teal-500'
-                  : 'bg-emerald-600 hover:bg-emerald-500',
-              )}
-            >
-              {arrivedPending
-                ? <><Navigation2 size={15} /> Continue</>
-                : <><CheckCircle size={15} /> Arrived</>}
-            </button>
-            {arrivedPending && (
-              <span className="absolute -right-1 -top-1 flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
-                <span className="relative inline-flex h-3 w-3 rounded-full bg-teal-500" />
-              </span>
+          <div className="flex items-center gap-2">
+            {canGoBack && (
+              <button
+                onClick={onGoBack}
+                title="Go back to the previous leg"
+                className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-600 transition-colors duration-300 hover:bg-slate-50"
+              >
+                <ArrowLeft size={15} /> Back
+              </button>
             )}
+            <div className="relative">
+              <button
+                onClick={arrivedPending ? onContinue : onMarkArrived}
+                className={cn(
+                  'flex h-10 items-center gap-2 rounded-md px-4 text-[13px] font-bold text-white transition-colors duration-300',
+                  arrivedPending
+                    ? 'bg-teal-600 hover:bg-teal-500'
+                    : 'bg-emerald-600 hover:bg-emerald-500',
+                )}
+              >
+                {arrivedPending
+                  ? <><Navigation2 size={15} /> Continue</>
+                  : <><CheckCircle size={15} /> Arrived</>}
+              </button>
+              {arrivedPending && (
+                <span className="absolute -right-1 -top-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-teal-500" />
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <CompactPlaceCard place={activeFrom} role="from" />
@@ -1047,7 +1058,10 @@ export default function Trip() {
         : new Set()
       // Keep a place if it's part of the active leg even when already visited —
       // otherwise the hotel (leg 0's origin) vanishes on the final return-to-hotel leg.
+      // Other days' places are hidden entirely (not just dimmed) to declutter the live map.
+      const todayIds = activeDayPlaceIds ?? new Set((trip.places ?? []).map(p => p.id))
       return (trip.places ?? [])
+        .filter(p => todayIds.has(p.id))
         .filter(p => !visitedIds.has(p.id) || activeIds.has(p.id))
         .map(p => ({ ...p, _dim: !activeIds.has(p.id) }))
     }
@@ -1055,7 +1069,7 @@ export default function Trip() {
     const serverIds = new Set((trip.places ?? []).map((p) => p.id))
     const pendingPins = Object.values(pendingPlaces).filter((p) => !serverIds.has(p.id))
     return [...(trip.places ?? []), ...pendingPins]
-  }, [trip, isLive, currentDay, activeLeg, activeLegIndex, pendingPlaces])
+  }, [trip, isLive, currentDay, activeLeg, activeLegIndex, pendingPlaces, activeDayPlaceIds])
 
   useEffect(() => {
     if (!trip?.days?.length) return
@@ -1354,6 +1368,32 @@ export default function Trip() {
     }
   }
 
+  // Undo an accidental "Arrived" tap: cancel the pending Continue, or step back
+  // to the previous leg (or previous day's last leg) if no Continue is pending.
+  const goBackLeg = () => {
+    autoArrivedRef.current = false
+    if (arrivedPending) {
+      setArrivedPending(false)
+      return
+    }
+    setTrackingPath([])
+    lastTrackPointRef.current = null
+    if (activeLegIndex > 0) {
+      setActiveLegIndex((value) => value - 1)
+      return
+    }
+    const prevDay = trip?.days?.find((item) => item.day === selectedDay - 1)
+    if (prevDay) {
+      setSelectedDay(prevDay.day)
+      setActiveLegIndex((prevDay.legs?.length ?? 1) - 1)
+      setActiveTab(`day-${prevDay.day}`)
+    }
+  }
+
+  const canGoBack = arrivedPending
+    || activeLegIndex > 0
+    || !!trip?.days?.find((item) => item.day === selectedDay - 1)
+
   if (loading) {
     return (
       <main aria-label="Loading trip" className="grid min-h-[calc(100vh-56px)] place-items-center bg-slate-50">
@@ -1584,6 +1624,8 @@ export default function Trip() {
               onRemovePlace={removePlace}
               onMarkArrived={markArrived}
               onContinue={advanceLeg}
+              onGoBack={goBackLeg}
+              canGoBack={canGoBack}
               arrivedPending={arrivedPending}
               onAddPlace={setAddDayFor}
               startTime={savedMeta?.startTime ?? '09:00'}

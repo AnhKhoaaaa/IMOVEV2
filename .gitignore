@@ -19,6 +19,9 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Editor — Obsidian vault workspace config (per-machine, not project content)
+docs/.obsidian/
+
 # Generated artifacts
 backend/missing_images.txt
 

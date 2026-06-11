@@ -303,6 +303,32 @@ describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
     // After last leg, tripStarted becomes false and Summary tab is active
     expect(screen.queryByText(/Live/i)).not.toBeInTheDocument()
   })
+
+  it('no Back button on the very first leg with nothing pending', () => {
+    useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh: vi.fn() })
+    renderLive()
+    expect(screen.queryByRole('button', { name: /Back/i })).not.toBeInTheDocument()
+  })
+
+  it('clicking Back after Arrived cancels the pending Continue', () => {
+    useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh: vi.fn() })
+    renderLive()
+    fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
+    expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Back/i }))
+    expect(screen.getByRole('button', { name: /Arrived/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Continue/i })).not.toBeInTheDocument()
+  })
+
+  it('clicking Back after Continue returns to the previous leg', () => {
+    useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh: vi.fn() })
+    renderLive()
+    fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    expect(screen.getByText(/Leg 2 of 2/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Back/i }))
+    expect(screen.getByText(/Leg 1 of 2/i)).toBeInTheDocument()
+  })
 })
 
 // ===========================================================================
