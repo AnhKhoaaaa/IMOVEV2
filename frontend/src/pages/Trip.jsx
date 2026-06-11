@@ -45,6 +45,16 @@ function getSessionId() {
   try { return localStorage.getItem('session_id') } catch { return null }
 }
 
+// dev20: current Singapore wall-clock as minute-of-day (0–1439) for closing-risk projection.
+function sgtMinuteOfDay() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date())
+  const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
+  const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
+  return (h * 60 + m) % 1440
+}
+
 function formatDuration(value) {
   if (value == null) return 'Flexible'
   if (value < 60) return `${value} min`
@@ -698,7 +708,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
   )
 }
 
-function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onContinue, onGoBack, canGoBack, arrivedPending, onAddPlace, startTime, gapNotifications = [] }) {
+function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onContinue, onGoBack, onLeftStop, canGoBack, arrivedPending, onAddPlace, startTime, gapNotifications = [] }) {
   const items = timelineForDay(day, placesById)
   const activeLeg = day?.legs?.[activeLegIndex]
   const activeFrom = activeLeg ? placesById[activeLeg.from_place_id] : null
@@ -752,6 +762,16 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
                 </span>
               )}
             </div>
+            {/* dev20: re-anchor the closing-risk projection to the real departure moment */}
+            {arrivedPending && onLeftStop && (
+              <button
+                onClick={onLeftStop}
+                title="Re-check timing from the moment you actually leave"
+                className="flex h-10 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-[13px] font-bold text-amber-700 transition-colors duration-300 hover:bg-amber-100"
+              >
+                <Clock size={15} /> I left this stop
+              </button>
+            )}
           </div>
         </div>
         <CompactPlaceCard place={activeFrom} role="from" />
@@ -1347,19 +1367,45 @@ export default function Trip() {
     api.checkAlerts(id, { session_id: getSessionId(), active_day: dayNum, active_leg_index: 0 }).catch(() => {})
   }
 
-  // Task 7: step 1 — mark arrived; user sees Continue banner before leg advances
-  const markArrived = () => setArrivedPending(true)
+  // Task 7: step 1 — mark arrived; user sees Continue banner before leg advances.
+  // dev20: capture the real arrival minute so the closing-risk projection can use
+  // max(now, arrived + dwell) for the stop the user is now dwelling at. The active leg's
+  // to_place is where they are → represent that as the *next* leg's from_place (idx + 1).
+  const markArrived = () => {
+    setArrivedPending(true)
+    const arrived = sgtMinuteOfDay()
+    sessionStorage.setItem(`imove_arrived_at_${id}`, String(arrived))
+    api.checkAlerts(id, {
+      session_id: getSessionId(), active_day: selectedDay,
+      active_leg_index: activeLegIndex + 1, arrived_at_min: arrived,
+    }).catch(() => {})
+  }
+
+  // dev20: "I left this stop" — re-anchor the projection to the real departure moment.
+  const leftStop = () => {
+    sessionStorage.removeItem(`imove_arrived_at_${id}`)
+    api.checkAlerts(id, {
+      session_id: getSessionId(), active_day: selectedDay,
+      active_leg_index: activeLegIndex + 1, anchor_min: sgtMinuteOfDay(),
+    }).catch(() => {})
+  }
 
   // Task 7: step 2 — advance to next leg (also resets GPS trail + auto-arrive guard)
   const advanceLeg = () => {
     autoArrivedRef.current = false
     setArrivedPending(false)
+    sessionStorage.removeItem(`imove_arrived_at_${id}`)
     setTrackingPath([])
     lastTrackPointRef.current = null
     const day = trip?.days?.find((item) => item.day === selectedDay)
     if (!day) return
     if (activeLegIndex < (day.legs?.length ?? 0) - 1) {
-      setActiveLegIndex((value) => value + 1)
+      const nextIdx = activeLegIndex + 1
+      setActiveLegIndex(nextIdx)
+      // dev20: in-transit on the next leg → re-check closing risk from the live wall-clock.
+      api.checkAlerts(id, {
+        session_id: getSessionId(), active_day: selectedDay, active_leg_index: nextIdx,
+      }).catch(() => {})
       return
     }
     const nextDay = trip.days.find((item) => item.day === selectedDay + 1)
@@ -1631,6 +1677,7 @@ export default function Trip() {
               onMarkArrived={markArrived}
               onContinue={advanceLeg}
               onGoBack={goBackLeg}
+              onLeftStop={leftStop}
               canGoBack={canGoBack}
               arrivedPending={arrivedPending}
               onAddPlace={setAddDayFor}

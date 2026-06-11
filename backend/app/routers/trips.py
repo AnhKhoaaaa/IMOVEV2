@@ -368,7 +368,10 @@ async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
-    result = await adaptation_agent.adapt_trip(trip_id, body.alert_id, plan)
+    result = await adaptation_agent.adapt_trip(
+        trip_id, body.alert_id, plan,
+        resolution=body.resolution, target_day=body.target_day,
+    )
 
     # Store proposal in memory — do NOT persist to DB until user calls /accept-swap (§6)
     if result.adapted:
@@ -805,7 +808,9 @@ async def check_trip_alerts(trip_id: str, body: CheckAlertsRequest):
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
     result = await adaptation_agent.check_alerts_for_trip(
-        trip_id, plan, active_day=body.active_day, active_leg_index=body.active_leg_index
+        trip_id, plan,
+        active_day=body.active_day, active_leg_index=body.active_leg_index,
+        arrived_at_min=body.arrived_at_min, anchor_min=body.anchor_min,
     )
     return result
 

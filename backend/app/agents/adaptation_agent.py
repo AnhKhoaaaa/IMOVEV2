@@ -6,6 +6,7 @@ Adaptation Agent — 100% rule-based code, no LLM.
 
 import asyncio
 import logging
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -14,13 +15,22 @@ from app.services.openweather import SINGAPORE_LAT, SINGAPORE_LNG
 from app.services.lta import LTAUnavailableError
 from app.services.openweather import WeatherUnavailableError
 from app.services.onemap import NoRouteError
-from app.agents.planning_agent import get_all_places, _haversine_km, _primary_mode, _fetch_all_alternatives, _to_alternative
+from app.agents.planning_agent import (
+    get_all_places, _haversine_km, _primary_mode, _fetch_all_alternatives,
+    _to_alternative, _parse_hhmm, _fmt_hhmm,
+)
 from app.models.trip import TripPlan, DayPlan, LegResponse, AdaptResponse
 from app.models.place import Place
 from app.database import supabase
 from app.config import settings
 
 log = logging.getLogger(__name__)
+
+SGT = ZoneInfo("Asia/Singapore")
+
+# Closing-risk schedule baseline (dev20) — mirrors planning_agent's day model.
+_DAY_START_MIN = 540   # 09:00
+_DAY_END_HARD  = 1050  # 17:30 — same hard cap _check_schedule_fit uses for "overfull"
 
 # Forecast severity band: a forecast >= this pop% is treated as "heavy" rain (dev19 P2.3).
 _HEAVY_POP_PCT = 85
@@ -323,8 +333,14 @@ async def adapt_trip(
     trip_id: str,
     alert_id: str,
     current_plan: TripPlan,
+    resolution: str | None = None,
+    target_day: int | None = None,
 ) -> AdaptResponse:
-    """[CODE] Apply adaptation based on alert type. Returns updated TripPlan."""
+    """[CODE] Apply adaptation based on alert type. Returns updated TripPlan.
+
+    closing_risk alerts (dev20) carry a `resolution` chosen by the user:
+    leave_earlier (advisory, no change) / skip (drop the stop) / push (move to target_day).
+    """
     if not supabase:
         return AdaptResponse(adapted=False, changes=["Database unavailable"], updated_trip=current_plan)
 
@@ -341,7 +357,9 @@ async def adapt_trip(
     alert = alert_resp.data[0]
     alert_type = alert.get("alert_type", "")
 
-    if alert_type in ("weather_warning", "weather_live"):
+    if alert_type == "closing_risk":
+        return await _resolve_closing_risk(trip_id, current_plan, alert, resolution, target_day)
+    elif alert_type in ("weather_warning", "weather_live"):
         # day_number scopes the swap to the affected day (NULL → legacy whole-trip).
         updated_plan, changes = await _apply_weather_swap(current_plan, day=alert.get("day_number"))
     elif alert_type in ("train_delay", "bus_cancellation"):
@@ -580,6 +598,459 @@ def _ordered_place_ids_from_legs(legs: list) -> list[str]:
     if legs and legs[-1].to_place_id not in ids:
         ids.append(legs[-1].to_place_id)
     return ids
+
+
+# ---------------------------------------------------------------------------
+# Closing-risk / running-late detection (dev20) — 100% rule-based
+# ---------------------------------------------------------------------------
+
+def _curated_or_model(place: Place) -> dict:
+    """Merge a plan Place with its curated dataset entry so opening_hours / close_days /
+    dwell are reliable even when the persisted trip row omitted them. Curated wins."""
+    curated = get_all_places().get(place.id, {})
+    return {
+        "id": place.id,
+        "name": place.name,
+        "lat": place.lat,
+        "lng": place.lng,
+        "opening_hours": curated.get("opening_hours", place.opening_hours),
+        "close_days": curated.get("close_days", place.close_days),
+        "dwell_minutes": curated.get("dwell_minutes", place.dwell_minutes) or 60,
+    }
+
+
+def _slot_bounds(slot: str) -> tuple[int, int] | None:
+    """(open_min, close_min) for one 'HH:MM-HH:MM' slot. close += 1440 when it crosses
+    midnight (e.g. '19:00-02:00' closes at 26:00). None for 24h / unparseable → never closes."""
+    parts = slot.split("-")
+    if len(parts) != 2:
+        return None
+    start, end = parts[0].strip(), parts[1].strip()
+    if start == "00:00" and end in ("23:59", "24:00"):
+        return None
+    try:
+        o, c = _parse_hhmm(start), _parse_hhmm(end)
+    except (ValueError, IndexError):
+        return None
+    if c <= o:
+        c += 1440  # crosses midnight → still open well past today's stops
+    return o, c
+
+
+def _close_minute_today(place: dict, now_dt: datetime) -> int | None:
+    """Minute-of-day the place closes today, honouring close_days + the slot that still applies.
+
+    Returns None when it never constrains (24h / no hours) or it is closed today
+    (close_days) — the latter is handled at plan time by dev21's relocation, not here.
+    For multi-slot days, picks the earliest slot the user can still use (close >= now); if
+    every slot has already passed, returns the latest close so a late arrival is flagged.
+    """
+    if now_dt.strftime("%A") in (place.get("close_days") or []):
+        return None
+    oh = place.get("opening_hours")
+    if not oh:
+        return None
+    slots = oh if isinstance(oh, list) else [oh]
+    bounds = [b for b in (_slot_bounds(s) for s in slots) if b is not None]
+    if not bounds:
+        return None  # all slots 24h / unparseable → never closes
+    now_min = now_dt.hour * 60 + now_dt.minute
+    usable = [c for _, c in bounds if c >= now_min]
+    return min(usable) if usable else max(c for _, c in bounds)
+
+
+def _departure_clock(
+    plan: TripPlan,
+    active_day: int,
+    active_leg_index: int | None,
+    now_min: int,
+    arrived_at_min: int | None,
+    anchor_min: int | None,
+) -> tuple[int, str, bool] | None:
+    """Projected minute-of-day the user departs the stop they currently control.
+
+    Returns (depart_min, current_place_id, dwelling) or None when the day has no legs.
+    - anchor_min set ("I left this stop") → departed at anchor_min.
+    - arrived_at_min set (dwelling)       → departs at max(now, arrived + dwell): arriving
+      early keeps downstream on time; overstaying only bites once the banked time is gone.
+    - neither (auto / in transit)         → departed at now_min.
+    """
+    day = next((d for d in plan.days if d.day == active_day), None)
+    if day is None or not day.legs:
+        return None
+    li = active_leg_index if active_leg_index is not None else 0
+    li = max(0, min(li, len(day.legs) - 1))
+    cur_id = day.legs[li].from_place_id
+    cur_dwell = _curated_or_model(next((p for p in plan.places if p.id == cur_id), None)).get("dwell_minutes", 60) \
+        if any(p.id == cur_id for p in plan.places) else 60
+    if anchor_min is not None:
+        return anchor_min, cur_id, False
+    if arrived_at_min is not None:
+        return max(now_min, arrived_at_min + cur_dwell), cur_id, True
+    return now_min, cur_id, False
+
+
+def _project_today_timeline(
+    plan: TripPlan,
+    active_day: int,
+    active_leg_index: int | None,
+    now_min: int,
+    arrived_at_min: int | None,
+    anchor_min: int | None,
+) -> list[dict]:
+    """Project [{place_id, arrival_min, finish_min}, ...] for the remaining stops of the
+    active day, starting from the user's real departure clock (dev20 B2). Hotel leg excluded."""
+    dep = _departure_clock(plan, active_day, active_leg_index, now_min, arrived_at_min, anchor_min)
+    if dep is None:
+        return []
+    depart_clock, _cur_id, _dwelling = dep
+    day = next((d for d in plan.days if d.day == active_day), None)
+    legs = day.legs
+    li = active_leg_index if active_leg_index is not None else 0
+    li = max(0, min(li, len(legs) - 1))
+    place_map = {p.id: _curated_or_model(p) for p in plan.places}
+
+    timeline: list[dict] = []
+    clock = depart_clock
+    for leg in legs[li:]:
+        to_id = leg.to_place_id
+        if to_id == "hotel":
+            break  # hotel return leg is not a stop to visit
+        arrival = clock + (leg.duration_minutes or 0)
+        dwell = place_map.get(to_id, {}).get("dwell_minutes", 60)
+        finish = arrival + dwell
+        timeline.append({"place_id": to_id, "arrival_min": arrival, "finish_min": finish})
+        clock = finish
+    return timeline
+
+
+def _day_capacity_summary(plan: TripPlan, active_day: int, at_risk: dict) -> list[dict]:
+    """For every day other than active_day, a {room|full|closed} verdict for at_risk place.
+
+    `closed` — at_risk shut that weekday (close_days). `full` — open but the day already runs
+    past 17:30. `room` — open with spare time. Weekday derived as today + (day - active_day)
+    (live trip → active day's date == today), so no start_date is needed.
+    """
+    today = date.today()
+    close_days = set(at_risk.get("close_days") or [])
+    place_map = {p.id: _curated_or_model(p) for p in plan.places}
+    out: list[dict] = []
+    for day in plan.days:
+        if day.day == active_day:
+            continue
+        ordered = [pid for pid in _ordered_place_ids_from_legs(day.legs) if pid != "hotel"]
+        occupied = sum(leg.duration_minutes or 0 for leg in day.legs)
+        occupied += sum(place_map.get(pid, {}).get("dwell_minutes", 60) for pid in ordered)
+        remaining = max(0, _DAY_END_HARD - (_DAY_START_MIN + occupied))
+        d = today + timedelta(days=day.day - active_day)
+        weekday = d.strftime("%A")
+        if weekday in close_days:
+            status = "closed"
+        elif _DAY_START_MIN + occupied > _DAY_END_HARD:
+            status = "full"
+        else:
+            status = "room"
+        out.append({
+            "day": day.day,
+            "date": d.isoformat(),
+            "weekday": weekday,
+            "occupied_minutes": occupied,
+            "remaining_minutes": remaining,
+            "status": status,
+        })
+    return out
+
+
+def _check_closing_risk(
+    trip_id: str,
+    plan: TripPlan,
+    active_day: int,
+    active_leg_index: int | None,
+    now_dt: datetime,
+    arrived_at_min: int | None,
+    anchor_min: int | None,
+    start_date,
+) -> bool:
+    """Detect the earliest remaining stop the user will reach too late to use before it
+    closes, decide which resolutions are feasible, and insert one closing_risk alert.
+    Returns True if an alert was inserted. Live (today) trips only.
+
+    now_dt drives both the wall-clock minute and the weekday, so the check is fully
+    deterministic given its inputs (no hidden clock reads)."""
+    if not supabase:
+        return False
+    if _day_date(start_date, active_day) != now_dt.date().isoformat():
+        return False
+
+    now_min = now_dt.hour * 60 + now_dt.minute
+    place_map = {p.id: _curated_or_model(p) for p in plan.places}
+    timeline = _project_today_timeline(plan, active_day, active_leg_index, now_min, arrived_at_min, anchor_min)
+    if not timeline:
+        return False
+
+    min_useful_cfg = settings.closing_min_useful_min
+
+    # Find the earliest at-risk stop (fire one alert; next poll re-evaluates after a resolution).
+    at_risk: dict | None = None
+    at_risk_idx = -1
+    for idx, entry in enumerate(timeline):
+        pd = place_map.get(entry["place_id"])
+        if not pd:
+            continue
+        close_min = _close_minute_today(pd, now_dt)
+        if close_min is None:
+            continue
+        dwell = pd["dwell_minutes"]
+        min_useful = min(dwell, min_useful_cfg)
+        latest_ok = close_min - min_useful
+        if entry["arrival_min"] > latest_ok:
+            at_risk = {**pd, "close_min": close_min, "arrival_min": entry["arrival_min"],
+                       "deficit": entry["arrival_min"] - latest_ok, "min_useful": min_useful}
+            at_risk_idx = idx
+            break
+    if at_risk is None:
+        return False
+
+    # Dedup: same place, unresolved, within the configured window.
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=settings.closing_risk_dedup_min)).isoformat()
+    existing = (
+        supabase.table("lta_alerts")
+        .select("id,metadata")
+        .eq("trip_id", trip_id)
+        .eq("alert_type", "closing_risk")
+        .is_("resolved_at", "null")
+        .gte("created_at", cutoff)
+        .execute()
+    )
+    for row in (existing.data or []):
+        if (row.get("metadata") or {}).get("place_id") == at_risk["id"]:
+            return False
+
+    deficit = at_risk["deficit"]
+
+    # ── Recovery: can the user fix this just by leaving controllable stops earlier? ──
+    dep = _departure_clock(plan, active_day, active_leg_index, now_min, arrived_at_min, anchor_min)
+    depart_clock, cur_id, dwelling = dep
+    controllable: list[dict] = []
+    if dwelling:  # still at the current stop → its remaining stay can be trimmed
+        cur = place_map.get(cur_id, {"name": cur_id, "dwell_minutes": 60})
+        controllable.append({
+            "name": cur.get("name", cur_id),
+            "trim_budget": max(0, cur.get("dwell_minutes", 60) - min(cur.get("dwell_minutes", 60), min_useful_cfg)),
+            "planned_leave": depart_clock,
+        })
+    for entry in timeline[:at_risk_idx]:  # intermediate stops before the at-risk one
+        pd = place_map.get(entry["place_id"], {})
+        dwell = pd.get("dwell_minutes", 60)
+        controllable.append({
+            "name": pd.get("name", entry["place_id"]),
+            "trim_budget": max(0, dwell - min(dwell, min_useful_cfg)),
+            "planned_leave": entry["finish_min"],
+        })
+
+    recoverable_slack = sum(c["trim_budget"] for c in controllable)
+    leave_earlier: dict
+    if controllable and deficit <= recoverable_slack:
+        nearest = controllable[0]
+        trim = min(deficit, nearest["trim_budget"])
+        leave_earlier = {
+            "feasible": True,
+            "current_place_name": nearest["name"],
+            "target_leave_time": _fmt_hhmm((nearest["planned_leave"] - trim) % 1440),
+            "save_minutes": trim,
+        }
+    else:
+        leave_earlier = {"feasible": False}
+
+    # ── Push: which other days can actually host this place? ──
+    day_capacity = _day_capacity_summary(plan, active_day, at_risk)
+    open_days = [d for d in day_capacity if d["status"] != "closed"]
+    push: dict = {"feasible": bool(open_days), "day_capacity": day_capacity}
+    if not open_days:
+        push["reason"] = "closed_all" if day_capacity else "no_other_day"
+
+    projected_arrival = _fmt_hhmm(at_risk["arrival_min"] % 1440)
+    close_time = _fmt_hhmm(at_risk["close_min"] % 1440)
+    metadata = {
+        "place_id": at_risk["id"],
+        "place_name": at_risk["name"],
+        "projected_arrival": projected_arrival,
+        "close_time": close_time,
+        "deficit_min": deficit,
+        "resolutions": {
+            "leave_earlier": leave_earlier,
+            "skip": {"feasible": True},
+            "push": push,
+        },
+    }
+
+    if leave_earlier["feasible"]:
+        fix = (f"Leave {leave_earlier['current_place_name']} before "
+               f"{leave_earlier['target_leave_time']} to still make it.")
+    elif push["feasible"]:
+        fix = "Consider skipping it or moving it to another day."
+    else:
+        fix = "Consider skipping it."
+    message = (
+        f"You're projected to reach {at_risk['name']} at {projected_arrival}, "
+        f"but it closes at {close_time}. {fix}"
+    )
+
+    supabase.table("lta_alerts").insert({
+        "trip_id": trip_id,
+        "alert_type": "closing_risk",
+        "affected_line": None,
+        "day_number": active_day,
+        "severity": "heavy" if deficit > 30 else "light",
+        "message": message,
+        "metadata": metadata,
+    }).execute()
+    return True
+
+
+def _day_ordered(day: DayPlan) -> list[str]:
+    """Ordered place ids for a day — from the leg chain, falling back to place_ids for
+    single-place days that have no legs."""
+    return _ordered_place_ids_from_legs(day.legs) or list(day.place_ids or [])
+
+
+def _fetch_hotel(trip_id: str) -> dict | None:
+    """Hotel {lat, lng} from the trips table, or None when unset/unavailable."""
+    if not supabase:
+        return None
+    try:
+        r = supabase.table("trips").select("hotel_lat,hotel_lng").eq("id", trip_id).execute()
+        if r.data and r.data[0].get("hotel_lat") is not None and r.data[0].get("hotel_lng") is not None:
+            return {"lat": float(r.data[0]["hotel_lat"]), "lng": float(r.data[0]["hotel_lng"])}
+    except Exception as exc:
+        log.warning("Could not read hotel for trip %s: %s", trip_id, exc)
+    return None
+
+
+async def _reroute_day_to_order(day: DayPlan, new_ordered: list[str], coord: dict[str, dict]) -> DayPlan:
+    """Rebuild a day's legs to follow new_ordered. Legs that already connect a consecutive
+    pair are reused as-is; only newly adjacent pairs are re-routed via OneMap (estimated
+    fallback on failure). Fresh leg ids avoid colliding with the legs being replaced."""
+    existing = {(leg.from_place_id, leg.to_place_id): leg for leg in day.legs}
+    new_legs: list[LegResponse] = []
+    for a, b in zip(new_ordered, new_ordered[1:]):
+        reuse = existing.get((a, b))
+        if reuse is not None:
+            new_legs.append(reuse)
+            continue
+        template = (
+            next((leg for leg in day.legs if leg.from_place_id == a), None)
+            or next((leg for leg in day.legs if leg.to_place_id == b), None)
+        )
+        synthetic = LegResponse(
+            id=str(uuid.uuid4()),
+            from_place_id=a,
+            to_place_id=b,
+            transport_mode=template.transport_mode if template else "WALK",
+            duration_minutes=template.duration_minutes if template else 15,
+            cost_sgd=template.cost_sgd if template else 0.0,
+            is_estimated=True,
+        )
+        new_legs.append(await _recalculate_leg(synthetic, coord.get(a), coord.get(b), a, b))
+    return DayPlan(day=day.day, legs=new_legs, place_ids=[pid for pid in new_ordered if pid != "hotel"])
+
+
+async def _resolve_closing_risk(
+    trip_id: str,
+    plan: TripPlan,
+    alert: dict,
+    resolution: str | None,
+    target_day: int | None,
+) -> AdaptResponse:
+    """Apply a user-chosen closing_risk resolution (dev20 B6). Propose only — caller persists
+    on accept via commit_adaptation. leave_earlier is advisory (no structural change)."""
+    metadata = alert.get("metadata") or {}
+    place_id = metadata.get("place_id")
+    place_name = metadata.get("place_name", place_id)
+    if not place_id:
+        return AdaptResponse(adapted=False, changes=["Closing-risk alert has no place"], updated_trip=plan)
+
+    # ── leave_earlier: advisory, change nothing; accept resolves the alert. ──
+    if resolution == "leave_earlier":
+        le = (metadata.get("resolutions") or {}).get("leave_earlier") or {}
+        if le.get("feasible"):
+            note = (
+                f"Leave {le.get('current_place_name')} before {le.get('target_leave_time')} "
+                f"to reach {place_name} in time (~{le.get('save_minutes')} min earlier)."
+            )
+        else:
+            note = f"Try to reach {place_name} before it closes."
+        return AdaptResponse(adapted=True, changes=[note], updated_trip=plan)
+
+    if resolution not in ("skip", "push"):
+        return AdaptResponse(adapted=False, changes=["Unknown closing-risk resolution"], updated_trip=plan)
+
+    src_day = next((d for d in plan.days if place_id in _day_ordered(d)), None)
+    if src_day is None:
+        return AdaptResponse(adapted=False, changes=[f"{place_name} not found in trip"], updated_trip=plan)
+
+    coord: dict[str, dict] = {p.id: {"lat": p.lat, "lng": p.lng} for p in plan.places}
+    if "hotel" not in coord:
+        hotel = _fetch_hotel(trip_id)
+        if hotel:
+            coord["hotel"] = hotel
+
+    new_src_ordered = [pid for pid in _day_ordered(src_day) if pid != place_id]
+
+    # ── skip: drop the at-risk place and re-stitch its day. ──
+    if resolution == "skip":
+        if sum(1 for p in plan.places if p.id != "hotel") - 1 < 2:
+            return AdaptResponse(
+                adapted=False,
+                changes=[f"Cannot skip {place_name} — a trip needs at least 2 stops."],
+                updated_trip=plan,
+            )
+        new_src = await _reroute_day_to_order(src_day, new_src_ordered, coord)
+        new_days = [new_src if d.day == src_day.day else d for d in plan.days]
+        new_places = [p for p in plan.places if p.id != place_id]
+        updated = TripPlan(id=plan.id, days=new_days, places=new_places, warnings=plan.warnings)
+        return AdaptResponse(
+            adapted=True,
+            changes=[f"Skipped {place_name} (would arrive after it closes)."],
+            updated_trip=updated,
+            **_compute_delta(plan, updated),
+        )
+
+    # ── push: move the place to target_day after a server-side close_days guard. ──
+    if not target_day or target_day == src_day.day:
+        return AdaptResponse(adapted=False, changes=["No valid target day for push"], updated_trip=plan)
+    tgt_day = next((d for d in plan.days if d.day == target_day), None)
+    if tgt_day is None:
+        return AdaptResponse(adapted=False, changes=[f"Day {target_day} not found"], updated_trip=plan)
+
+    place_dict = _curated_or_model(next(p for p in plan.places if p.id == place_id))
+    weekday = (date.today() + timedelta(days=target_day - src_day.day)).strftime("%A")
+    if weekday in (place_dict.get("close_days") or []):
+        return AdaptResponse(
+            adapted=False,
+            changes=[f"Cannot move {place_name} to day {target_day} — it is closed on {weekday}."],
+            updated_trip=plan,
+        )
+
+    tgt_ordered = _day_ordered(tgt_day)
+    if tgt_ordered and tgt_ordered[-1] == "hotel":
+        new_tgt_ordered = tgt_ordered[:-1] + [place_id, "hotel"]
+    else:
+        new_tgt_ordered = tgt_ordered + [place_id]
+
+    new_src = await _reroute_day_to_order(src_day, new_src_ordered, coord)
+    new_tgt = await _reroute_day_to_order(tgt_day, new_tgt_ordered, coord)
+    new_days = [
+        new_src if d.day == src_day.day else (new_tgt if d.day == target_day else d)
+        for d in plan.days
+    ]
+    updated = TripPlan(id=plan.id, days=new_days, places=plan.places, warnings=plan.warnings)
+    return AdaptResponse(
+        adapted=True,
+        changes=[f"Moved {place_name} to day {target_day}."],
+        updated_trip=updated,
+        **_compute_delta(plan, updated),
+    )
 
 
 def _day_place_ids(plan: TripPlan, day: int) -> set[str]:
@@ -882,6 +1353,8 @@ async def check_alerts_for_trip(
     plan: TripPlan,
     active_day: int | None = None,
     active_leg_index: int | None = None,
+    arrived_at_min: int | None = None,
+    anchor_min: int | None = None,
 ) -> dict:
     """On-demand alert check for a specific trip (demand-triggered, UPCOMING trips).
 
@@ -939,17 +1412,18 @@ async def check_alerts_for_trip(
             }).execute()
             alerts_inserted += 1
 
+    # start_date is shared by the weather (per-day forecast) and closing-risk (today-only) checks.
+    start_date = None
+    try:
+        trip_row = supabase.table("trips").select("start_date").eq("id", trip_id).execute()
+        if trip_row.data:
+            start_date = trip_row.data[0].get("start_date")
+    except Exception as exc:
+        log.warning("Could not read start_date for trip %s: %s", trip_id, exc)
+
     # ── Weather check (per day) ───────────────────────────────────────────────
     if any(p.is_outdoor for p in plan.places):
         weather_checked = True
-        start_date = None
-        try:
-            trip_row = supabase.table("trips").select("start_date").eq("id", trip_id).execute()
-            if trip_row.data:
-                start_date = trip_row.data[0].get("start_date")
-        except Exception as exc:
-            log.warning("Could not read start_date for trip %s: %s", trip_id, exc)
-
         places_by_id = {p.id: p for p in plan.places}
 
         def _pdict(p):
@@ -979,6 +1453,15 @@ async def check_alerts_for_trip(
                 live_places = day_places[start_idx:] if 0 < start_idx < len(day_places) else day_places
                 if await _check_live_rain(trip_id, day.day, live_places):
                     alerts_inserted += 1
+
+    # ── Closing-risk check (live trips only) ──────────────────────────────────
+    # Runs only when the user is actively progressing through today's day.
+    if active_day is not None:
+        if _check_closing_risk(
+            trip_id, plan, active_day, active_leg_index, datetime.now(tz=SGT),
+            arrived_at_min, anchor_min, start_date,
+        ):
+            alerts_inserted += 1
 
     return {"lta_checked": lta_checked, "weather_checked": weather_checked, "alerts_inserted": alerts_inserted}
 
@@ -1016,8 +1499,10 @@ def _persist_updated_legs(trip_id: str, plan: TripPlan) -> None:
     if place_rows:
         supabase.table("trip_places").insert(place_rows).execute()
 
-    # route_legs: upsert with all geometry/routing columns so a server restart
-    # doesn't lose map polylines, bus stop codes, or sub-leg detail.
+    # route_legs: delete-then-insert so a resolution that REDUCES the leg count (e.g. a
+    # closing_risk skip) doesn't leave orphaned legs behind. The plan always carries the
+    # full leg set, so wiping first is equivalent to upsert for the swap/reroute paths.
+    supabase.table("route_legs").delete().eq("trip_id", trip_id).execute()
     leg_rows = [
         {
             "id": leg.id,
