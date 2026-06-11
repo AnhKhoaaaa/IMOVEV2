@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     weather_forecast_ttl_s: int = 5400      # OpenWeather /forecast cache TTL (~90 min)
     weather_live_dedup_min: int = 20        # dedup window for live-rain alerts (min)
 
+    # Closing-risk alert tuning (dev20)
+    closing_min_useful_min: int = 30        # min minutes a stop is worth visiting before it closes
+    closing_risk_dedup_min: int = 10        # dedup window for closing_risk alerts (min)
+
     # Optional: production frontend URL for CORS (e.g. https://imove.vercel.app)
     frontend_url: Optional[str] = None
 

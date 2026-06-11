@@ -302,6 +302,26 @@ const EN = {
   alertOutdoorFallback: 'Weather may affect outdoor stops',
   alertNoSwapsNeeded: 'No swaps needed — all stops are indoor-friendly.',
 
+  /* ── Closing-risk alert (dev20) ───── */
+  alertSchedule: 'Running late',
+  crHeader: (place, closeTime, arrival, deficit) =>
+    `${place} closes at ${closeTime} — you're projected to arrive ${arrival} (~${deficit} min late).`,
+  crLeaveEarlier: 'Leave earlier',
+  crLeaveEarlierAdvice: (place, time, mins) =>
+    `Leave ${place} before ${time} (~${mins} min earlier) and you'll still make it.`,
+  crSkip: 'Skip this stop',
+  crPush: 'Move to another day',
+  crChooseDay: 'Choose a day:',
+  crDayLabel: (day) => `Day ${day}`,
+  crBadgeRoom: (mins) => `~${Math.round((mins / 60) * 10) / 10}h free`,
+  crBadgeFull: 'Already full',
+  crBadgeClosed: (weekday) => `Closed ${weekday}`,
+  crPushClosedAll: (place) =>
+    `Can't move to another day — ${place} is closed on every remaining day of your trip.`,
+  crPushNoOtherDay: "Can't move — this is the last day, there's no other day to use.",
+  crRecommended: 'Recommended',
+  crConfirm: 'Confirm',
+
   /* ── Chatbot ─────────────────────── */
   chatTitle: 'IMOVE Assistant',
   chatGreeting: "Hi! Ask me for place ideas or to tweak your itinerary — I'll suggest changes for you to confirm.",
@@ -581,6 +601,26 @@ const VI = {
   alertOutdoorAffected: (count) => `· ảnh hưởng ${count} điểm ngoài trời`,
   alertOutdoorFallback: 'Thời tiết có thể ảnh hưởng điểm ngoài trời',
   alertNoSwapsNeeded: 'Không cần thay đổi — tất cả các điểm đều thân thiện trong nhà.',
+
+  /* ── Closing-risk alert (dev20) ───── */
+  alertSchedule: 'Trễ giờ',
+  crHeader: (place, closeTime, arrival, deficit) =>
+    `${place} đóng cửa lúc ${closeTime} — bạn dự kiến tới ${arrival} (trễ ~${deficit}p).`,
+  crLeaveEarlier: 'Rời sớm hơn',
+  crLeaveEarlierAdvice: (place, time, mins) =>
+    `Rời ${place} trước ${time} (sớm hơn ~${mins}p) là vẫn kịp.`,
+  crSkip: 'Bỏ điểm này',
+  crPush: 'Đẩy sang ngày khác',
+  crChooseDay: 'Chọn ngày:',
+  crDayLabel: (day) => `Ngày ${day}`,
+  crBadgeRoom: (mins) => `còn ~${Math.round((mins / 60) * 10) / 10}h`,
+  crBadgeFull: 'Đã đầy',
+  crBadgeClosed: (weekday) => `Đóng cửa ${weekday}`,
+  crPushClosedAll: (place) =>
+    `Không thể dời sang ngày khác — ${place} đóng cửa vào tất cả các ngày còn lại của chuyến đi.`,
+  crPushNoOtherDay: 'Không thể dời — đây là ngày cuối, không còn ngày nào khác.',
+  crRecommended: 'Nên dùng',
+  crConfirm: 'Xác nhận',
 
   /* ── Chatbot ─────────────────────── */
   chatTitle: 'Trợ lý IMOVE',
