@@ -467,7 +467,7 @@ function computeHaversineTimes(places, hotel, startTimeStr) {
   return times
 }
 
-function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTime, needsRouteUpdate, keepOrderDone, mutating }) {
+function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTime, needsRouteUpdate, mutating }) {
   const [routeDropdownOpen, setRouteDropdownOpen] = useState(false)
   return (
     <div className="space-y-4">
@@ -493,10 +493,10 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                   <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-md border border-slate-200 bg-white shadow-pop">
                     <button
                       onClick={() => { setRouteDropdownOpen(false); onUpdateRoute(true) }}
-                      disabled={keepOrderDone || mutating}
+                      disabled={mutating}
                       className={cn(
                         'flex w-full flex-col px-4 py-3 text-left hover:bg-slate-50',
-                        (keepOrderDone || mutating) && 'cursor-not-allowed opacity-40'
+                        mutating && 'cursor-not-allowed opacity-40'
                       )}
                     >
                       <span className="text-[13px] font-bold text-slate-800">Keep my order</span>
@@ -915,7 +915,6 @@ export default function Trip() {
   const autoArrivedRef = useRef(false)  // prevents re-firing auto-arrive for same destination
 
   // Route status state
-  const [keepOrderDone, setKeepOrderDone] = useState(false)
   const [confirmOptimise, setConfirmOptimise] = useState(false)
   // Task 8: live GPS trail (only for WALK/CYCLE legs)
   const [trackingPath, setTrackingPath] = useState([])
@@ -985,11 +984,6 @@ export default function Trip() {
   const needsRouteUpdate = isEstimated || hasDirtyDays
   // isLive drives all UI decisions; raw tripStarted drives GPS/backend effects
   const isLive = tripStarted && !editMode
-
-  // When routes become estimated again (e.g. after switching to GRAB), allow Keep My Order to run
-  useEffect(() => {
-    if (needsRouteUpdate) setKeepOrderDone(false)
-  }, [needsRouteUpdate])
 
   // Chatbot confirmed a write → refresh the itinerary from the server.
   useEffect(() => {
@@ -1212,7 +1206,15 @@ export default function Trip() {
               const safeIds  = pendingIds.filter((pid) => freshSet.has(pid))
               const extraIds = freshIds.filter((pid) => !new Set(safeIds).has(pid))
               const finalIds = [...safeIds, ...extraIds]
-              lastResult = JSON.stringify(finalIds) !== JSON.stringify(freshIds)
+              // A newly added/removed place leaves the day on haversine estimates even when the
+              // visit order is unchanged (e.g. a place appended to the end). Reorder
+              // (force_real_routes) whenever the day still has a non-GRAB estimated leg — not
+              // only when the order differs — otherwise the new leg stays "Estimated".
+              const orderChanged = JSON.stringify(finalIds) !== JSON.stringify(freshIds)
+              const dayHasEstimated = (freshDay.legs ?? []).some(
+                (l) => l.is_estimated && normalizeTransportMode(l.transport_mode) !== 'GRAB'
+              )
+              lastResult = (orderChanged || dayHasEstimated)
                 ? await api.reorderPlaces(id, dayNum, finalIds, existingLegs)
                 : freshTrip
             } else {
@@ -1232,7 +1234,16 @@ export default function Trip() {
         }
       }
       await refresh(lastResult?.days ? lastResult : undefined)
-      setKeepOrderDone(true)
+      // Surface OneMap-overload leftovers like the optimise path does, so a still-estimated
+      // result isn't silent (parity with handleConfirmOptimise).
+      const estimatedAfter = (lastResult?.days ?? []).flatMap((d) => d.legs ?? [])
+        .filter((l) => l.is_estimated && normalizeTransportMode(l.transport_mode) !== 'GRAB').length
+      if (estimatedAfter > 0) {
+        setOptimizeMsg(
+          `Couldn't fetch real routes for ${estimatedAfter} leg${estimatedAfter !== 1 ? 's' : ''} — try Update Route again shortly.`
+        )
+        setTimeout(() => setOptimizeMsg(null), 4000)
+      }
     } catch (err) {
       setUiWarning(err.message)
     } finally {
@@ -1259,7 +1270,6 @@ export default function Trip() {
       await refresh(result?.days ? result : undefined)
       setPendingByDay({})
       setPendingPlaces({})
-      setKeepOrderDone(true)
       const orderAfter = (result?.days ?? []).flatMap((d) => (d.legs ?? []).map((l) => l.from_place_id))
       const daysAfter  = result?.days?.length ?? 0
       const reordered  = orderAfter.filter((v, i) => v !== orderBefore[i]).length
@@ -1303,7 +1313,6 @@ export default function Trip() {
     if (dayNum != null) {
       const day = trip.days.find((d) => d.day === dayNum)
       const currentIds = getDisplayIds(day)
-      setKeepOrderDone(false)
       setPendingByDay((prev) => ({ ...prev, [dayNum]: currentIds.filter((pid) => pid !== placeId) }))
     }
     // If locally-added (not yet on server), also drop from pendingPlaces
@@ -1315,7 +1324,6 @@ export default function Trip() {
     const day = trip?.days?.find((d) => d.day === dayNum)
     const currentIds = getDisplayIds(day ?? { day: dayNum, legs: [] })
     if (!currentIds.includes(place.id)) {
-      setKeepOrderDone(false)
       setPendingByDay((prev) => ({ ...prev, [dayNum]: [...currentIds, place.id] }))
       setPendingPlaces((prev) => ({ ...prev, [place.id]: place }))
     }
@@ -1328,7 +1336,6 @@ export default function Trip() {
     if (target < 0 || target >= ids.length) return
     const next = [...ids]
     ;[next[index], next[target]] = [next[target], next[index]]
-    setKeepOrderDone(false)
     setPendingByDay((prev) => ({ ...prev, [dayNum]: next }))
   }
 
@@ -1606,7 +1613,6 @@ export default function Trip() {
               tripStarted={isLive}
               startTime={savedMeta?.startTime ?? '09:00'}
               needsRouteUpdate={needsRouteUpdate}
-              keepOrderDone={keepOrderDone}
               mutating={mutating}
             />
           )}
