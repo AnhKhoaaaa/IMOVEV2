@@ -13,6 +13,9 @@ from app.agents.planning_agent import (
     _parse_opening_hours,
     _check_schedule_fit,
     _haversine_km,
+    _is_open_on_weekday,
+    _weekdays_for_days,
+    _relocate_closed_day_places,
     _PLACES,
 )
 from app.exceptions import PlaceDataMissingError
@@ -151,6 +154,65 @@ def test_distribute_days_respects_num_days_cap():
     places = [{"id": str(i), "dwell_minutes": 300} for i in range(4)]
     days = _distribute_days(places, num_days=2, route_durations=None)
     assert len(days) <= 2  # cannot exceed num_days
+
+
+# ── dev21: close_days awareness + window-urgency ordering ─────────────────────
+
+def test_is_open_on_weekday():
+    assert _is_open_on_weekday({"close_days": ["Monday"]}, "Monday") is False
+    assert _is_open_on_weekday({"close_days": ["Monday"]}, "Tuesday") is True
+    assert _is_open_on_weekday({}, "Monday") is True
+    assert _is_open_on_weekday({"close_days": []}, "Sunday") is True
+
+
+def test_weekdays_for_days():
+    from datetime import date
+    start = date(2026, 6, 15)  # a Monday
+    assert _weekdays_for_days(start, 3) == ["Monday", "Tuesday", "Wednesday"]
+    assert _weekdays_for_days(None, 3) is None
+
+
+def test_relocate_closed_day_moves_to_open_day():
+    weekdays = ["Monday", "Tuesday"]
+    a = {"id": "a", "name": "Museum", "close_days": ["Monday"]}
+    b = {"id": "b", "name": "Park", "close_days": []}
+    day_groups = [[a], [b]]
+    warnings = []
+    _relocate_closed_day_places(day_groups, weekdays, warnings)
+    assert a not in day_groups[0]
+    assert a in day_groups[1]
+    assert any("moved to day 2" in w for w in warnings)
+
+
+def test_relocate_closed_every_day_warns_and_keeps():
+    weekdays = ["Monday", "Monday"]
+    a = {"id": "a", "name": "Museum", "close_days": ["Monday"]}
+    day_groups = [[a], []]
+    warnings = []
+    _relocate_closed_day_places(day_groups, weekdays, warnings)
+    assert a in day_groups[0]  # nowhere open → stays put
+    assert any("closed every day" in w for w in warnings)
+
+
+def test_relocate_noop_without_start_date():
+    a = {"id": "a", "name": "Museum", "close_days": ["Monday"]}
+    day_groups = [[a]]
+    warnings = []
+    _relocate_closed_day_places(day_groups, None, warnings)
+    assert day_groups == [[a]]
+    assert warnings == []
+
+
+def test_day_bucketed_greedy_prefers_closing_soon_window():
+    # 'near' is closest to the 09:00 anchor but open all day; 'tight' is slightly farther
+    # but closes soon — dev21 P2 should pick 'tight' first so it isn't deferred until infeasible.
+    near  = {"id": "near",  "lat": 1.280, "lng": 103.850, "dwell_minutes": 30,
+             "opening_hours": "00:00-23:59"}
+    tight = {"id": "tight", "lat": 1.281, "lng": 103.851, "dwell_minutes": 30,
+             "opening_hours": "09:00-10:30"}
+    day_groups, _ = _day_bucketed_greedy([near, tight], num_days=1)
+    order = [p["id"] for p in day_groups[0]]
+    assert order.index("tight") < order.index("near")
 
 
 # ── unit tests: _parse_opening_hours ─────────────────────────────────────────
