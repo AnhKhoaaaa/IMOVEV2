@@ -25,6 +25,9 @@ docs/.obsidian/
 # Generated artifacts
 backend/missing_images.txt
 
+# Personal working notes — kept local only
+To_fix.md
+
 # GCP service account credentials — never commit
 backend/application_default_credentials.json
 backend/*-credentials.json
