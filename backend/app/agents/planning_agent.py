@@ -539,6 +539,52 @@ def _grab_fare(
     }
 
 
+# Walk/Cycle/Grab are point-to-point and always estimable → guaranteed switchable.
+# Bus/Metro are NOT here: they require a real OneMap line (never fabricate transit).
+_WALK_SPEED_KM_H  = 5.0
+_CYCLE_SPEED_KM_H = 15.0
+
+
+def _estimated_active_route(dist_km: float, mode: str) -> dict:
+    """Haversine estimate for WALK or CYCLE as a raw route dict (is_estimated=True)."""
+    speed = _WALK_SPEED_KM_H if mode == "WALK" else _CYCLE_SPEED_KM_H
+    dur = max(1, round(dist_km / speed * 60))
+    return {
+        "duration_minutes": dur, "fare_sgd": 0.0, "is_estimated": True,
+        "geometry": None, "geometries": [], "instructions": [],
+        "legs": [{"mode": mode, "duration_minutes": dur}],
+        "distance_km": round(dist_km, 2), "sub_legs": [],
+    }
+
+
+def _ensure_always_modes(alts: dict[str, dict], from_p: dict, to_p: dict, dist_km: float) -> dict[str, dict]:
+    """Return a copy of `alts` with WALK, CYCLE, GRAB guaranteed present.
+
+    Real OneMap routes already in `alts` are kept as-is; only missing modes are filled
+    with haversine estimates. Bus/Metro are never added here (never fabricate transit).
+
+    MENU enrichment only — produces a NEW dict and never mutates `alts`, so the raw dict
+    that score_alternatives / route_cache read from is untouched (see dev22 Impact §A).
+    """
+    out = dict(alts)
+    if "WALK" not in out:
+        out["WALK"] = _estimated_active_route(dist_km, "WALK")
+    if "CYCLE" not in out:
+        out["CYCLE"] = _estimated_active_route(dist_km, "CYCLE")
+    if "GRAB" not in out:
+        out["GRAB"] = _estimate_grab(dist_km, from_place_name=from_p.get("name", ""))
+    return out
+
+
+def estimated_alternatives_models(
+    from_lat: float, from_lng: float, to_lat: float, to_lng: float, from_name: str = "",
+) -> dict[str, AlternativeRoute]:
+    """WALK/CYCLE/GRAB estimates as AlternativeRoute models (for DB-reload fallback, Phase 2)."""
+    dist_km = _haversine_km(from_lat, from_lng, to_lat, to_lng)
+    raw = _ensure_always_modes({}, {"name": from_name}, {}, dist_km)
+    return {m: _to_alternative(r) for m, r in raw.items()}
+
+
 async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
     """Fetch PT (mixed), PT bus-only, Walk, and Cycle routes in parallel.
 
@@ -717,6 +763,9 @@ async def plan_trip(
     # Phương án A: pre-populate caches from caller-supplied real legs so OneMap is not
     # re-called for pairs whose routes are already known.  Pairs present in alt_cache are
     # automatically skipped in the all_pairs build below (key not in alt_cache guard).
+    _place_by_id = {p["id"]: p for p in places}
+    if hotel_place:
+        _place_by_id["hotel"] = hotel_place
     for leg in (existing_real_legs or []):
         from_id = leg.get("from_place_id")
         to_id   = leg.get("to_place_id")
@@ -735,7 +784,18 @@ async def plan_trip(
             "distance_km":      leg.get("distance_km"),
             "sub_legs":         leg.get("sub_legs") or [],
         }
-        alt_cache[(from_id, to_id)]      = {mode: route}
+        # Menu enrichment: keep WALK/CYCLE/GRAB switchable on caller-supplied real legs too
+        # (recommendation = the supplied mode; route_cache/best_key unchanged). Only possible
+        # when both endpoints resolve to coordinates for the haversine estimate.
+        _fp = _place_by_id.get(from_id)
+        _tp = _place_by_id.get(to_id)
+        _e_dist = leg.get("distance_km")
+        if _fp and _tp and (_e_dist is None or _e_dist <= 0):
+            _e_dist = _haversine_km(_fp["lat"], _fp["lng"], _tp["lat"], _tp["lng"])
+        if _fp and _e_dist:
+            alt_cache[(from_id, to_id)] = _ensure_always_modes({mode: route}, _fp, _tp or {}, _e_dist)
+        else:
+            alt_cache[(from_id, to_id)] = {mode: route}
         route_cache[(from_id, to_id)]    = route
         best_key_cache[(from_id, to_id)] = mode
 
@@ -805,8 +865,9 @@ async def plan_trip(
                     }
                     transit_only = {m: r for m, r in alts.items() if m != "GRAB"}
                 elif "GRAB" in alts:
-                    # ≥ 2km no transit → GRAB is the only viable option
-                    alt_cache[(a["id"], b["id"])]    = alts
+                    # ≥ 2km no transit → GRAB is the recommended option, but WALK/CYCLE stay
+                    # switchable in the menu (estimated; recommendation/route_cache unchanged).
+                    alt_cache[(a["id"], b["id"])]    = _ensure_always_modes(alts, a, b, dist_km)
                     route_cache[(a["id"], b["id"])]  = alts["GRAB"]
                     best_key_cache[(a["id"], b["id"])] = "GRAB"
                     continue
@@ -815,7 +876,9 @@ async def plan_trip(
                         f"No route available from '{a['id']}' to '{b['id']}' — "
                         "all routing modes unavailable"
                     )
-            alt_cache[(a["id"], b["id"])] = alts
+            # Menu enrichment: cache always-switchable WALK/CYCLE/GRAB (new dict; never the
+            # `alts`/`transit_only` that scoring reads from — see dev22 Impact §A).
+            alt_cache[(a["id"], b["id"])] = _ensure_always_modes(alts, a, b, dist_km)
             # GRAB excluded from scoring — it is only selected via the 2km guard below
             alt_models = {m: _to_alternative(r) for m, r in transit_only.items()}
             scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx, dist_km=dist_km)
@@ -846,7 +909,9 @@ async def plan_trip(
                 "sub_legs": [],
             }
             route_cache[(a["id"], b["id"])]    = est_route
-            alt_cache[(a["id"], b["id"])]      = {mode_key: est_route}
+            # Estimate path stores a single synthetic mode; enrich the menu so WALK/CYCLE/GRAB
+            # are always switchable after non-optimize plans/edits (route_cache default unchanged).
+            alt_cache[(a["id"], b["id"])]      = _ensure_always_modes({mode_key: est_route}, a, b, dist_km)
             best_key_cache[(a["id"], b["id"])] = mode_key
 
     route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
@@ -897,6 +962,7 @@ async def plan_trip(
                 h_best_key = h_scoring.recommended_mode
                 h_best_key = _apply_mode_safety_guard(h_best_key, h_fresh, h_dist)
                 h_route = h_fresh[h_best_key]
+                h_fresh = _ensure_always_modes(h_fresh, hotel_place, day_places[0], h_dist)
                 h_alts  = h_fresh
                 alt_cache[h_route_key]      = h_fresh
                 route_cache[h_route_key]    = h_route
@@ -994,8 +1060,9 @@ async def plan_trip(
                         fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx, dist_km=dist_km)
                         best_key_used = fresh_scoring.recommended_mode
                     best_key_used = _apply_mode_safety_guard(best_key_used, fresh_alts, dist_km)
-                    alt_cache[route_key]      = fresh_alts
                     route = fresh_alts[best_key_used]
+                    fresh_alts = _ensure_always_modes(fresh_alts, from_p, to_p, dist_km)
+                    alt_cache[route_key]      = fresh_alts
                     route_cache[route_key]    = route
                     best_key_cache[route_key] = best_key_used
                     alts_for_leg = fresh_alts
@@ -1070,7 +1137,7 @@ async def plan_trip(
                     "legs": [{"mode": ret_best, "duration_minutes": dur}],
                     "distance_km": round(dist_km, 2), "sub_legs": [],
                 }
-                ret_alts = {ret_best: ret_route}
+                ret_alts = _ensure_always_modes({ret_best: ret_route}, last_p, hotel_place, dist_km)
             if ret_best == "WALK":
                 ret_transport = "WALK"
             elif ret_best == "GRAB":
