@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import { useAlerts } from '../../hooks/useAlerts'
 import AlertActionCard from '../adaptation/AlertActionCard'
+import ChatBlocks from './ChatBlocks'
 import { api } from '../../services/api'
 
 function getSessionId() {
@@ -114,7 +115,10 @@ export default function ChatWidget() {
         trip_id: tripId,
         gps: position,
       })
-      setMessages((m) => [...m, { role: 'assistant', text: res.reply }])
+      // dev25 P3 — prefer rich blocks; fall back to a plain text bubble for back-compat.
+      setMessages((m) => [...m, res.blocks?.length
+        ? { role: 'assistant', blocks: res.blocks }
+        : { role: 'assistant', text: res.reply }])
       if (res.proposed_action && res.pending_action_id) {
         setPending({ proposed_action: res.proposed_action, pending_action_id: res.pending_action_id })
       }
@@ -236,16 +240,21 @@ export default function ChatWidget() {
           const showCard = msg.alert && tripId && !resolvedAlerts.has(msg.alertId)
           return (
             <div key={i} className="contents">
-              <div
-                className={cn(
-                  'max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed',
-                  msg.role === 'user'
-                    ? 'self-end bg-slate-900 text-white'
-                    : 'self-start bg-slate-100 text-slate-800'
-                )}
-              >
-                {msg.text}
-              </div>
+              {/* dev25 P3 — rich multi-block assistant answer (text + place/route/bus cards) */}
+              {msg.blocks?.length ? (
+                <ChatBlocks blocks={msg.blocks} />
+              ) : (
+                <div
+                  className={cn(
+                    'max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed',
+                    msg.role === 'user'
+                      ? 'self-end bg-slate-900 text-white'
+                      : 'self-start bg-slate-100 text-slate-800'
+                  )}
+                >
+                  {msg.text}
+                </div>
+              )}
               {/* dev25 P2 — interactive resolver under a proactive alert bubble */}
               {showCard && (
                 <div className="self-start w-full">
