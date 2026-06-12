@@ -8,6 +8,7 @@ from app.agents.planning_agent import (
     _fetch_all_alternatives,
     _ensure_always_modes,
     estimated_alternatives_models,
+    _fill_transit_fare,
     _apply_mode_safety_guard,
     _classify_place,
     _assign_evening_to_days,
@@ -827,6 +828,47 @@ async def test_estimate_path_recommendation_unchanged():
     with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
         result = await plan_trip("t-rec", ids, 1, 999.0, optimize_order=False, preferences=None)
     assert result.days[0].legs[0].transport_mode == "METRO"
+
+
+# ── dev23: transit fare backfill (PTC bands) ─────────────────────────────────
+
+def test_fill_transit_fare_metro_from_distance():
+    route = {"fare_sgd": 0.0, "distance_km": 9.0}
+    _fill_transit_fare("METRO", route)
+    assert route["fare_sgd"] == 1.82
+
+
+def test_fill_transit_fare_bus_from_distance():
+    route = {"fare_sgd": 0.0, "distance_km": 4.0}   # band ≤4.2km → 1.38
+    _fill_transit_fare("BUS", route)
+    assert route["fare_sgd"] == 1.38
+    route2 = {"fare_sgd": 0.0, "distance_km": 5.0}  # band ≤5.2km → 1.49
+    _fill_transit_fare("BUS", route2)
+    assert route2["fare_sgd"] == 1.49
+
+
+def test_fill_transit_fare_onemap_first_keeps_real_fare():
+    route = {"fare_sgd": 1.20, "distance_km": 9.0}
+    _fill_transit_fare("METRO", route)
+    assert route["fare_sgd"] == 1.20      # real OneMap fare untouched
+
+
+def test_fill_transit_fare_non_transit_untouched():
+    walk = {"fare_sgd": 0.0, "distance_km": 2.0}
+    _fill_transit_fare("WALK", walk)
+    assert walk["fare_sgd"] == 0.0
+    grab = {"fare_sgd": 8.50, "distance_km": 5.0}
+    _fill_transit_fare("GRAB", grab)
+    assert grab["fare_sgd"] == 8.50
+
+
+def test_fill_transit_fare_missing_or_zero_distance_no_change():
+    no_dist = {"fare_sgd": 0.0}
+    _fill_transit_fare("METRO", no_dist)
+    assert no_dist["fare_sgd"] == 0.0
+    zero_dist = {"fare_sgd": 0.0, "distance_km": 0}
+    _fill_transit_fare("BUS", zero_dist)
+    assert zero_dist["fare_sgd"] == 0.0
 
 
 # ── switch_leg_mode ───────────────────────────────────────────────────────────
