@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 from app.services import onemap
 from app.services.onemap import NoRouteError
 from app.services.scoring import score_alternatives
+from app.services.fares import estimate_transit_fare
 from app.exceptions import PlaceDataMissingError
 from app.models.trip import (
     TripPlan, DayPlan, LegResponse, GapNotification,
@@ -471,6 +472,24 @@ def _normalize_instructions(raw: list) -> list[str]:
     return result
 
 
+_TRANSIT_FARE_MODES = frozenset({"BUS", "METRO"})
+
+
+def _fill_transit_fare(mode_key: str, route: dict) -> None:
+    """Backfill a PTC distance-based fare for a transit route dict when OneMap omitted it.
+
+    Mutates `route` in place. No-op for non-transit modes, or when a positive fare is
+    already present (OneMap-first). Uses the route's total distance_km as the band input.
+    """
+    if mode_key not in _TRANSIT_FARE_MODES:
+        return
+    if route.get("fare_sgd", 0) > 0:      # OneMap-first: keep any real fare
+        return
+    dist = route.get("distance_km")
+    if dist:
+        route["fare_sgd"] = estimate_transit_fare(dist)
+
+
 def _to_alternative(route_dict: dict) -> AlternativeRoute:
     """Convert a raw OneMap route dict into an AlternativeRoute model."""
     return AlternativeRoute(
@@ -652,6 +671,11 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
     else:
         dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
         result["GRAB"] = _estimate_grab(dist_km, from_place_name=from_p.get("name", ""))
+
+    # Backfill BUS/METRO fares (PTC distance bands) when OneMap omitted them — single funnel
+    # for every real transit alternative the user can see or switch to (dev23).
+    for mode_key, route in result.items():
+        _fill_transit_fare(mode_key, route)
 
     return result
 
@@ -908,6 +932,7 @@ async def plan_trip(
                 "distance_km": round(dist_km, 2),
                 "sub_legs": [],
             }
+            _fill_transit_fare(mode_key, est_route)   # PTC fare on the METRO placeholder (dev23)
             route_cache[(a["id"], b["id"])]    = est_route
             # Estimate path stores a single synthetic mode; enrich the menu so WALK/CYCLE/GRAB
             # are always switchable after non-optimize plans/edits (route_cache default unchanged).
@@ -1137,6 +1162,7 @@ async def plan_trip(
                     "legs": [{"mode": ret_best, "duration_minutes": dur}],
                     "distance_km": round(dist_km, 2), "sub_legs": [],
                 }
+                _fill_transit_fare(ret_best, ret_route)   # PTC fare on METRO return-leg (dev23)
                 ret_alts = _ensure_always_modes({ret_best: ret_route}, last_p, hotel_place, dist_km)
             if ret_best == "WALK":
                 ret_transport = "WALK"
