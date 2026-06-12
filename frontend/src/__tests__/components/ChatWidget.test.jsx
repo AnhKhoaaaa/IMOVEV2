@@ -122,6 +122,28 @@ describe('ChatWidget alert action card (dev25 P2)', () => {
     window.removeEventListener('imove:trip-updated', onUpdated)
   })
 
+  it('renders rich blocks from a chat reply instead of a plain bubble', async () => {
+    api.sendChat.mockResolvedValue({
+      reply: 'Here you go.',
+      blocks: [
+        { type: 'text', markdown: 'Try this spot:' },
+        { type: 'place_card', id: 'p1', name: 'Merlion Park', image_url: 'https://img/m.jpg', suggested_duration_minutes: 30 },
+      ],
+    })
+    useAlerts.mockReturnValue({ alerts: [] })
+
+    render(<ChatWidget />)
+    fireEvent.click(screen.getByLabelText('chatOpen'))
+
+    const textarea = screen.getByPlaceholderText('chatPlaceholder')
+    fireEvent.change(textarea, { target: { value: 'ideas?' } })
+    fireEvent.click(screen.getByLabelText('chatSend'))
+
+    await waitFor(() => expect(api.sendChat).toHaveBeenCalled())
+    expect(await screen.findByText('Try this spot:')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Merlion Park' })).toBeInTheDocument()
+  })
+
   it('dismissing the card removes it but keeps the friendly bubble', async () => {
     api.phraseAlert.mockResolvedValue({ text: 'Heads up — rain on Day 2!', alert_id: 'al-1' })
     useAlerts.mockReturnValue({ alerts: [alert1] })

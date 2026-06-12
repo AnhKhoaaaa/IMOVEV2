@@ -465,6 +465,15 @@ const EN = {
   chatLoginRequired: 'Sign in to use the assistant',
   chatLoginHint: 'The AI assistant is only available for logged-in users.',
   chatUnread: (n) => `${n} new trip update${n !== 1 ? 's' : ''}`,
+  // dev25 P3 — rich chat blocks
+  chatCardDuration: (n) => `${n} min`,
+  chatRouteCompare: 'Route options',
+  chatRouteFree: 'Free',
+  chatMinShort: (n) => `${n} min`,
+  chatBusArrivals: (stop) => `Bus stop ${stop}`,
+  chatBusNow: 'Arriving',
+  chatBusEta: (n) => `${n} min`,
+  chatBusNone: 'No arrivals right now',
 }
 
 const VI = {
@@ -893,6 +902,15 @@ const VI = {
   chatLoginRequired: 'Đăng nhập để sử dụng trợ lý',
   chatLoginHint: 'Trợ lý AI chỉ dành cho tài khoản đã đăng nhập.',
   chatUnread: (n) => `${n} cập nhật mới cho chuyến đi`,
+  // dev25 P3 — rich chat blocks
+  chatCardDuration: (n) => `${n} phút`,
+  chatRouteCompare: 'Lựa chọn lộ trình',
+  chatRouteFree: 'Miễn phí',
+  chatMinShort: (n) => `${n} phút`,
+  chatBusArrivals: (stop) => `Trạm xe buýt ${stop}`,
+  chatBusNow: 'Sắp đến',
+  chatBusEta: (n) => `${n} phút`,
+  chatBusNone: 'Hiện chưa có chuyến nào',
 }
 
 export { EN, VI }

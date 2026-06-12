@@ -143,3 +143,106 @@ async def test_write_without_open_trip_returns_tool_error():
         res = await chat_agent.run_chat("s7", "thêm địa điểm", trip_id=None)
     assert res.proposed_action is None
     assert "s7" not in chat_agent._pending_actions
+
+
+# ── rich multi-block messages (dev25 P3) ─────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_plain_answer_yields_single_text_block():
+    cm, _ = _patch_gen(_resp([_text_part("Gardens by the Bay is lovely!")]))
+    with cm:
+        res = await chat_agent.run_chat("b1", "gợi ý", trip_id=None)
+    assert res.blocks is not None
+    assert len(res.blocks) == 1
+    assert res.blocks[0].type == "text"
+    assert res.blocks[0].markdown == "Gardens by the Bay is lovely!"
+    assert res.reply == "Gardens by the Bay is lovely!"   # back-compat fallback kept
+
+
+@pytest.mark.asyncio
+async def test_multi_paragraph_yields_multiple_text_blocks():
+    cm, _ = _patch_gen(_resp([_text_part("First idea here.\n\nSecond idea here.")]))
+    with cm:
+        res = await chat_agent.run_chat("b2", "gợi ý", trip_id=None)
+    text_blocks = [b for b in res.blocks if b.type == "text"]
+    assert [b.markdown for b in text_blocks] == ["First idea here.", "Second idea here."]
+
+
+@pytest.mark.asyncio
+async def test_show_places_yields_place_card_with_dataset_image():
+    pid = _a_curated_id()
+    from app.agents.planning_agent import get_curated_place
+    curated = get_curated_place(pid)
+    cm, _ = _patch_gen(
+        _resp([_fc_part("show_places", {"place_ids": [pid]})]),
+        _resp([_text_part("Here's a great spot for you.")]),
+    )
+    with cm:
+        res = await chat_agent.run_chat("b3", "đề xuất", trip_id=None)
+    cards = [b for b in res.blocks if b.type == "place_card"]
+    assert len(cards) == 1
+    assert cards[0].id == pid
+    assert cards[0].name == curated["name"]
+    # Image comes from the dataset, never invented by the model.
+    assert cards[0].image_url == curated.get("image_url")
+    # Final text block precedes the card.
+    assert res.blocks[0].type == "text"
+
+
+@pytest.mark.asyncio
+async def test_show_places_ignores_unknown_ids():
+    cm, _ = _patch_gen(
+        _resp([_fc_part("show_places", {"place_ids": ["not-a-real-id"]})]),
+        _resp([_text_part("Hmm, nothing to show.")]),
+    )
+    with cm:
+        res = await chat_agent.run_chat("b4", "đề xuất", trip_id=None)
+    assert [b for b in res.blocks if b.type == "place_card"] == []
+
+
+@pytest.mark.asyncio
+async def test_compare_routes_yields_route_compare_block():
+    routes = {
+        "pt": {"available": True, "duration_minutes": 22, "fare_sgd": 1.5, "distance_km": 8, "summary": "Bus 14"},
+        "walk": {"available": False, "duration_minutes": 0, "fare_sgd": 0, "distance_km": 0, "summary": ""},
+        "cycle": {"available": True, "duration_minutes": 18, "fare_sgd": 0.0, "distance_km": 5, "summary": "direct"},
+    }
+    cm, _ = _patch_gen(
+        _resp([_fc_part("compare_routes", {"from_lat": 1.3, "from_lng": 103.8, "to_lat": 1.31, "to_lng": 103.85})]),
+        _resp([_text_part("Transit is your best bet.")]),
+    )
+    with cm, patch("app.services.onemap.get_all_routes", new=AsyncMock(return_value=routes)):
+        res = await chat_agent.run_chat("b5", "đường nào nhanh", trip_id=None)
+    blocks = [b for b in res.blocks if b.type == "route_compare"]
+    assert len(blocks) == 1
+    modes = {o.mode for o in blocks[0].options}
+    assert modes == {"TRANSIT", "CYCLE"}      # unavailable WALK is dropped
+
+
+@pytest.mark.asyncio
+async def test_bus_arrivals_yields_block():
+    arrivals = [
+        {"service_no": "14", "next_arrival_minutes": 3, "next_arrival_2_minutes": 12, "load": "SEA"},
+        {"service_no": "16", "next_arrival_minutes": 7, "next_arrival_2_minutes": 20, "load": "SDA"},
+    ]
+    cm, _ = _patch_gen(
+        _resp([_fc_part("get_bus_arrivals", {"stop_code": "83139"})]),
+        _resp([_text_part("Next buses are close.")]),
+    )
+    with cm, patch("app.services.lta.get_bus_arrival", new=AsyncMock(return_value=arrivals)):
+        res = await chat_agent.run_chat("b6", "xe buýt", trip_id=None)
+    blocks = [b for b in res.blocks if b.type == "bus_arrivals"]
+    assert len(blocks) == 1
+    assert blocks[0].stop_code == "83139"
+    assert [s.service_no for s in blocks[0].services] == ["14", "16"]
+    assert blocks[0].services[0].eta_min == 3
+
+
+@pytest.mark.asyncio
+async def test_proposal_response_has_no_blocks():
+    pid = _a_curated_id()
+    cm, _ = _patch_gen(_resp([_fc_part("add_place", {"place_id": pid, "day": 1})]))
+    with cm:
+        res = await chat_agent.run_chat("b7", "thêm địa điểm này", trip_id="t1")
+    assert res.proposed_action is not None
+    assert res.blocks is None        # proposals keep using `reply`

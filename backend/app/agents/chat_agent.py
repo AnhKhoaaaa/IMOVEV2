@@ -8,13 +8,17 @@ action* that the user must confirm via POST /chat/confirm.
 State is in-memory, keyed by session_id (like trips._pending_swaps) — lost on restart.
 """
 import logging
+import re
 import uuid
 from typing import Optional
 
 from google.genai import types
 
 from app.services import gemini
-from app.models.chat import ChatResponse, ProposedAction, Gps
+from app.models.chat import (
+    ChatResponse, ProposedAction, Gps,
+    TextBlock, PlaceCardBlock, RouteOption, RouteCompareBlock, BusService, BusArrivalsBlock,
+)
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +34,7 @@ _MAX_TURNS = 4
 READ_TOOLS = {
     "get_current_trip", "list_my_trips", "search_places", "get_curated_places",
     "compare_routes", "get_bus_arrivals", "get_trip_alerts", "get_weather",
+    "show_places",
 }
 WRITE_TOOLS = {
     "add_place", "remove_place", "reorder_places", "change_leg_mode",
@@ -53,7 +58,11 @@ SYSTEM_PROMPT = (
     "ids you must reference in write tools). "
     "ANY change to the itinerary MUST go through the matching write tool as a PROPOSAL — "
     "never claim a change is done, because writes require the user to confirm. "
-    "Weather and alerts are read-only."
+    "Weather and alerts are read-only. "
+    "PRESENTATION — after you recommend one or more curated places, call show_places with their "
+    "ids so the app shows photo cards; keep your own text short and conversational (the cards "
+    "carry the details). Separate distinct ideas into their own paragraphs (blank line between "
+    "them) so they render as separate blocks."
 )
 
 
@@ -120,6 +129,19 @@ def _build_tool() -> types.Tool:
             name="get_weather",
             description="Current weather at a coordinate (condition, temp_c, rain_1h).",
             parameters=_obj({"lat": _S(NUM), "lng": _S(NUM)}, ["lat", "lng"]),
+        ),
+        types.FunctionDeclaration(
+            name="show_places",
+            description=(
+                "Display rich place cards (photo + name + category + suggested duration) for the "
+                "curated places you are recommending. Call this AFTER mentioning places, passing "
+                "their curated ids (from search_places / get_curated_places). The app renders the "
+                "cards from the dataset — do not describe images yourself."
+            ),
+            parameters=_obj(
+                {"place_ids": _S(types.Type.ARRAY, items=_S(STR))},
+                ["place_ids"],
+            ),
         ),
         # ── write (proposal only) ──
         types.FunctionDeclaration(
@@ -206,6 +228,9 @@ async def run_chat(
         "trip_id": resolved_trip_id,
         "gps": gps,
         "current_user": current_user,
+        # dev25 P3 — data-card blocks captured across the turn (place cards / route / bus),
+        # built backend-side from tools so images & ids are always real.
+        "card_blocks": [],
     }
 
     for _ in range(_MAX_TURNS):
@@ -226,7 +251,10 @@ async def run_chat(
         if not fcs:
             if ctx.get("trip_id"):
                 session_ctx["trip_id"] = ctx["trip_id"]
-            return ChatResponse(reply=text or _FALLBACK)
+            return ChatResponse(
+                reply=text or _FALLBACK,
+                blocks=_assemble_blocks(text, ctx["card_blocks"]),
+            )
 
         response_parts = []
         proposal_stop = None
@@ -268,6 +296,56 @@ _FALLBACK = (
     "Sorry, I couldn't complete that just now. Could you rephrase or try again? "
     "(Xin lỗi, tôi chưa xử lý được — bạn thử diễn đạt lại giúp nhé.)"
 )
+
+
+# ── rich blocks (dev25 P3) ────────────────────────────────────────────────────────
+
+def _text_blocks(text: str) -> list:
+    """Split the model's final prose into one TextBlock per paragraph (blank-line separated)."""
+    if not text:
+        return []
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    return [TextBlock(markdown=p) for p in paras]
+
+
+def _assemble_blocks(text: str, card_blocks: list):
+    """Final answer = text paragraphs followed by captured data cards (in call order).
+
+    Returns None when there's nothing structured (plain answer / fallback) so the client
+    falls back to `reply`.
+    """
+    blocks = _text_blocks(text) + list(card_blocks)
+    return blocks or None
+
+
+def _route_compare_block(result: dict) -> Optional[RouteCompareBlock]:
+    if not isinstance(result, dict):
+        return None
+    label = {"pt": "TRANSIT", "walk": "WALK", "cycle": "CYCLE"}
+    options = []
+    for key, mode in label.items():
+        m = result.get(key)
+        if isinstance(m, dict) and m.get("available"):
+            options.append(RouteOption(
+                mode=mode,
+                duration_minutes=m.get("duration_minutes"),
+                fare_sgd=m.get("fare_sgd"),
+            ))
+    return RouteCompareBlock(options=options) if options else None
+
+
+def _bus_arrivals_block(stop_code: str, result) -> Optional[BusArrivalsBlock]:
+    if not isinstance(result, list):
+        return None
+    services = [
+        BusService(
+            service_no=str(s.get("service_no")),
+            eta_min=s.get("next_arrival_minutes"),
+            load=s.get("load") or None,
+        )
+        for s in result if isinstance(s, dict) and s.get("service_no")
+    ]
+    return BusArrivalsBlock(stop_code=stop_code, services=services)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────────
@@ -374,15 +452,43 @@ async def _execute_read_tool(tool, args, ctx) -> object:
                 for p in get_all_places().values()
             ]
 
+        if tool == "show_places":
+            # Presentation tool — build photo cards from the curated dataset (never the model),
+            # so image_url / place_id are always real. Returns a small ack to the model.
+            from app.agents.planning_agent import get_curated_place
+            ids = [str(x) for x in (args.get("place_ids") or [])]
+            shown = []
+            for pid in ids:
+                p = get_curated_place(pid)
+                if p:
+                    ctx["card_blocks"].append(PlaceCardBlock(
+                        id=p["id"],
+                        name=p["name"],
+                        category=p.get("category"),
+                        image_url=p.get("image_url"),
+                        suggested_duration_minutes=p.get("suggested_duration_minutes"),
+                    ))
+                    shown.append(p["id"])
+            return {"status": "displayed", "shown_place_ids": shown, "count": len(shown)}
+
         if tool == "compare_routes":
             from app.services import onemap
-            return await onemap.get_all_routes(
+            result = await onemap.get_all_routes(
                 args["from_lat"], args["from_lng"], args["to_lat"], args["to_lng"]
             )
+            block = _route_compare_block(result)
+            if block:
+                ctx["card_blocks"].append(block)
+            return result
 
         if tool == "get_bus_arrivals":
             from app.services import lta
-            return await lta.get_bus_arrival(args["stop_code"])
+            stop_code = args["stop_code"]
+            result = await lta.get_bus_arrival(stop_code)
+            block = _bus_arrivals_block(stop_code, result)
+            if block:
+                ctx["card_blocks"].append(block)
+            return result
 
         if tool == "get_trip_alerts":
             return _read_alerts(ctx.get("trip_id"))
