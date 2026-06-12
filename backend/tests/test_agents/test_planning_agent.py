@@ -6,6 +6,7 @@ from app.agents.planning_agent import (
     switch_leg_mode,
     switch_leg_mode_live,
     _fetch_all_alternatives,
+    _apply_mode_safety_guard,
     _classify_place,
     _assign_evening_to_days,
     _day_bucketed_greedy,
@@ -606,6 +607,79 @@ async def test_gemini_exception_falls_back_to_place_missing():
 
 
 # ── _fetch_all_alternatives ──────────────────────────────────────────────────
+
+def test_mode_safety_guard_replaces_long_cycle_with_fastest_transit():
+    alternatives = {
+        "CYCLE": {"duration_minutes": 180},
+        "METRO": {"duration_minutes": 45},
+        "BUS": {"duration_minutes": 60},
+        "GRAB": {"duration_minutes": 25},
+    }
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=12.0) == "METRO"
+
+
+def test_mode_safety_guard_replaces_long_cycle_with_grab_without_transit():
+    alternatives = {
+        "CYCLE": {"duration_minutes": 180},
+        "GRAB": {"duration_minutes": 25},
+    }
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=12.0) == "GRAB"
+
+
+def test_mode_safety_guard_keeps_short_cycle_recommendation():
+    alternatives = {
+        "CYCLE": {"duration_minutes": 35},
+        "METRO": {"duration_minutes": 30},
+        "GRAB": {"duration_minutes": 15},
+    }
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=6.0) == "CYCLE"
+
+
+def test_mode_safety_guard_keeps_long_cycle_when_no_practical_alternative():
+    """Cycle > 60 min but no transit and dist < 2km → nothing safer to swap to → keep CYCLE."""
+    alternatives = {"CYCLE": {"duration_minutes": 65}}
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=1.8) == "CYCLE"
+
+
+def test_mode_safety_guard_replaces_long_walk_with_fastest_transit():
+    alternatives = {
+        "WALK": {"duration_minutes": 40},
+        "METRO": {"duration_minutes": 20},
+        "BUS": {"duration_minutes": 15},
+    }
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=3.0) == "BUS"
+
+
+def test_mode_safety_guard_replaces_long_walk_with_grab_without_transit():
+    alternatives = {
+        "WALK": {"duration_minutes": 40},
+        "GRAB": {"duration_minutes": 12},
+    }
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=3.0) == "GRAB"
+
+
+def test_mode_safety_guard_keeps_walk_below_distance_floor():
+    """WALK under 1.5 km stays WALK even when transit exists."""
+    alternatives = {
+        "WALK": {"duration_minutes": 14},
+        "METRO": {"duration_minutes": 9},
+    }
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=1.2) == "WALK"
+
+
+def test_mode_safety_guard_keeps_mid_distance_walk_without_grab():
+    """1.5 km ≤ dist < 2 km with no transit and no Grab → keep WALK (Grab floor not met)."""
+    alternatives = {"WALK": {"duration_minutes": 22}}
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=1.7) == "WALK"
+
 
 @pytest.mark.asyncio
 async def test_fetch_all_alternatives_returns_available_modes():

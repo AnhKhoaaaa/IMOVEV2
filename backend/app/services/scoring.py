@@ -11,6 +11,12 @@ from app.models.preferences import (
 )
 
 
+# Active (human-powered) modes are only recommended for short legs. Beyond
+# _FAR_LEG_KM a leg is "far" → transit/Grab are preferred (see score_alternatives).
+_ACTIVE_MODES = frozenset({"WALK", "CYCLE"})
+_FAR_LEG_KM   = 1.5
+
+
 # ── Dimension extractors ──────────────────────────────────────────────────────
 
 def _walk_minutes(alt: AlternativeRoute, mode: str = "") -> int:
@@ -106,6 +112,9 @@ def score_alternatives(
     alternatives: dict[str, AlternativeRoute],
     profile: UserPreferenceProfile | None = None,
     context: ContextSnapshot | None = None,
+    *,
+    dist_km: float | None = None,
+    over_budget: bool = False,
 ) -> ScoringResult:
     """Xếp hạng các transport mode alternatives cho một leg.
 
@@ -113,6 +122,12 @@ def score_alternatives(
         alternatives: dict mode → AlternativeRoute, ví dụ {"METRO": ..., "BUS": ..., "WALK": ...}
         profile:      user preference profile (default weights nếu None)
         context:      real-time context snapshot (no rain, not peak nếu None)
+        dist_km:      straight-line leg distance. Khi >= _FAR_LEG_KM, active modes
+                      (Walk/Cycle) bị loại khỏi pool chấm điểm nếu còn lựa chọn
+                      cơ giới (transit) — tránh việc duration bị lép vế trước các
+                      ưu thế free / 0-transfer của xe đạp. None → không áp tier gate.
+        over_budget:  escape hatch — khi True, giữ active modes cho leg xa (đi bộ/đạp
+                      xe miễn phí). Hiện luôn False; dành cho budget-aware pass sau này.
 
     Returns:
         ScoringResult với ranked list (best → worst) và recommended_mode.
@@ -134,6 +149,14 @@ def score_alternatives(
     }
     if not pool:
         pool = alternatives   # fallback: không loại bỏ toàn bộ pool
+
+    # 1b. Distance tier gate — leg xa thì Walk/Cycle không được khuyến nghị khi vẫn
+    # còn lựa chọn cơ giới và chưa vượt budget. Chỉ thu hẹp pool chấm điểm; active
+    # modes vẫn nằm trong `alternatives` để UI hiển thị như lựa chọn thủ công.
+    if dist_km is not None and dist_km >= _FAR_LEG_KM and not over_budget:
+        motorized = {m: a for m, a in pool.items() if m not in _ACTIVE_MODES}
+        if motorized:
+            pool = motorized
 
     # 2. Extract raw dimensions
     # [PATCH 2] đã đảm bảo kiểu số (float/int) từ onemap.py trước khi vào đây.
