@@ -10,6 +10,7 @@ State is in-memory, keyed by session_id (like trips._pending_swaps) — lost on 
 import logging
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from google.genai import types
@@ -31,10 +32,12 @@ _chat_ctx: dict[str, dict] = {}
 
 _MAX_TURNS = 4
 
+_SGT = timezone(timedelta(hours=8))
+
 READ_TOOLS = {
     "get_current_trip", "list_my_trips", "search_places", "get_curated_places",
     "compare_routes", "get_bus_arrivals", "get_trip_alerts", "get_weather",
-    "show_places",
+    "show_places", "get_current_events",
 }
 WRITE_TOOLS = {
     "add_place", "remove_place", "reorder_places", "change_leg_mode",
@@ -64,6 +67,23 @@ SYSTEM_PROMPT = (
     "carry the details). Separate distinct ideas into their own paragraphs (blank line between "
     "them) so they render as separate blocks."
 )
+
+
+def build_system_prompt(today: Optional[str] = None) -> str:
+    """dev25 P4 — inject the current Singapore date + web-grounding rules into the base prompt.
+
+    Built per request so the model always knows 'today' for seasonal/event answers.
+    """
+    today = today or datetime.now(_SGT).strftime("%A, %d %B %Y")
+    return SYSTEM_PROMPT + (
+        f"\nCONTEXT — today in Singapore is {today}. "
+        "For questions about CURRENT or seasonal happenings (events, festivals, public holidays, "
+        "what's on this weekend, neighbourhood vibes, up-to-date travel tips), call "
+        "get_current_events ONCE to fetch fresh web info. Web results are INFORMATIONAL ONLY: you "
+        "may name and describe a place from them, but you MUST NOT add a non-curated place to the "
+        "itinerary (only curated place_ids can be added via the write tools). Do NOT call "
+        "get_current_events for itinerary edits, routes, weather, or places already in the dataset."
+    )
 
 
 # ── Tool declarations ──────────────────────────────────────────────────────────
@@ -142,6 +162,20 @@ def _build_tool() -> types.Tool:
                 {"place_ids": _S(types.Type.ARRAY, items=_S(STR))},
                 ["place_ids"],
             ),
+        ),
+        types.FunctionDeclaration(
+            name="get_current_events",
+            description=(
+                "Fetch UP-TO-DATE info from the web about current/seasonal happenings in "
+                "Singapore: events, festivals, public holidays, what's on now, travel tips, "
+                "neighbourhood guides. Call at most ONCE per message, and only for time/season/"
+                "event/neighbourhood questions. Returns an informational summary — never use it "
+                "to add itinerary stops (only curated places can be added)."
+            ),
+            parameters=_obj({
+                "query": _S(STR, description="What to look up, e.g. 'festivals this weekend', 'things to do in Kampong Glam'."),
+                "month": _S(STR, description="Optional month/season hint, e.g. 'June 2026'."),
+            }),
         ),
         # ── write (proposal only) ──
         types.FunctionDeclaration(
@@ -231,14 +265,18 @@ async def run_chat(
         # dev25 P3 — data-card blocks captured across the turn (place cards / route / bus),
         # built backend-side from tools so images & ids are always real.
         "card_blocks": [],
+        # dev25 P4 — at most ONE web-grounded events lookup per message (hard cap).
+        "events_call_used": False,
     }
+
+    system_prompt = build_system_prompt()
 
     for _ in range(_MAX_TURNS):
         try:
             response = await gemini.generate_chat(
                 contents=history,
                 tools=[_TOOLS],
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_prompt,
             )
         except Exception as exc:  # network/LLM failure — never crash the request
             log.warning("generate_chat failed: %s", exc)
@@ -499,6 +537,21 @@ async def _execute_read_tool(tool, args, ctx) -> object:
             if lat is None or lng is None:
                 return {"error": "GPS coordinates are required for weather."}
             return await openweather.get_current_weather(lat, lng)
+
+        if tool == "get_current_events":
+            # Hard cap: one grounded web call per message (prevents quota burn / loops).
+            if ctx.get("events_call_used"):
+                return {"error": "A web lookup was already used for this message."}
+            ctx["events_call_used"] = True
+            q = (args.get("query") or "").strip() or "current events and festivals in Singapore"
+            month = (args.get("month") or "").strip()
+            full_q = f"{q} ({month})" if month else q
+            today = datetime.now(_SGT).strftime("%Y-%m-%d")
+            result = await gemini.search_events_grounded(full_q, today=today)
+            text = (result or {}).get("text", "").strip()
+            if not text:
+                return {"error": "No up-to-date information is available right now."}
+            return {"summary": text, "citations": result.get("citations", [])}
     except Exception as exc:
         return {"error": str(exc)}
 

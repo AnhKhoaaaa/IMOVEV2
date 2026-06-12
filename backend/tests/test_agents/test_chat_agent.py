@@ -246,3 +246,55 @@ async def test_proposal_response_has_no_blocks():
         res = await chat_agent.run_chat("b7", "thêm địa điểm này", trip_id="t1")
     assert res.proposed_action is not None
     assert res.blocks is None        # proposals keep using `reply`
+
+
+# ── web grounding for current events (dev25 P4) ──────────────────────────────────
+
+def test_build_system_prompt_injects_today_and_event_rules():
+    p = chat_agent.build_system_prompt(today="Saturday, 13 June 2026")
+    assert "Saturday, 13 June 2026" in p
+    assert "get_current_events" in p
+    assert "INFORMATIONAL ONLY" in p
+
+
+@pytest.mark.asyncio
+async def test_get_current_events_routes_to_grounded_search():
+    cm, _ = _patch_gen(
+        _resp([_fc_part("get_current_events", {"query": "festivals this weekend"})]),
+        _resp([_text_part("This weekend there's a food festival at Marina Bay!")]),
+    )
+    with cm, patch.object(
+        chat_agent.gemini, "search_events_grounded",
+        new=AsyncMock(return_value={"text": "Food festival at Marina Bay.", "citations": []}),
+    ) as spy:
+        res = await chat_agent.run_chat("e1", "có lễ hội gì cuối tuần này?", trip_id=None)
+    spy.assert_awaited_once()
+    assert any(b.type == "text" for b in res.blocks)
+
+
+@pytest.mark.asyncio
+async def test_get_current_events_capped_at_one_call_per_message():
+    # Model asks for two grounded lookups in one turn — the second must be short-circuited.
+    cm, _ = _patch_gen(
+        _resp([
+            _fc_part("get_current_events", {"query": "a"}),
+            _fc_part("get_current_events", {"query": "b"}),
+        ]),
+        _resp([_text_part("Here's what I found.")]),
+    )
+    with cm, patch.object(
+        chat_agent.gemini, "search_events_grounded",
+        new=AsyncMock(return_value={"text": "something", "citations": []}),
+    ) as spy:
+        await chat_agent.run_chat("e2", "events?", trip_id=None)
+    assert spy.await_count == 1     # hard cap enforced
+
+
+@pytest.mark.asyncio
+async def test_events_tool_not_called_for_plain_advice():
+    cm, _ = _patch_gen(_resp([_text_part("Gardens by the Bay is lovely.")]))
+    with cm, patch.object(
+        chat_agent.gemini, "search_events_grounded", new=AsyncMock(),
+    ) as spy:
+        await chat_agent.run_chat("e3", "gợi ý nơi đẹp", trip_id=None)
+    spy.assert_not_called()
