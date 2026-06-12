@@ -6,6 +6,8 @@ from app.agents.planning_agent import (
     switch_leg_mode,
     switch_leg_mode_live,
     _fetch_all_alternatives,
+    _ensure_always_modes,
+    estimated_alternatives_models,
     _apply_mode_safety_guard,
     _classify_place,
     _assign_evening_to_days,
@@ -764,6 +766,67 @@ async def test_plan_trip_populates_alternatives():
     leg = result.days[0].legs[0]
     assert isinstance(leg.alternatives, dict)
     assert len(leg.alternatives) >= 1
+
+
+# ── dev22 Phase 1: always-switchable WALK/CYCLE/GRAB ──────────────────────────
+
+def test_ensure_always_modes_fills_missing():
+    """Missing WALK/CYCLE/GRAB are filled (estimated); a real entry is preserved by identity."""
+    real_metro = {"duration_minutes": 12, "fare_sgd": 1.5, "is_estimated": False,
+                  "legs": [{"mode": "SUBWAY"}], "distance_km": 4.0}
+    out = _ensure_always_modes({"METRO": real_metro},
+                               {"name": "Gardens"}, {"name": "MBS"}, dist_km=4.0)
+    assert set(out) >= {"METRO", "WALK", "CYCLE", "GRAB"}
+    assert out["METRO"] is real_metro                 # real route untouched
+    assert out["WALK"]["is_estimated"] is True
+    assert out["CYCLE"]["is_estimated"] is True
+    assert out["GRAB"]["is_estimated"] is True
+
+
+def test_ensure_always_modes_keeps_real_active():
+    """A real WALK/CYCLE/GRAB already present is never overwritten by the estimate."""
+    real_walk = {"duration_minutes": 9, "fare_sgd": 0.0, "is_estimated": False,
+                 "legs": [{"mode": "WALK"}], "distance_km": 0.5}
+    out = _ensure_always_modes({"WALK": real_walk}, {"name": "A"}, {"name": "B"}, dist_km=0.5)
+    assert out["WALK"] is real_walk
+    assert out["WALK"]["is_estimated"] is False
+    assert "CYCLE" in out and "GRAB" in out
+
+
+def test_ensure_always_modes_does_not_mutate_input():
+    """Enrichment must produce a NEW dict — scoring reads the raw input (Impact §A)."""
+    src = {"METRO": {"duration_minutes": 12, "distance_km": 4.0}}
+    out = _ensure_always_modes(src, {"name": "A"}, {"name": "B"}, dist_km=4.0)
+    assert set(src) == {"METRO"}      # input untouched
+    assert out is not src
+
+
+def test_estimated_alternatives_models_returns_three_modes():
+    """DB-reload fallback yields WALK/CYCLE/GRAB as AlternativeRoute models."""
+    models = estimated_alternatives_models(1.2816, 103.8636, 1.2834, 103.8607, "Gardens")
+    assert set(models) == {"WALK", "CYCLE", "GRAB"}
+    assert all(isinstance(v, AlternativeRoute) for v in models.values())
+    assert all(v.is_estimated for v in models.values())
+
+
+@pytest.mark.asyncio
+async def test_estimate_path_exposes_always_modes():
+    """Non-optimize (estimate) plan: every leg's menu offers WALK/CYCLE/GRAB to switch to."""
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
+        result = await plan_trip("t-always", ids, 1, 999.0, optimize_order=False, preferences=None)
+    for day in result.days:
+        for leg in day.legs:
+            assert {"WALK", "CYCLE", "GRAB"} <= set(leg.alternatives)
+
+
+@pytest.mark.asyncio
+async def test_estimate_path_recommendation_unchanged():
+    """Enrichment must NOT change the recommended transport_mode (still METRO on the far leg)."""
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
+        result = await plan_trip("t-rec", ids, 1, 999.0, optimize_order=False, preferences=None)
+    assert result.days[0].legs[0].transport_mode == "METRO"
 
 
 # ── switch_leg_mode ───────────────────────────────────────────────────────────
