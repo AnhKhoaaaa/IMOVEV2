@@ -221,3 +221,61 @@ class TestConstraints:
         assert "minimize_walking" in result.reasoning
         # METRO should win (less walking)
         assert result.recommended_mode == "METRO"
+
+
+# ── Distance tier gate ────────────────────────────────────────────────────────
+
+class TestDistanceTierGate:
+    def test_far_leg_drops_cycle_in_favor_of_transit(self):
+        """The root-cause case: a 3-hour cycle no longer wins on a far leg."""
+        alts = {
+            "CYCLE": _alt(duration=180, cost=0.0),   # free + 0 transfers → used to win
+            "METRO": _alt(duration=45,  cost=2.20),
+        }
+        result = score_alternatives(alts, dist_km=12.0)
+        assert result.recommended_mode == "METRO"
+
+    def test_far_leg_drops_walk_in_favor_of_transit(self):
+        alts = {
+            "WALK":  _alt(duration=40, cost=0.0),
+            "BUS":   _alt(duration=18, cost=1.10),
+        }
+        result = score_alternatives(alts, dist_km=3.0)
+        assert result.recommended_mode == "BUS"
+
+    def test_far_leg_keeps_active_when_no_motorized_option(self):
+        """No transit available → active modes remain recommendable (Grab handled upstream)."""
+        alts = {
+            "CYCLE": _alt(duration=180, cost=0.0),
+            "WALK":  _alt(duration=240, cost=0.0),
+        }
+        result = score_alternatives(alts, dist_km=12.0)
+        assert result.recommended_mode in {"CYCLE", "WALK"}
+
+    def test_short_leg_still_allows_active_modes(self):
+        """Under _FAR_LEG_KM the gate is inactive → cheap/short cycle can win."""
+        alts = {
+            "CYCLE": _alt(duration=8,  cost=0.0),
+            "METRO": _alt(duration=12, cost=2.20),
+        }
+        result = score_alternatives(alts, dist_km=1.0)
+        assert result.recommended_mode == "CYCLE"
+
+    def test_over_budget_keeps_active_modes_on_far_leg(self):
+        """Escape hatch: when over_budget, free active modes stay in the pool and can win."""
+        alts = {
+            "CYCLE": _alt(duration=50, cost=0.0),
+            "METRO": _alt(duration=45, cost=2.20, sub_legs=[_sub("WALK", 12), _sub("METRO", 33)]),
+        }
+        # over_budget=False would drop CYCLE; the escape hatch keeps it and it wins on free/walk.
+        result = score_alternatives(alts, dist_km=12.0, over_budget=True)
+        assert result.recommended_mode == "CYCLE"
+
+    def test_no_dist_km_leaves_scoring_unchanged(self):
+        """dist_km=None (default) → gate never fires; the original 3-hour-cycle bug reproduces."""
+        alts = {
+            "CYCLE": _alt(duration=180, cost=0.0),
+            "METRO": _alt(duration=45,  cost=2.20, sub_legs=[_sub("WALK", 10), _sub("METRO", 35)]),
+        }
+        result = score_alternatives(alts)
+        assert result.recommended_mode == "CYCLE"

@@ -25,6 +25,7 @@ from app.models.place import Place
 from app.models.preferences import UserPreferenceProfile, ContextSnapshot
 
 _PLACES_PATH = Path(__file__).parent.parent / "data" / "singapore_places.json"
+_MAX_RECOMMENDED_CYCLE_MINUTES = 60
 
 
 def _validate_time(t: str, place_id: str, field: str) -> None:
@@ -609,6 +610,34 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
     return result
 
 
+def _apply_mode_safety_guard(best_key: str, alternatives: dict[str, dict], dist_km: float) -> str:
+    """Single source of truth for downgrading impractical active-travel recommendations.
+
+    Keeps CYCLE/WALK available in `alternatives` (so the UI can still show them) but
+    avoids recommending them by default when they are impractical:
+      - CYCLE recommended for > _MAX_RECOMMENDED_CYCLE_MINUTES → switch away
+      - WALK recommended for a leg >= 1.5 km                   → switch away
+    Replacement = fastest available transit (METRO/BUS by duration); else Grab when
+    dist_km >= 2.0. Returns best_key unchanged when no safer practical mode exists.
+    """
+    def _fastest_practical() -> str | None:
+        transit = [m for m in ("METRO", "BUS") if m in alternatives]
+        if transit:
+            return min(transit, key=lambda m: alternatives[m].get("duration_minutes", float("inf")))
+        if dist_km >= 2.0 and "GRAB" in alternatives:
+            return "GRAB"
+        return None
+
+    impractical = (
+        (best_key == "CYCLE"
+         and alternatives["CYCLE"].get("duration_minutes", 0) > _MAX_RECOMMENDED_CYCLE_MINUTES)
+        or (best_key == "WALK" and dist_km >= 1.5)
+    )
+    if impractical:
+        return _fastest_practical() or best_key
+    return best_key
+
+
 async def _resolve_via_gemini(name: str) -> str | None:
     """Resolve an ambiguous place name to a curated ID via Gemini. Returns None on any failure."""
     try:
@@ -789,15 +818,10 @@ async def plan_trip(
             alt_cache[(a["id"], b["id"])] = alts
             # GRAB excluded from scoring — it is only selected via the 2km guard below
             alt_models = {m: _to_alternative(r) for m, r in transit_only.items()}
-            scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx)
+            scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx, dist_km=dist_km)
             best_key   = scoring.recommended_mode
-            # Safety guard: prefer PT over WALK for routes ≥ 1.5km; fall back to GRAB at ≥ 2km
-            if dist_km >= 1.5 and best_key == "WALK":
-                pt_key = next((m for m in ("METRO", "BUS") if m in alts), None)
-                if pt_key:
-                    best_key = pt_key
-                elif dist_km >= 2.0 and "GRAB" in alts:
-                    best_key = "GRAB"  # no viable transit → recommend Grab
+            # Safety guard: downgrade impractical WALK/CYCLE → fastest transit (else Grab ≥ 2km)
+            best_key   = _apply_mode_safety_guard(best_key, alts, dist_km)
             route_cache[(a["id"], b["id"])]    = alts[best_key]
             best_key_cache[(a["id"], b["id"])] = best_key
     else:
@@ -869,14 +893,9 @@ async def plan_trip(
                                        "legs": [{"mode": "WALK"}], "distance_km": round(h_dist, 2), "sub_legs": []}
                     h_transit = {m: r for m, r in h_fresh.items() if m != "GRAB"}
                 h_models   = {m: _to_alternative(r) for m, r in h_transit.items()}
-                h_scoring  = score_alternatives(h_models, profile=effective_profile, context=effective_ctx)
+                h_scoring  = score_alternatives(h_models, profile=effective_profile, context=effective_ctx, dist_km=h_dist)
                 h_best_key = h_scoring.recommended_mode
-                if h_dist >= 1.5 and h_best_key == "WALK":
-                    pt_fb = next((m for m in ("METRO", "BUS") if m in h_fresh), None)
-                    if pt_fb:
-                        h_best_key = pt_fb
-                    elif h_dist >= 2.0 and "GRAB" in h_fresh:
-                        h_best_key = "GRAB"  # no viable transit → recommend Grab
+                h_best_key = _apply_mode_safety_guard(h_best_key, h_fresh, h_dist)
                 h_route = h_fresh[h_best_key]
                 h_alts  = h_fresh
                 alt_cache[h_route_key]      = h_fresh
@@ -972,15 +991,9 @@ async def plan_trip(
                             )
                     if best_key_used is None:
                         fresh_models  = {m: _to_alternative(r) for m, r in fresh_transit.items()}
-                        fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx)
+                        fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx, dist_km=dist_km)
                         best_key_used = fresh_scoring.recommended_mode
-                        # Safety guard: prefer PT over WALK for routes ≥ 1.5km; fall back to GRAB at ≥ 2km
-                        if dist_km >= 1.5 and best_key_used == "WALK":
-                            pt_fallback = next((m for m in ("METRO", "BUS") if m in fresh_alts), None)
-                            if pt_fallback:
-                                best_key_used = pt_fallback
-                            elif dist_km >= 2.0 and "GRAB" in fresh_alts:
-                                best_key_used = "GRAB"  # no viable transit → recommend Grab
+                    best_key_used = _apply_mode_safety_guard(best_key_used, fresh_alts, dist_km)
                     alt_cache[route_key]      = fresh_alts
                     route = fresh_alts[best_key_used]
                     route_cache[route_key]    = route
