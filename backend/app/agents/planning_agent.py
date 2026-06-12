@@ -1285,6 +1285,29 @@ async def switch_leg_mode(
             "Try a different transport mode."
         )
 
+    # ── 1b. Lazy real geometry (dev22 §F) ────────────────────────────────────
+    # Persisted alternatives carry no polyline (the compact DB summary drops geometry),
+    # and the estimate path stores transit placeholders with geometry=None. For a
+    # transit/Grab mode with no polyline, re-fetch the real route so the map can draw a
+    # line. WALK/CYCLE are point-to-point estimates → no polyline needed. Best-effort:
+    # never raise → never turn a switch into a click-then-fail.
+    if new_mode not in ("WALK", "CYCLE") and alt.geometry is None:
+        try:
+            from_p = {"id": from_place.id, "lat": from_place.lat,
+                      "lng": from_place.lng, "name": from_place.name}
+            to_p   = {"id": to_place.id, "lat": to_place.lat, "lng": to_place.lng}
+            fresh_alts = await _fetch_all_alternatives(from_p, to_p)
+            real = fresh_alts.get(new_mode)
+            if real and real.get("geometry"):
+                real_alt = _to_alternative(real)
+                target_leg = target_leg.model_copy(update={
+                    "alternatives": {**target_leg.alternatives, new_mode: real_alt},
+                })
+                alt = real_alt
+        except Exception as exc:
+            log.debug("lazy geometry re-fetch failed for %s (%s→%s): %s",
+                      new_mode, target_leg.from_place_id, target_leg.to_place_id, exc)
+
     # ── 2. Build updated leg (alternatives preserved for future switches) ─────
     updated_leg = target_leg.model_copy(update={
         "transport_mode":   new_mode,

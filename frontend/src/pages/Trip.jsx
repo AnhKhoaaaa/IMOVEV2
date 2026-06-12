@@ -365,6 +365,16 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
                     {!option.available && (
                       <span className="ml-auto text-[10px] font-medium text-slate-300">N/A</span>
                     )}
+                    {option.available
+                      && normalizeTransportMode(leg.transport_mode) !== option.mode
+                      && leg.alternatives?.[option.mode]?.is_estimated && (
+                      <span
+                        className="ml-auto text-[9px] font-semibold uppercase tracking-wide text-amber-500"
+                        title={t('tripEstimated')}
+                      >
+                        ~{t('tripEstimated')}
+                      </span>
+                    )}
                     {option.available && normalizeTransportMode(leg.transport_mode) === option.mode && (
                       <CheckCircle size={13} className="ml-auto text-emerald-600" />
                     )}

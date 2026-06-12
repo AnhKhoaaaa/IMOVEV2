@@ -833,8 +833,9 @@ async def test_estimate_path_recommendation_unchanged():
 
 def _make_plan_for_switch(trip_id: str = "t-sw") -> TripPlan:
     """TripPlan with Gardens→MBS leg, BUS alternative pre-populated."""
-    bus_alt = AlternativeRoute(duration_minutes=20, cost_sgd=1.20, is_estimated=False)
-    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False)
+    # Real cached transit alts carry geometry (in-memory after a live plan) → no lazy re-fetch.
+    bus_alt = AlternativeRoute(duration_minutes=20, cost_sgd=1.20, is_estimated=False, geometry="bus_poly")
+    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False, geometry="mrt_poly")
     walk_alt  = AlternativeRoute(duration_minutes=45, cost_sgd=0.0,  is_estimated=False)
     leg = LegResponse(
         id="leg-sw",
@@ -902,6 +903,63 @@ async def test_switch_leg_mode_cache_miss_fetches_on_demand():
 
 
 @pytest.mark.asyncio
+async def test_switch_leg_mode_lazy_refetches_geometry_when_missing():
+    """dev22 §F: a cached transit alt with no polyline (DB reload) lazily re-fetches the
+    real route so the map can draw a line; time/cost come from the real route."""
+    metro_route = {"duration_minutes": 11, "fare_sgd": 1.7, "is_estimated": False,
+                   "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}],
+                   "geometry": "real_mrt_poly", "geometries": ["g1"], "instructions": ["Board NS"],
+                   "sub_legs": [], "distance_km": 2.0}
+
+    async def _mock(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
+        if mode == "walk":
+            return {"duration_minutes": 40, "fare_sgd": 0.0, "is_estimated": False,
+                    "legs": [{"mode": "WALK"}], "geometry": None, "geometries": [],
+                    "instructions": [], "sub_legs": [], "distance_km": 2.0}
+        return metro_route   # mixed pt + bus-only → SUBWAY primary
+
+    # Reload-like leg: METRO alt present but geometry stripped by compact persistence.
+    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False, geometry=None)
+    leg = LegResponse(
+        id="leg-lazy", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="BUS", duration_minutes=20, cost_sgd=1.20, is_estimated=False,
+        alternatives={"METRO": metro_alt},
+    )
+    p_a = _make_place("gardens-by-the-bay", lat=1.2816, lng=103.8636)
+    p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607)
+    plan = TripPlan(id="t-lazy", days=[DayPlan(day=1, legs=[leg])], places=[p_a, p_b], warnings=[])
+
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+        result = await switch_leg_mode("METRO", leg, plan)
+
+    assert result.updated_leg.transport_mode == "METRO"
+    assert result.updated_leg.geometry == "real_mrt_poly"   # polyline restored
+    assert result.updated_leg.duration_minutes == 11        # real route values
+
+
+@pytest.mark.asyncio
+async def test_switch_leg_mode_lazy_refetch_best_effort_on_failure():
+    """If the lazy geometry re-fetch fails, the switch still succeeds with the cached alt
+    (never turns a switch into a click-then-fail)."""
+    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False, geometry=None)
+    leg = LegResponse(
+        id="leg-lazy2", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="BUS", duration_minutes=20, cost_sgd=1.20, is_estimated=False,
+        alternatives={"METRO": metro_alt},
+    )
+    p_a = _make_place("gardens-by-the-bay", lat=1.2816, lng=103.8636)
+    p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607)
+    plan = TripPlan(id="t-lazy2", days=[DayPlan(day=1, legs=[leg])], places=[p_a, p_b], warnings=[])
+
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(side_effect=Exception("OneMap down"))):
+        result = await switch_leg_mode("METRO", leg, plan)
+
+    assert result.updated_leg.transport_mode == "METRO"
+    assert result.updated_leg.geometry is None              # still no polyline, but no crash
+    assert result.updated_leg.duration_minutes == 10        # cached values preserved
+
+
+@pytest.mark.asyncio
 async def test_switch_leg_mode_raises_when_mode_unavailable():
     """If requested mode has no route at all → NoRouteError with clear message."""
     leg = LegResponse(
@@ -944,7 +1002,7 @@ async def test_switch_leg_mode_schedule_warning_when_overfull():
 @pytest.mark.asyncio
 async def test_switch_leg_mode_no_warning_when_fits():
     """Fast switch that keeps day within 17:30 → no schedule warning."""
-    fast_bus = AlternativeRoute(duration_minutes=12, cost_sgd=1.20)
+    fast_bus = AlternativeRoute(duration_minutes=12, cost_sgd=1.20, geometry="bus_poly")
     leg = LegResponse(
         id="leg-ok", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
         transport_mode="METRO", duration_minutes=10, cost_sgd=1.80, is_estimated=False,
