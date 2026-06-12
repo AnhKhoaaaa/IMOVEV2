@@ -126,6 +126,38 @@ describe('AlertBanner', () => {
     await waitFor(() => expect(onDismiss).toHaveBeenCalledWith('alert-1'))
   })
 
+  it('returns to Preview when the pending transit adaptation expired', async () => {
+    api.adaptTrip.mockResolvedValue({ changes: ['Change A'] })
+    api.acceptSwap.mockRejectedValue(new Error('No pending adaptation found for this trip'))
+    render(<AlertBanner alert={makeAlert()} tripId="trip-1" onDismiss={onDismiss} />)
+
+    fireEvent.click(screen.getByText('Cập nhật kế hoạch'))
+    fireEvent.click(await screen.findByText('Chấp nhận'))
+
+    expect(await screen.findByText(/Bản xem trước đã hết hiệu lực/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cập nhật kế hoạch' })).toBeInTheDocument()
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('returns to Preview when the pending weather adaptation expired', async () => {
+    api.adaptTrip.mockResolvedValue({ changes: ['Swap outdoor stop'] })
+    api.acceptSwap.mockRejectedValue(new Error('No pending adaptation found for this trip'))
+    render(
+      <AlertBanner
+        alert={makeAlert({ alert_type: 'weather_warning' })}
+        tripId="trip-1"
+        onDismiss={onDismiss}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cập nhật kế hoạch' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cập nhật kế hoạch' }))
+
+    expect(await screen.findByText(/Bản xem trước đã hết hiệu lực/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cập nhật kế hoạch' })).toBeInTheDocument()
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
   it('shows loading text while adapting', async () => {
     let resolve
     api.adaptTrip.mockReturnValue(new Promise((r) => { resolve = r }))
@@ -305,6 +337,19 @@ describe('AlertBanner closing_risk', () => {
       })
     )
     await waitFor(() => expect(onDismiss).toHaveBeenCalledWith('cr-1'))
+  })
+
+  it('returns to resolution choices when the pending closing-risk adaptation expired', async () => {
+    api.adaptTrip.mockResolvedValue({ adapted: true, changes: ['Skipped Tràng An'] })
+    api.acceptSwap.mockRejectedValue(new Error('No pending adaptation found for this trip'))
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Bỏ điểm này/ }))
+    fireEvent.click(await screen.findByText('Xác nhận'))
+
+    expect(await screen.findByText(/Bản xem trước đã hết hiệu lực/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Bỏ điểm này/ })).toBeInTheDocument()
+    expect(onDismiss).not.toHaveBeenCalled()
   })
 
   it('surfaces the backend reason when an action is rejected (adapted=false)', async () => {

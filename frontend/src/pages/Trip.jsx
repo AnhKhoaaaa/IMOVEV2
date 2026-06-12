@@ -718,7 +718,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
   )
 }
 
-function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onContinue, onGoBack, onLeftStop, canGoBack, arrivedPending, onAddPlace, startTime, gapNotifications = [] }) {
+function DayView({ day, placesById, tripId, tripStarted, position, activeLegIndex, onUpdated, onWarning, onRemovePlace, onMarkArrived, onContinue, onGoBack, canGoBack, arrivedPending, onAddPlace, startTime, gapNotifications = [] }) {
   const { t } = useT()
   const items = timelineForDay(day, placesById)
   const activeLeg = day?.legs?.[activeLegIndex]
@@ -773,16 +773,6 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
                 </span>
               )}
             </div>
-            {/* dev20: re-anchor the closing-risk projection to the real departure moment */}
-            {arrivedPending && onLeftStop && (
-              <button
-                onClick={onLeftStop}
-                title={t('tripLeftStopTitle')}
-                className="flex h-10 items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-[13px] font-bold text-amber-700 transition-colors duration-300 hover:bg-amber-100"
-              >
-                <Clock size={15} /> {t('tripLeftStop')}
-              </button>
-            )}
           </div>
         </div>
         <CompactPlaceCard place={activeFrom} role="from" />
@@ -1391,16 +1381,7 @@ export default function Trip() {
     }).catch(() => {})
   }
 
-  // dev20: "I left this stop" — re-anchor the projection to the real departure moment.
-  const leftStop = () => {
-    sessionStorage.removeItem(`imove_arrived_at_${id}`)
-    api.checkAlerts(id, {
-      session_id: getSessionId(), active_day: selectedDay,
-      active_leg_index: activeLegIndex + 1, anchor_min: sgtMinuteOfDay(),
-    }).catch(() => {})
-  }
-
-  // Task 7: step 2 — advance to next leg (also resets GPS trail + auto-arrive guard)
+  // Task 7: step 2 — record the real departure time, then advance to the next leg.
   const advanceLeg = () => {
     autoArrivedRef.current = false
     setArrivedPending(false)
@@ -1409,13 +1390,13 @@ export default function Trip() {
     lastTrackPointRef.current = null
     const day = trip?.days?.find((item) => item.day === selectedDay)
     if (!day) return
+    const nextIdx = activeLegIndex + 1
+    api.checkAlerts(id, {
+      session_id: getSessionId(), active_day: selectedDay,
+      active_leg_index: nextIdx, anchor_min: sgtMinuteOfDay(),
+    }).catch(() => {})
     if (activeLegIndex < (day.legs?.length ?? 0) - 1) {
-      const nextIdx = activeLegIndex + 1
       setActiveLegIndex(nextIdx)
-      // dev20: in-transit on the next leg → re-check closing risk from the live wall-clock.
-      api.checkAlerts(id, {
-        session_id: getSessionId(), active_day: selectedDay, active_leg_index: nextIdx,
-      }).catch(() => {})
       return
     }
     const nextDay = trip.days.find((item) => item.day === selectedDay + 1)
@@ -1686,7 +1667,6 @@ export default function Trip() {
               onMarkArrived={markArrived}
               onContinue={advanceLeg}
               onGoBack={goBackLeg}
-              onLeftStop={leftStop}
               canGoBack={canGoBack}
               arrivedPending={arrivedPending}
               onAddPlace={setAddDayFor}

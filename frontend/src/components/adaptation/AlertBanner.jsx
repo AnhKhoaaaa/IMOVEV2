@@ -83,6 +83,10 @@ function getSessionId() {
   try { return localStorage.getItem('session_id') } catch { return null }
 }
 
+function isMissingPendingAdaptation(error) {
+  return error?.message?.includes('No pending adaptation found for this trip')
+}
+
 function DeltaPill({ value, unit, positiveIsBad = true }) {
   if (!value) return null
   const bad = positiveIsBad ? value > 0 : value < 0
@@ -153,7 +157,13 @@ function WeatherAlertBanner({ alert, tripId, onDismiss, onAdapted }) {
       if (onAdapted) await onAdapted(updatedTrip)
       onDismiss(alert.id)
     } catch (e) {
-      setError(e.message)
+      if (isMissingPendingAdaptation(e)) {
+        setProposal(null)
+        setPreviewing(false)
+        setError(t('alertPreviewExpired'))
+      } else {
+        setError(e.message)
+      }
     } finally {
       setAccepting(false)
     }
@@ -323,7 +333,14 @@ function ClosingRiskBanner({ alert, tripId, onDismiss, onAdapted }) {
       if (onAdapted) await onAdapted(updated)
       onDismiss(alert.id)
     } catch (e) {
-      setError(e.message)
+      if (isMissingPendingAdaptation(e)) {
+        setProposal(null)
+        setResolution(null)
+        setShowDays(false)
+        setError(t('alertPreviewExpired'))
+      } else {
+        setError(e.message)
+      }
     } finally {
       setAccepting(false)
     }
@@ -533,7 +550,12 @@ export default function AlertBanner({ alert, tripId, onDismiss, onAdapted }) {
       if (onAdapted) await onAdapted(updatedTrip)
       onDismiss(alert.id)
     } catch (e) {
-      setAcceptError(e.message)
+      if (isMissingPendingAdaptation(e)) {
+        setProposal(null)
+        setAcceptError(t('alertPreviewExpired'))
+      } else {
+        setAcceptError(e.message)
+      }
     } finally {
       setAccepting(false)
     }
