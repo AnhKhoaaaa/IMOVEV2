@@ -464,6 +464,7 @@ const EN = {
   chatError: 'Something went wrong. Please try again.',
   chatLoginRequired: 'Sign in to use the assistant',
   chatLoginHint: 'The AI assistant is only available for logged-in users.',
+  chatUnread: (n) => `${n} new trip update${n !== 1 ? 's' : ''}`,
 }
 
 const VI = {
@@ -891,6 +892,7 @@ const VI = {
   chatError: 'Đã có lỗi xảy ra. Vui lòng thử lại.',
   chatLoginRequired: 'Đăng nhập để sử dụng trợ lý',
   chatLoginHint: 'Trợ lý AI chỉ dành cho tài khoản đã đăng nhập.',
+  chatUnread: (n) => `${n} cập nhật mới cho chuyến đi`,
 }
 
 export { EN, VI }

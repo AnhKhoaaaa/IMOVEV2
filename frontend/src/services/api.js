@@ -80,6 +80,8 @@ export const api = {
   // confirmChatAction executes a pending write via existing trip handlers.
   sendChat: (body) => request('/chat', { method: 'POST', body: JSON.stringify(body) }),
   confirmChatAction: (body) => request('/chat/confirm', { method: 'POST', body: JSON.stringify(body) }),
+  // dev25 P1 — rephrase a live alert as a friendly proactive chat message
+  phraseAlert: (body) => request('/chat/phrase-alert', { method: 'POST', body: JSON.stringify(body) }),
 
   // localStorage trip metadata helpers — per-user isolated via userId key suffix
   saveTrip(tripId, meta, userId) {

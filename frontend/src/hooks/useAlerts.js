@@ -14,7 +14,7 @@ function dedupe(list) {
   return [...byKey.values()]
 }
 
-export function useAlerts(tripId) {
+export function useAlerts(tripId, channelSuffix = '') {
   const [alerts, setAlerts] = useState([])
 
   useEffect(() => {
@@ -28,8 +28,10 @@ export function useAlerts(tripId) {
         if (data) setAlerts(dedupe(data))
       })
 
+    // Suffix keeps independent subscribers (e.g. Trip page + ChatWidget) on distinct Realtime
+    // topics so they don't collide on the same channel name.
     const channel = supabase
-      .channel(`trip-alerts-${tripId}`)
+      .channel(`trip-alerts-${tripId}${channelSuffix ? `-${channelSuffix}` : ''}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -52,7 +54,7 @@ export function useAlerts(tripId) {
       ignore = true
       supabase.removeChannel(channel)
     }
-  }, [tripId])
+  }, [tripId, channelSuffix])
 
   const dismiss = useCallback(
     (alertId) => setAlerts((prev) => prev.filter((a) => a.id !== alertId)),

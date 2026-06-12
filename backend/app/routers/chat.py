@@ -10,8 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import require_current_user
 from app.agents import chat_agent
+from app.services import gemini
 from app.models.chat import (
     ChatRequest, ChatResponse, ChatConfirmRequest, ChatConfirmResponse,
+    PhraseAlertRequest, ProactiveMessage,
 )
 from app.routers import trips
 from app.models.trip import (
@@ -29,6 +31,26 @@ async def chat(body: ChatRequest, current_user: str = Depends(require_current_us
         trip_id=body.trip_id,
         gps=body.gps,
         current_user=current_user,
+    )
+
+
+@router.post("/phrase-alert", response_model=ProactiveMessage)
+async def phrase_alert(
+    body: PhraseAlertRequest,
+    current_user: str = Depends(require_current_user),
+):
+    """Rewrite a live trip alert as a friendly chat message (dev25 P1, proactive companion).
+
+    The client already holds the full alert row via RLS-protected Realtime, so it sends the
+    fields to rephrase — this returns only a friendlier rewrite (no DB read, no privileged
+    data). `require_current_user` gates Gemini-quota abuse; chat is login-only anyway.
+    """
+    text = await gemini.phrase_alert(body.alert.model_dump(), body.lang)
+    return ProactiveMessage(
+        alert_id=body.alert.id,
+        text=text,
+        alert_type=body.alert.alert_type,
+        day_number=body.alert.day_number,
     )
 
 

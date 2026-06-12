@@ -173,3 +173,32 @@ def test_confirm_cancel_discards_pending():
     assert resp.status_code == 200
     assert resp.json()["executed"] is False
     assert "s13" not in chat_agent._pending_actions
+
+
+# ── /chat/phrase-alert (dev25 P1 proactive companion) ────────────────────────────
+
+def test_phrase_alert_returns_proactive_message():
+    with _auth_as("user-1"), patch(
+        "app.routers.chat.gemini.phrase_alert",
+        new=AsyncMock(return_value="Heads up — rain near your Day 2 stop around 3pm!"),
+    ):
+        resp = client.post(
+            "/chat/phrase-alert",
+            json={
+                "alert": {"id": "al-1", "alert_type": "weather_warning",
+                          "message": "70% rain", "day_number": 2},
+                "lang": "en",
+            },
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["text"] == "Heads up — rain near your Day 2 stop around 3pm!"
+    assert body["alert_id"] == "al-1"
+    assert body["alert_type"] == "weather_warning"
+    assert body["day_number"] == 2
+
+
+def test_phrase_alert_requires_auth():
+    # No auth override → real require_current_user raises 401 (supabase is None in tests).
+    resp = client.post("/chat/phrase-alert", json={"alert": {"message": "x"}})
+    assert resp.status_code == 401

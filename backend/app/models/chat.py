@@ -43,3 +43,27 @@ class ChatConfirmResponse(BaseModel):
     reply: str
     executed: bool
     trip: Optional[TripPlan] = None
+
+
+# ── Proactive alert phrasing (dev25 P1) ──────────────────────────────────────────
+# The client already holds the full alert row (RLS-protected Realtime, select('*')), so it
+# sends the fields to rephrase; the endpoint returns only a friendlier rewrite — no DB read.
+
+
+class AlertPayload(BaseModel):
+    id: Optional[str] = None
+    alert_type: Optional[str] = None
+    message: Optional[str] = None
+    day_number: Optional[int] = None
+
+
+class PhraseAlertRequest(BaseModel):
+    alert: AlertPayload
+    lang: str = "en"
+
+
+class ProactiveMessage(BaseModel):
+    alert_id: Optional[str] = None
+    text: str
+    alert_type: Optional[str] = None
+    day_number: Optional[int] = None

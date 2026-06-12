@@ -174,6 +174,42 @@ async def generate_gap_notifications(gap_events: list[dict]) -> list[str]:
     ]
 
 
+_ALERT_PHRASE_TEMPLATE = (
+    "You are IMOVE, a warm Singapore travel companion chatting with a tourist in their app.\n"
+    "A live trip alert just fired. Rewrite it as ONE friendly heads-up message (max 2 sentences) "
+    "in {lang_name}, the way a helpful friend would flag it. Keep every concrete fact from the "
+    "alert (place, day, time, %); do NOT invent anything new and do NOT add greetings or sign-offs.\n\n"
+    "Alert type: {alert_type}\n"
+    "Day: {day}\n"
+    "Original message: {message}"
+)
+
+
+async def phrase_alert(alert: dict, lang: str = "en") -> str:
+    """[LLM] Rewrite a trip alert as a warm, friend-like chat message (dev25 P1).
+
+    Rate-limited via the shared 15-RPM guard. Returns the alert's own `message` unchanged on
+    any failure or empty output — never fabricates beyond the alert.
+    """
+    await _rate_limit()
+
+    original = (alert.get("message") or "").strip()
+    prompt = _ALERT_PHRASE_TEMPLATE.format(
+        lang_name="Vietnamese" if lang == "vi" else "English",
+        alert_type=alert.get("alert_type") or "alert",
+        day=alert.get("day_number") if alert.get("day_number") is not None else "—",
+        message=original,
+    )
+    try:
+        response = await _client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return (response.text or "").strip() or original
+    except Exception:
+        return original
+
+
 async def parse_places_input(raw_text: str) -> list[str]:
     """Parse natural language place input into a list of place name strings.
 
