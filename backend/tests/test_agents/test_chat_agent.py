@@ -298,3 +298,27 @@ async def test_events_tool_not_called_for_plain_advice():
     ) as spy:
         await chat_agent.run_chat("e3", "gợi ý nơi đẹp", trip_id=None)
     spy.assert_not_called()
+
+
+def test_build_system_prompt_injects_trip_dates_when_open():
+    p = chat_agent.build_system_prompt(today="Saturday, 13 June 2026", trip_start="2026-06-20", num_days=3)
+    assert "TRIP DATES" in p
+    assert "2026-06-20" in p
+    assert "3 day(s)" in p
+
+
+def test_build_system_prompt_omits_trip_dates_when_no_trip():
+    p = chat_agent.build_system_prompt(today="Saturday, 13 June 2026")
+    assert "TRIP DATES" not in p
+
+
+@pytest.mark.asyncio
+async def test_run_chat_injects_trip_start_date_into_system_prompt():
+    # Seed the in-memory meta so the cheap start_date lookup resolves without a DB.
+    _trips_module._trip_meta["t9"] = {"num_days": 3, "start_date": "2026-06-20", "user_id": None}
+    cm, mock = _patch_gen(_resp([_text_part("ok")]))
+    with cm:
+        await chat_agent.run_chat("sd1", "what's on during my trip?", trip_id="t9")
+    sys_instr = mock.call_args.kwargs["system_instruction"]
+    assert "2026-06-20" in sys_instr
+    assert "TRIP DATES" in sys_instr
