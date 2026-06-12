@@ -1199,3 +1199,92 @@ def test_persist_trip_plan_no_upsert_called():
     assert upsert_called == [], (
         f"upsert was called on tables {upsert_called} — must use DELETE+INSERT instead"
     )
+
+
+# ── dev22 Phase 2: alternatives persistence round-trip ────────────────────────
+
+class _FakeTable:
+    """Fluent stub: select/eq/order return self; execute() yields preset rows."""
+    def __init__(self, rows):
+        self._rows = rows
+    def select(self, *a, **k):  return self
+    def eq(self, *a, **k):      return self
+    def order(self, *a, **k):   return self
+    def execute(self):
+        resp = MagicMock()
+        resp.data = self._rows
+        return resp
+
+
+class _FakeSupabase:
+    def __init__(self, trips, places, legs):
+        self._map = {"trips": trips, "trip_places": places, "route_legs": legs}
+    def table(self, name):
+        return _FakeTable(self._map.get(name, []))
+
+
+def _leg_row(**over):
+    row = {
+        "id": "leg-1", "day_number": 1,
+        "from_place_id": "merlion-park", "to_place_id": "clarke-quay",
+        "transport_mode": "METRO", "duration_minutes": 12, "cost_sgd": 1.5,
+        "is_estimated": False, "instructions": [], "geometry": None,
+        "distance_km": 2.0, "sub_legs": [], "first_bus_stop_code": None,
+        "geometries": [],
+    }
+    row.update(over)
+    return row
+
+
+def _place_row(pid, name, lat, lng, day=1, order=0):
+    return {"place_id": pid, "place_name": name, "lat": lat, "lng": lng,
+            "dwell_minutes": 60, "day_number": day, "order_in_day": order}
+
+
+def test_serialize_deserialize_alternatives_round_trip():
+    from app.routers.trips import _serialize_alternatives, _deserialize_alternatives
+    alts = {
+        "METRO": AlternativeRoute(duration_minutes=12, cost_sgd=1.5, is_estimated=False,
+                                  distance_km=2.0, geometry="poly", instructions=["x"]),
+        "WALK":  AlternativeRoute(duration_minutes=30, cost_sgd=0.0, is_estimated=True, distance_km=2.0),
+    }
+    compact = _serialize_alternatives(alts)
+    assert compact["METRO"] == {"duration_minutes": 12, "cost_sgd": 1.5,
+                                "is_estimated": False, "distance_km": 2.0}
+    # polyline/instructions are intentionally dropped (re-fetched lazily on switch)
+    assert "geometry" not in compact["METRO"]
+    restored = _deserialize_alternatives(compact)
+    assert set(restored) == {"METRO", "WALK"}
+    assert restored["METRO"].duration_minutes == 12
+    assert restored["METRO"].cost_sgd == 1.5
+    assert restored["METRO"].geometry is None       # not persisted
+    assert restored["WALK"].is_estimated is True
+
+
+def test_fetch_trip_from_db_restores_stored_alternatives():
+    trip_row = {"id": "t1", "hotel_name": None, "hotel_lat": None, "hotel_lng": None}
+    places = [_place_row("merlion-park", "Merlion", 1.2868, 103.8545, order=0),
+              _place_row("clarke-quay", "Clarke Quay", 1.2906, 103.8465, order=1)]
+    legs = [_leg_row(alternatives={
+        "BUS":   {"duration_minutes": 18, "cost_sgd": 1.2, "is_estimated": False, "distance_km": 2.0},
+        "METRO": {"duration_minutes": 12, "cost_sgd": 1.5, "is_estimated": False, "distance_km": 2.0},
+    })]
+    with patch.object(_trips_module, "supabase", _FakeSupabase([trip_row], places, legs)):
+        plan = _trips_module._fetch_trip_from_db("t1")
+    leg = plan.days[0].legs[0]
+    assert {"BUS", "METRO"} <= set(leg.alternatives)
+    assert leg.alternatives["BUS"].duration_minutes == 18
+
+
+def test_fetch_trip_from_db_legacy_rebuilds_always_modes():
+    """Pre-019 rows have no 'alternatives' → rebuild WALK/CYCLE/GRAB from place coords."""
+    trip_row = {"id": "t2", "hotel_name": None, "hotel_lat": None, "hotel_lng": None}
+    places = [_place_row("merlion-park", "Merlion", 1.2868, 103.8545, order=0),
+              _place_row("clarke-quay", "Clarke Quay", 1.2906, 103.8465, order=1)]
+    legs = [_leg_row()]   # no 'alternatives' key (legacy)
+    with patch.object(_trips_module, "supabase", _FakeSupabase([trip_row], places, legs)):
+        plan = _trips_module._fetch_trip_from_db("t2")
+    leg = plan.days[0].legs[0]
+    assert {"WALK", "CYCLE", "GRAB"} <= set(leg.alternatives)
+    # current mode stays selectable too
+    assert "METRO" in leg.alternatives

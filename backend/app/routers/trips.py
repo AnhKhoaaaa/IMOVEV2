@@ -246,6 +246,7 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
             "geometries":       leg.geometries if leg.geometries else [],
             "sub_legs":         [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
             "distance_km":      float(leg.distance_km) if leg.distance_km is not None else None,
+            "alternatives":     _serialize_alternatives(leg.alternatives),
         }
         try:
             supabase.table("route_legs").update({
@@ -255,7 +256,12 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
             }).eq("id", leg_id).execute()
         except Exception:
             # geometry/instructions columns not yet in schema — update core fields only
-            supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
+            try:
+                supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
+            except Exception:
+                # 'alternatives' column also missing (pre-019) — drop it and retry
+                base_update.pop("alternatives", None)
+                supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
 
         try:
             supabase.table("trip_feedback").insert({
@@ -326,7 +332,7 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
     # Persist all updated fields to Supabase
     if supabase:
         leg = result.updated_leg
-        supabase.table("route_legs").update({
+        live_update = {
             "transport_mode":   leg.transport_mode,
             "duration_minutes": leg.duration_minutes,
             "cost_sgd":         leg.cost_sgd,
@@ -336,7 +342,15 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
             "instructions":     leg.instructions,
             "sub_legs":         [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
             "distance_km":      float(leg.distance_km) if leg.distance_km is not None else None,
-        }).eq("id", leg_id).execute()
+            "alternatives":     _serialize_alternatives(leg.alternatives),
+        }
+        try:
+            supabase.table("route_legs").update(live_update).eq("id", leg_id).execute()
+        except Exception:
+            # 'alternatives' column not yet in schema (pre-019) — drop it so the live
+            # switch still persists core fields instead of 500-ing.
+            live_update.pop("alternatives", None)
+            supabase.table("route_legs").update(live_update).eq("id", leg_id).execute()
 
         origin_note = "from GPS" if result.routed_from_current_position else "from place"
         try:
@@ -969,6 +983,34 @@ def _verify_session_ownership(trip_id: str, session_id: str) -> None:
         raise HTTPException(status_code=403, detail="session_id does not match trip owner")
 
 
+def _serialize_alternatives(alts: dict) -> dict:
+    """Compact AlternativeRoute map for DB (migration 019): keep only the fields the mode
+    menu needs; drop polylines/instructions/sub_legs (re-fetched lazily on switch)."""
+    out = {}
+    for mode, alt in (alts or {}).items():
+        out[mode] = {
+            "duration_minutes": alt.duration_minutes,
+            "cost_sgd":         alt.cost_sgd,
+            "is_estimated":     alt.is_estimated,
+            "distance_km":      float(alt.distance_km) if alt.distance_km is not None else None,
+        }
+    return out
+
+
+def _deserialize_alternatives(raw: dict | None) -> dict:
+    """DB jsonb → {mode: AlternativeRoute} (geometry/sub_legs empty; filled on switch)."""
+    from app.models.trip import AlternativeRoute
+    out = {}
+    for mode, d in (raw or {}).items():
+        out[mode] = AlternativeRoute(
+            duration_minutes=d.get("duration_minutes", 0),
+            cost_sgd=d.get("cost_sgd", 0.0),
+            is_estimated=d.get("is_estimated", True),
+            distance_km=d.get("distance_km"),
+        )
+    return out
+
+
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
     """Batch-write trip_places and route_legs to Supabase.
 
@@ -1032,12 +1074,20 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
             "sub_legs": [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
             "first_bus_stop_code": leg.first_bus_stop_code,
             "geometries": leg.geometries if leg.geometries else [],
+            "alternatives": _serialize_alternatives(leg.alternatives),
         }
         for day in plan.days
         for leg in day.legs
     ]
     if leg_rows:
-        supabase.table("route_legs").insert(leg_rows).execute()
+        try:
+            supabase.table("route_legs").insert(leg_rows).execute()
+        except Exception:
+            # 'alternatives' column not yet in schema (pre-019) — retry without it so a
+            # plan still persists on older DBs (mode menu falls back to coord-rebuild on read).
+            for row in leg_rows:
+                row.pop("alternatives", None)
+            supabase.table("route_legs").insert(leg_rows).execute()
 
 
 def _ordered_place_ids(legs: list, places) -> list[str]:
@@ -1088,7 +1138,7 @@ def _fetch_trip_from_db(trip_id: str):
     legs_resp = supabase.table("route_legs").select("*").eq("trip_id", trip_id).order("day_number").execute()
 
     from app.models.place import Place
-    from app.models.trip import LegResponse, DayPlan, TripPlan
+    from app.models.trip import LegResponse, DayPlan, TripPlan, AlternativeRoute
 
     # Build flat places list — hotel first (reconstructed from trips table), then POIs
     places: list[Place] = []
@@ -1143,6 +1193,24 @@ def _fetch_trip_from_db(trip_id: str):
         d = leg["day_number"]
         raw_mode = leg["transport_mode"]
         transport_mode = _LEGACY_MODE.get(raw_mode, raw_mode)
+
+        # Restore the switchable mode menu (migration 019). Legacy rows (pre-019, no stored
+        # alternatives) rebuild the always-modes from place coords so the menu still works.
+        stored = _deserialize_alternatives(leg.get("alternatives"))
+        if not stored:
+            fp = next((p for p in places if p.id == leg["from_place_id"]), None)
+            tp = next((p for p in places if p.id == leg["to_place_id"]), None)
+            if fp and tp:
+                stored = planning_agent.estimated_alternatives_models(
+                    fp.lat, fp.lng, tp.lat, tp.lng, fp.name)
+        # Always keep the leg's own current mode selectable.
+        stored.setdefault(transport_mode, AlternativeRoute(
+            duration_minutes=leg["duration_minutes"],
+            cost_sgd=float(leg["cost_sgd"]),
+            is_estimated=leg["is_estimated"],
+            distance_km=leg.get("distance_km"),
+        ))
+
         legs_map.setdefault(d, []).append(LegResponse(
             id=leg["id"],
             from_place_id=leg["from_place_id"],
@@ -1157,6 +1225,7 @@ def _fetch_trip_from_db(trip_id: str):
             sub_legs=leg.get("sub_legs") or [],
             first_bus_stop_code=leg.get("first_bus_stop_code"),
             geometries=leg.get("geometries") or [],
+            alternatives=stored,
         ))
 
     # Determine all days from both place_ids and legs
