@@ -142,6 +142,18 @@ _ROUTE_URL = "https://www.onemap.gov.sg/api/public/routingsvc/route"
 _ROUTE_SEMAPHORE = asyncio.Semaphore(6)
 _ROUTE_RETRY_DELAY_S = 0.5
 
+# OTP returns its single best itinerary first; for short legs that is often all-walk,
+# hiding viable transit. Request a few so we can pick the best one that actually rides transit.
+_PT_NUM_ITINERARIES = 4
+
+
+def _has_transit(itin: dict) -> bool:
+    """True when an OTP itinerary uses at least one non-walk leg (bus/rail/etc.)."""
+    return any(
+        (leg.get("mode") or "").upper() not in ("WALK", "")
+        for leg in itin.get("legs", [])
+    )
+
 
 async def _get_token() -> str:
     # Fast path — no lock needed for a cache hit
@@ -224,7 +236,7 @@ async def get_route(
             "date": now_sgt.strftime("%m-%d-%Y"),
             "time": now_sgt.strftime("%H:%M:%S"),
             "mode": "TRANSIT",
-            "numItineraries": 1,
+            "numItineraries": _PT_NUM_ITINERARIES,
         })
         if transit_modes:
             params["transitModes"] = transit_modes  # e.g. "BUS" for bus-only routing
@@ -250,7 +262,9 @@ async def get_route(
             raise NoRouteError(
                 f"No PT route from ({from_lat},{from_lng}) to ({to_lat},{to_lng})"
             )
-        itin = itineraries[0]
+        # Prefer OTP's best transit itinerary; fall back to its first when every option is
+        # all-walk (so a genuinely walk-only pair still resolves instead of disappearing).
+        itin = next((it for it in itineraries if _has_transit(it)), itineraries[0])
         itin_legs = itin.get("legs", [])
         legs = [
             {
