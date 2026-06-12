@@ -273,6 +273,7 @@ describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
     renderLive()
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /I left this stop/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/You've arrived/i)).not.toBeInTheDocument()
   })
 
@@ -290,7 +291,13 @@ describe('dev13 — Task 7: arrived → Continue banner → advance', () => {
     renderLive()
     fireEvent.click(screen.getByRole('button', { name: /Arrived/i }))
     expect(screen.getByRole('button', { name: /Continue/i })).toBeInTheDocument()
+    api.checkAlerts.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /Continue/i }))
+    expect(api.checkAlerts).toHaveBeenCalledWith('trip-123', expect.objectContaining({
+      active_day: 1,
+      active_leg_index: 1,
+      anchor_min: expect.any(Number),
+    }))
     // Button resets back to Arrived for the next leg
     expect(screen.getByRole('button', { name: /Arrived/i })).toBeInTheDocument()
   })
