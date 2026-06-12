@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import app.services.gemini as _gemini
-from app.services.gemini import parse_places_input, phrase_alert
+from app.services.gemini import parse_places_input, phrase_alert, search_events_grounded
 
 
 @pytest.fixture(autouse=True)
@@ -74,6 +74,32 @@ async def test_phrase_alert_falls_back_when_model_returns_empty():
     with patch.object(_gemini, "_client", _mock_client("   ")):
         out = await phrase_alert({"alert_type": "weather_live", "message": "Raining now"}, "en")
     assert out == "Raining now"
+
+
+# ── search_events_grounded (dev25 P4 web grounding) ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_search_events_grounded_returns_text():
+    with patch.object(_gemini, "_client", _mock_client("Singapore Food Festival runs this weekend at Marina Bay.")):
+        out = await search_events_grounded("festivals this weekend", today="2026-06-13")
+    assert "Food Festival" in out["text"]
+    assert isinstance(out["citations"], list)
+
+
+@pytest.mark.asyncio
+async def test_search_events_grounded_falls_back_on_error():
+    mock_client = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(_gemini, "_client", mock_client):
+        out = await search_events_grounded("anything")
+    assert out == {"text": "", "citations": []}
+
+
+@pytest.mark.asyncio
+async def test_search_events_grounded_falls_back_when_empty():
+    with patch.object(_gemini, "_client", _mock_client("   ")):
+        out = await search_events_grounded("anything")
+    assert out == {"text": "", "citations": []}
 
 
 @pytest.mark.asyncio
