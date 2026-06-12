@@ -301,6 +301,83 @@ async def test_get_route_fare_info_unavailable_returns_zero():
     assert result["duration_minutes"] == 15
 
 
+# ── dev24: request several itineraries, pick the first that rides transit ──────
+
+_ROUTE_JSON_MULTI = {
+    "plan": {
+        "itineraries": [
+            {  # OTP's "best" for a short leg is often all-walk → must be skipped
+                "duration": 1000, "fare": 0.0,
+                "legs": [{"mode": "WALK", "duration": 1000, "route": ""}],
+            },
+            {  # metro + walk → this is the one we want
+                "duration": 1500, "fare": 1.50,
+                "legs": [
+                    {"mode": "WALK", "duration": 300, "route": ""},
+                    {"mode": "SUBWAY", "duration": 900, "route": "NS"},
+                    {"mode": "WALK", "duration": 300, "route": ""},
+                ],
+            },
+            {  # bus + walk (later in the list)
+                "duration": 1600, "fare": 1.20,
+                "legs": [
+                    {"mode": "WALK", "duration": 300, "route": ""},
+                    {"mode": "BUS", "duration": 1300, "route": "7"},
+                ],
+            },
+        ]
+    }
+}
+
+
+def test_has_transit_true_for_metro_leg():
+    assert _onemap._has_transit({"legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}]}) is True
+
+
+def test_has_transit_false_for_all_walk():
+    assert _onemap._has_transit({"legs": [{"mode": "WALK"}, {"mode": "WALK"}]}) is False
+
+
+def test_has_transit_false_for_empty_legs():
+    assert _onemap._has_transit({"legs": []}) is False
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_picks_first_transit_itinerary():
+    """When OTP's first itinerary is all-walk, get_route returns the first transit one."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON_MULTI)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2806, 103.8565, 1.3521, 103.8198, "pt")
+    # metro+walk itinerary chosen, not the leading all-walk one
+    assert any(leg["mode"] == "SUBWAY" for leg in result["legs"])
+    assert result["fare_sgd"] == 1.50
+    assert result["duration_minutes"] == 25     # 1500 / 60
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_requests_multiple_itineraries():
+    """The PT request must ask OTP for several itineraries (not just 1)."""
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=_ROUTE_JSON)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        await get_route(1.28, 103.85, 1.30, 103.82, "pt")
+    params = client.get.call_args.kwargs.get("params", {})
+    assert params.get("numItineraries") == _onemap._PT_NUM_ITINERARIES
+    assert _onemap._PT_NUM_ITINERARIES > 1
+
+
+@pytest.mark.asyncio
+async def test_get_route_pt_all_walk_itineraries_falls_back():
+    """When every itinerary is all-walk, fall back to OTP's first (no raise)."""
+    all_walk = {"plan": {"itineraries": [
+        {"duration": 900, "fare": 0.0, "legs": [{"mode": "WALK", "duration": 900, "route": ""}]},
+    ]}}
+    client = _mock_client(post_json=_TOKEN_JSON, get_json=all_walk)
+    with patch("app.services.onemap.httpx.AsyncClient", return_value=client):
+        result = await get_route(1.2816, 103.8636, 1.2530, 103.8198, "pt")
+    assert result["duration_minutes"] == 15
+    assert all(leg["mode"] == "WALK" for leg in result["legs"])
+
+
 # ── _extract_sub_legs ─────────────────────────────────────────────────────────
 
 def test_extract_sub_legs_maps_subway_to_metro():
