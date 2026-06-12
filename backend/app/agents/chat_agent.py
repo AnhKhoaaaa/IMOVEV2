@@ -69,13 +69,19 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_system_prompt(today: Optional[str] = None) -> str:
+def build_system_prompt(
+    today: Optional[str] = None,
+    trip_start: Optional[str] = None,
+    num_days: Optional[int] = None,
+) -> str:
     """dev25 P4 — inject the current Singapore date + web-grounding rules into the base prompt.
 
-    Built per request so the model always knows 'today' for seasonal/event answers.
+    Built per request so the model always knows 'today' for seasonal/event answers. When a trip
+    is open, also injects its start date + length so the model can map a trip Day N to a real
+    calendar date and suggest events that actually fall during the itinerary (dev25 P4 follow-up).
     """
     today = today or datetime.now(_SGT).strftime("%A, %d %B %Y")
-    return SYSTEM_PROMPT + (
+    prompt = SYSTEM_PROMPT + (
         f"\nCONTEXT — today in Singapore is {today}. "
         "For questions about CURRENT or seasonal happenings (events, festivals, public holidays, "
         "what's on this weekend, neighbourhood vibes, up-to-date travel tips), call "
@@ -84,6 +90,33 @@ def build_system_prompt(today: Optional[str] = None) -> str:
         "itinerary (only curated place_ids can be added via the write tools). Do NOT call "
         "get_current_events for itinerary edits, routes, weather, or places already in the dataset."
     )
+    if trip_start:
+        span = f" and runs {num_days} day(s)" if num_days else ""
+        prompt += (
+            f"\nTRIP DATES — the user's current trip starts on {trip_start}{span}; Day 1 is "
+            f"{trip_start} and each later day is the next calendar day. When the user asks what's "
+            "on during their trip — or when you proactively suggest events — match each event to "
+            "the ACTUAL date of the relevant trip day and tell them which day it falls on."
+        )
+    return prompt
+
+
+def _trip_date_context(trip_id: Optional[str]) -> tuple[Optional[str], Optional[int]]:
+    """Cheaply resolve (start_date_iso, num_days) for an open trip — never raises.
+
+    Uses the focused trips._get_trip_start_date helper (in-memory meta first, one tiny query
+    fallback) and the in-process meta cache for num_days, so a normal chat turn doesn't pay a
+    full plan load just to know the trip's dates.
+    """
+    if not trip_id:
+        return None, None
+    try:
+        from app.routers import trips
+        start = trips._get_trip_start_date(trip_id)
+        meta = trips._trip_meta.get(trip_id) or {}
+        return (start.isoformat() if start else None), meta.get("num_days")
+    except Exception:
+        return None, None
 
 
 # ── Tool declarations ──────────────────────────────────────────────────────────
@@ -269,7 +302,8 @@ async def run_chat(
         "events_call_used": False,
     }
 
-    system_prompt = build_system_prompt()
+    trip_start, trip_days = _trip_date_context(resolved_trip_id)
+    system_prompt = build_system_prompt(trip_start=trip_start, num_days=trip_days)
 
     for _ in range(_MAX_TURNS):
         try:
