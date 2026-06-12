@@ -45,6 +45,12 @@ import SummaryTab from '../components/planner/SummaryTab'
 import PlaceSearch from '../components/planner/PlaceSearch'
 import BusArrivalPanel from '../components/transit/BusArrivalPanel'
 
+// DEV25-BANNER-RETAINED: as of dev25 Phase 1, live alerts surface through the ChatWidget for
+// logged-in users and guests get no alerts, so the on-page AlertBanner is not mounted. The
+// component + its tests are intentionally kept; flip this flag to true to restore the banners
+// (e.g. when re-enabling guest alerts). See docs/plans/dev25.md → "Banner preservation".
+const ENABLE_TRIP_BANNERS = false
+
 function getSessionId() {
   try { return localStorage.getItem('session_id') } catch { return null }
 }
@@ -1582,7 +1588,7 @@ export default function Trip() {
         }
       </div>
 
-      {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || alerts.length > 0 || uiWarning) && (
+      {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
         <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
           {isLive && geoError && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
@@ -1613,13 +1619,14 @@ export default function Trip() {
               <button onClick={() => setUiWarning(null)} className="ml-auto"><X size={14} /></button>
             </div>
           )}
-          {otherAlerts.map((alert) => (
+          {/* DEV25-BANNER-RETAINED: gated off — alerts now reach users via the ChatWidget. */}
+          {ENABLE_TRIP_BANNERS && otherAlerts.map((alert) => (
             <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
           ))}
-          {weatherAlertsToShow.map((alert) => (
+          {ENABLE_TRIP_BANNERS && weatherAlertsToShow.map((alert) => (
             <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
           ))}
-          {weatherAlertsCollapsed.length > 0 && (
+          {ENABLE_TRIP_BANNERS && weatherAlertsCollapsed.length > 0 && (
             <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3.5">
               <button
                 onClick={() => setShowAllWeatherAlerts((v) => !v)}

@@ -349,46 +349,25 @@ const makeWeatherAlert = (id, day_number) => ({
   message: `Day ${day_number}: rain warning`,
 })
 
-describe('weather alert grouping', () => {
+// dev25 P1 (DEV25-BANNER-RETAINED): on-page AlertBanner is gated off — live alerts now reach
+// users through the ChatWidget. The grouping memos/JSX are kept behind ENABLE_TRIP_BANNERS, so
+// the Trip page must render no banner even when alerts exist. (Grouping behaviour is covered by
+// AlertBanner.test.jsx + restored here when guest alerts are re-enabled.)
+describe('trip-page alerts gated off (dev25 P1)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     sessionStorage.clear()
   })
 
-  it('shows only the selected day alert directly, collapsing the rest behind a toggle', () => {
+  it('renders no AlertBanner and no rain-forecast toggle even when alerts exist', () => {
     useAlerts.mockReturnValue({
       alerts: [makeWeatherAlert('a1', 1), makeWeatherAlert('a2', 2), makeWeatherAlert('a3', 3)],
       dismiss: vi.fn(),
     })
     useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    // selectedDay defaults to 1 — its alert shows directly
-    expect(screen.getByText('Day 1: rain warning')).toBeInTheDocument()
-    // Days 2 and 3 are collapsed behind a single toggle
-    expect(screen.queryByText('Day 2: rain warning')).not.toBeInTheDocument()
-    expect(screen.queryByText('Day 3: rain warning')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Rain forecast for 2 more days/i })).toBeInTheDocument()
-  })
-
-  it('expands collapsed days when the toggle is clicked', () => {
-    useAlerts.mockReturnValue({
-      alerts: [makeWeatherAlert('a1', 1), makeWeatherAlert('a2', 2)],
-      dismiss: vi.fn(),
-    })
-    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Rain forecast for 1 more day/i }))
-    expect(screen.getByText('Day 2: rain warning')).toBeInTheDocument()
-  })
-
-  it('does not show a group toggle when only one day has a weather alert', () => {
-    useAlerts.mockReturnValue({
-      alerts: [makeWeatherAlert('a1', 1)],
-      dismiss: vi.fn(),
-    })
-    useTrip.mockReturnValue({ trip: makeTrip(), loading: false, error: null, refresh: vi.fn() })
-    render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByText('Day 1: rain warning')).toBeInTheDocument()
+    expect(screen.queryByTestId('alert-banner')).not.toBeInTheDocument()
+    expect(screen.queryByText('Day 1: rain warning')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Rain forecast/i })).not.toBeInTheDocument()
   })
 })

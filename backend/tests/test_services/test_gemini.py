@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import app.services.gemini as _gemini
-from app.services.gemini import parse_places_input
+from app.services.gemini import parse_places_input, phrase_alert
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +49,31 @@ async def test_parse_places_non_json_raises():
     with patch.object(_gemini, "_client", _mock_client("Sorry, I cannot help with that.")):
         with pytest.raises(ValueError, match="non-JSON"):
             await parse_places_input("visit Singapore")
+
+
+@pytest.mark.asyncio
+async def test_phrase_alert_returns_friendly_text():
+    with patch.object(_gemini, "_client", _mock_client("Heads up — likely rain at 3pm near your Day 2 stop!")):
+        out = await phrase_alert(
+            {"alert_type": "weather_warning", "message": "70% rain", "day_number": 2}, "en"
+        )
+    assert out == "Heads up — likely rain at 3pm near your Day 2 stop!"
+
+
+@pytest.mark.asyncio
+async def test_phrase_alert_falls_back_to_original_on_error():
+    mock_client = MagicMock()
+    mock_client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("network down"))
+    with patch.object(_gemini, "_client", mock_client):
+        out = await phrase_alert({"alert_type": "train_delay", "message": "EW line delayed"}, "vi")
+    assert out == "EW line delayed"
+
+
+@pytest.mark.asyncio
+async def test_phrase_alert_falls_back_when_model_returns_empty():
+    with patch.object(_gemini, "_client", _mock_client("   ")):
+        out = await phrase_alert({"alert_type": "weather_live", "message": "Raining now"}, "en")
+    assert out == "Raining now"
 
 
 @pytest.mark.asyncio

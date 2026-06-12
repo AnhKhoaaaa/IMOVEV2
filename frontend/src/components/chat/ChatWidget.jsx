@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils'
 import { useT } from '../../contexts/LanguageContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useGeolocation } from '../../hooks/useGeolocation'
+import { useAlerts } from '../../hooks/useAlerts'
 import { api } from '../../services/api'
 
 function getSessionId() {
@@ -26,7 +27,7 @@ function tripIdFromPath(pathname) {
 }
 
 export default function ChatWidget() {
-  const { t } = useT()
+  const { t, lang } = useT()
   const { user } = useAuth()
   const { position } = useGeolocation()
   const location = useLocation()
@@ -40,15 +41,45 @@ export default function ChatWidget() {
   const [applying, setApplying] = useState(false)
   const scrollRef = useRef(null)
 
+  // dev25 P1 — proactive companion: surface live trip alerts as friendly chat messages.
+  // Guests pass null (no subscription); 'chat' suffix keeps a topic distinct from the Trip page.
+  const { alerts } = useAlerts(user ? tripId : null, 'chat')
+  const surfacedRef = useRef(new Set())              // alert ids already posted
+  const [unread, setUnread] = useState(0)
+
   useEffect(() => {
-    if (open && messages.length === 0) {
-      setMessages([{ role: 'assistant', text: t('chatGreeting') }])
+    if (open) {
+      setUnread(0)
+      if (messages.length === 0) setMessages([{ role: 'assistant', text: t('chatGreeting') }])
     }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, pending, loading])
+
+  // Phrase each NEW alert via the backend and post it as an assistant bubble.
+  useEffect(() => {
+    if (!user || !tripId || alerts.length === 0) return
+    const fresh = alerts.filter((a) => !surfacedRef.current.has(a.id))
+    if (fresh.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      for (const a of fresh) {
+        surfacedRef.current.add(a.id)   // mark before await so re-renders don't double-post
+        try {
+          const pm = await api.phraseAlert({
+            alert: { id: a.id, alert_type: a.alert_type, message: a.message, day_number: a.day_number },
+            lang,
+          })
+          if (cancelled) return
+          setMessages((m) => [...m, { role: 'assistant', text: pm.text, alertId: a.id }])
+          setUnread((u) => u + 1)
+        } catch { /* ignore — non-fatal; alert simply isn't surfaced in chat */ }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [alerts, user, tripId, lang])
 
   const send = async () => {
     const text = input.trim()
@@ -152,6 +183,14 @@ export default function ChatWidget() {
         className="fixed bottom-5 right-5 z-50 grid h-14 w-14 place-items-center rounded-full bg-slate-900 text-white shadow-lg transition-transform hover:scale-105 active:scale-95"
       >
         <MessageCircle className="h-6 w-6" />
+        {unread > 0 && (
+          <span
+            aria-label={t('chatUnread', unread)}
+            className="absolute -right-0.5 -top-0.5 grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-red-500 px-1 text-[11px] font-bold text-white"
+          >
+            {unread}
+          </span>
+        )}
       </button>
     )
   }
