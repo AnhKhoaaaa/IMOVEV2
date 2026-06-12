@@ -16,7 +16,14 @@ vi.mock('../../contexts/AuthContext', () => ({ useAuth: vi.fn(() => ({ user: { i
 vi.mock('../../hooks/useGeolocation', () => ({ useGeolocation: () => ({ position: null }) }))
 vi.mock('../../hooks/useAlerts', () => ({ useAlerts: vi.fn(() => ({ alerts: [] })) }))
 vi.mock('../../services/api', () => ({
-  api: { phraseAlert: vi.fn(), sendChat: vi.fn(), confirmChatAction: vi.fn() },
+  api: {
+    phraseAlert: vi.fn(),
+    sendChat: vi.fn(),
+    confirmChatAction: vi.fn(),
+    adaptTrip: vi.fn(),
+    acceptSwap: vi.fn(),
+    submitFeedback: vi.fn(),
+  },
 }))
 
 import { useAuth } from '../../contexts/AuthContext'
@@ -75,5 +82,60 @@ describe('ChatWidget proactive alerts (dev25 P1)', () => {
     // useAlerts is called with a null trip id (no subscription) for guests.
     expect(useAlerts).toHaveBeenCalledWith(null, 'chat')
     expect(api.phraseAlert).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatWidget alert action card (dev25 P2)', () => {
+  it('renders an interactive resolver under a proactive alert bubble', async () => {
+    api.phraseAlert.mockResolvedValue({ text: 'Heads up — rain on Day 2!', alert_id: 'al-1' })
+    useAlerts.mockReturnValue({ alerts: [alert1] })
+
+    render(<ChatWidget />)
+    await waitFor(() => expect(api.phraseAlert).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByLabelText('chatOpen'))
+    // The weather card's Preview button (reuses AlertActionCard) appears inline in chat.
+    await waitFor(() => expect(screen.getByText('alertPreview')).toBeInTheDocument())
+  })
+
+  it('accepting an in-chat adaptation dispatches imove:trip-updated', async () => {
+    api.phraseAlert.mockResolvedValue({ text: 'Heads up — rain on Day 2!', alert_id: 'al-1' })
+    api.adaptTrip.mockResolvedValue({ changes: ['Swap outdoor stop'] })
+    api.acceptSwap.mockResolvedValue({ id: 'trip-1' })
+    useAlerts.mockReturnValue({ alerts: [alert1] })
+
+    const onUpdated = vi.fn()
+    window.addEventListener('imove:trip-updated', onUpdated)
+
+    render(<ChatWidget />)
+    await waitFor(() => expect(api.phraseAlert).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByLabelText('chatOpen'))
+
+    fireEvent.click(await screen.findByText('alertPreview'))
+    await waitFor(() => expect(api.adaptTrip).toHaveBeenCalled())
+    fireEvent.click(await screen.findByText('alertAcceptSwap'))
+
+    await waitFor(() => expect(api.acceptSwap).toHaveBeenCalled())
+    await waitFor(() => expect(onUpdated).toHaveBeenCalled())
+    expect(onUpdated.mock.calls[0][0].detail).toEqual({ id: 'trip-1' })
+
+    window.removeEventListener('imove:trip-updated', onUpdated)
+  })
+
+  it('dismissing the card removes it but keeps the friendly bubble', async () => {
+    api.phraseAlert.mockResolvedValue({ text: 'Heads up — rain on Day 2!', alert_id: 'al-1' })
+    useAlerts.mockReturnValue({ alerts: [alert1] })
+
+    render(<ChatWidget />)
+    await waitFor(() => expect(api.phraseAlert).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByLabelText('chatOpen'))
+
+    const card = await screen.findByText('alertPreview')
+    expect(card).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+
+    await waitFor(() => expect(screen.queryByText('alertPreview')).not.toBeInTheDocument())
+    // The proactive bubble stays in the transcript.
+    expect(screen.getByText('Heads up — rain on Day 2!')).toBeInTheDocument()
   })
 })

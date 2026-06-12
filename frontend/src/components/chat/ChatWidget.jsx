@@ -6,6 +6,7 @@ import { useT } from '../../contexts/LanguageContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import { useAlerts } from '../../hooks/useAlerts'
+import AlertActionCard from '../adaptation/AlertActionCard'
 import { api } from '../../services/api'
 
 function getSessionId() {
@@ -46,6 +47,7 @@ export default function ChatWidget() {
   const { alerts } = useAlerts(user ? tripId : null, 'chat')
   const surfacedRef = useRef(new Set())              // alert ids already posted
   const [unread, setUnread] = useState(0)
+  const [resolvedAlerts, setResolvedAlerts] = useState(new Set())  // alert ids dismissed/applied in chat
 
   useEffect(() => {
     if (open) {
@@ -73,13 +75,30 @@ export default function ChatWidget() {
             lang,
           })
           if (cancelled) return
-          setMessages((m) => [...m, { role: 'assistant', text: pm.text, alertId: a.id }])
+          // Keep the full alert so the interactive resolver card can render under the bubble.
+          setMessages((m) => [...m, { role: 'assistant', text: pm.text, alertId: a.id, alert: a }])
           setUnread((u) => u + 1)
         } catch { /* ignore — non-fatal; alert simply isn't surfaced in chat */ }
       }
     })()
     return () => { cancelled = true }
   }, [alerts, user, tripId, lang])
+
+  // dev25 P2 — resolve an alert from inside the chat. Accepting an adaptation reuses the same
+  // backend (api.adaptTrip/acceptSwap, inside AlertActionCard); on success we broadcast the
+  // existing trip-updated event so the Trip page refreshes, exactly as the banner did.
+  const handleAlertAdapted = (updatedTrip) => {
+    if (updatedTrip) {
+      window.dispatchEvent(new CustomEvent('imove:trip-updated', { detail: updatedTrip }))
+    }
+  }
+  const handleAlertDismiss = (alertId) => {
+    setResolvedAlerts((prev) => {
+      const next = new Set(prev)
+      next.add(alertId)
+      return next
+    })
+  }
 
   const send = async () => {
     const text = input.trim()
@@ -213,19 +232,34 @@ export default function ChatWidget() {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex max-h-[52vh] min-h-[220px] flex-col gap-2 overflow-y-auto p-3 scroll-thin">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={cn(
-              'max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed',
-              msg.role === 'user'
-                ? 'self-end bg-slate-900 text-white'
-                : 'self-start bg-slate-100 text-slate-800'
-            )}
-          >
-            {msg.text}
-          </div>
-        ))}
+        {messages.map((msg, i) => {
+          const showCard = msg.alert && tripId && !resolvedAlerts.has(msg.alertId)
+          return (
+            <div key={i} className="contents">
+              <div
+                className={cn(
+                  'max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed',
+                  msg.role === 'user'
+                    ? 'self-end bg-slate-900 text-white'
+                    : 'self-start bg-slate-100 text-slate-800'
+                )}
+              >
+                {msg.text}
+              </div>
+              {/* dev25 P2 — interactive resolver under a proactive alert bubble */}
+              {showCard && (
+                <div className="self-start w-full">
+                  <AlertActionCard
+                    alert={msg.alert}
+                    tripId={tripId}
+                    onAdapted={handleAlertAdapted}
+                    onDismiss={handleAlertDismiss}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
 
         {loading && (
           <div className="self-start inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2 text-sm text-slate-500">
