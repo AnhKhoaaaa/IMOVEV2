@@ -21,7 +21,7 @@ const MD_COMPONENTS = {
 
 function TextBlock({ markdown }) {
   return (
-    <div className="self-start max-w-[85%] rounded-2xl bg-slate-100 px-3 py-2 text-sm leading-relaxed text-slate-800">
+    <div className="self-start max-w-[85%] shrink-0 rounded-2xl bg-slate-100 px-3 py-2 text-sm leading-relaxed text-slate-800">
       <ReactMarkdown components={MD_COMPONENTS} skipHtml>{markdown}</ReactMarkdown>
     </div>
   )
@@ -37,12 +37,14 @@ function thumb(url) {
 function PlaceCard({ name, category, image_url, suggested_duration_minutes }) {
   const { t } = useT()
   return (
-    <div className="self-start w-full max-w-[88%] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    // shrink-0: the chat panel is a flex column; without it a tall image card collapses to a
+    // thin bar once later messages overflow the panel's max-height.
+    <div className="self-start w-full max-w-[88%] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       {image_url && (
         // No loading="lazy": lazy images inserted into the auto-scrolling chat container often
         // never trigger their intersection check and stay blank. Eager-load + placeholder bg +
         // onError (matches the proven pattern in planner/Trip cards).
-        <div className="h-28 w-full bg-slate-100">
+        <div className="h-28 w-full shrink-0 bg-slate-100">
           <img
             src={thumb(image_url)}
             alt={name}
@@ -71,7 +73,7 @@ const MODE_LABEL = { TRANSIT: 'Transit', WALK: 'Walk', CYCLE: 'Cycle', BUS: 'Bus
 function RouteCompareCard({ options = [] }) {
   const { t } = useT()
   return (
-    <div className="self-start w-full max-w-[88%] rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+    <div className="self-start w-full max-w-[88%] shrink-0 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
       <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('chatRouteCompare')}</p>
       <div className="flex flex-col gap-1">
         {options.map((o, i) => (
@@ -95,7 +97,7 @@ function RouteCompareCard({ options = [] }) {
 function BusArrivalsCard({ stop_code, services = [] }) {
   const { t } = useT()
   return (
-    <div className="self-start w-full max-w-[88%] rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
+    <div className="self-start w-full max-w-[88%] shrink-0 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
       <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('chatBusArrivals', stop_code)}</p>
       {services.length === 0 ? (
         <p className="text-xs text-slate-400">{t('chatBusNone')}</p>
