@@ -20,6 +20,9 @@ describe('ChatBlocks', () => {
     expect(img).not.toHaveAttribute('loading', 'lazy')
     expect(screen.getByText('Gardens by the Bay')).toBeInTheDocument()
     expect(screen.getByText('90 min')).toBeInTheDocument()
+    // shrink-0: the chat panel is a flex column — without it the card collapses to a thin bar
+    // once later messages overflow the panel height (the "multiple images = empty lines" bug).
+    expect(img.closest('.shrink-0')).not.toBeNull()
   })
 
   it('requests a small compressed rendition for Pexels images', () => {
