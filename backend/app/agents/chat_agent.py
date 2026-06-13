@@ -62,10 +62,13 @@ SYSTEM_PROMPT = (
     "ANY change to the itinerary MUST go through the matching write tool as a PROPOSAL — "
     "never claim a change is done, because writes require the user to confirm. "
     "Weather and alerts are read-only. "
-    "PRESENTATION — after you recommend one or more curated places, call show_places with their "
-    "ids so the app shows photo cards; keep your own text short and conversational (the cards "
-    "carry the details). Separate distinct ideas into their own paragraphs (blank line between "
-    "them) so they render as separate blocks."
+    "PRESENTATION — whenever you recommend one or more curated places (especially if the user "
+    "asks for photos/images), you MUST call show_places to display photo cards; do not just list "
+    "them in text. Pass the dataset IDS — the exact `id` field from search_places / "
+    "get_curated_places (e.g. 'merlion-park'), NOT the display name. If show_places returns "
+    "status 'no_match' or any unresolved ids, look up the correct id and call it again. Keep your "
+    "own text short and conversational (the cards carry the details), and separate distinct ideas "
+    "into their own paragraphs (blank line between them) so they render as separate blocks."
 )
 
 
@@ -497,6 +500,31 @@ def _read_alerts(trip_id) -> object:
         return {"error": str(exc)}
 
 
+def _resolve_curated(token: str) -> Optional[dict]:
+    """Resolve a show_places token to a curated place — tolerant of LLM input (dev25 P3 fix).
+
+    The model is told to pass dataset ids (e.g. 'merlion-park') but often passes the display
+    name ('Merlion Park') or a near-id. Try, in order: exact id → exact name (case-insensitive)
+    → unique case-insensitive substring of the name. Returns None when nothing resolves
+    unambiguously (so the ack can honestly report it instead of silently showing nothing).
+    """
+    from app.agents.planning_agent import get_curated_place, get_all_places
+    if not token:
+        return None
+    p = get_curated_place(token)
+    if p:
+        return p
+    t = token.strip().lower()
+    if not t:
+        return None
+    places = list(get_all_places().values())
+    for pl in places:
+        if (pl.get("name") or "").lower() == t:
+            return pl
+    matches = [pl for pl in places if t in (pl.get("name") or "").lower()]
+    return matches[0] if len(matches) == 1 else None
+
+
 async def _execute_read_tool(tool, args, ctx) -> object:
     try:
         if tool == "get_current_trip":
@@ -526,22 +554,32 @@ async def _execute_read_tool(tool, args, ctx) -> object:
 
         if tool == "show_places":
             # Presentation tool — build photo cards from the curated dataset (never the model),
-            # so image_url / place_id are always real. Returns a small ack to the model.
-            from app.agents.planning_agent import get_curated_place
-            ids = [str(x) for x in (args.get("place_ids") or [])]
-            shown = []
-            for pid in ids:
-                p = get_curated_place(pid)
-                if p:
-                    ctx["card_blocks"].append(PlaceCardBlock(
-                        id=p["id"],
-                        name=p["name"],
-                        category=p.get("category"),
-                        image_url=p.get("image_url"),
-                        suggested_duration_minutes=p.get("suggested_duration_minutes"),
-                    ))
-                    shown.append(p["id"])
-            return {"status": "displayed", "shown_place_ids": shown, "count": len(shown)}
+            # so image_url / place_id are always real. Tolerant of names/near-ids via
+            # _resolve_curated; the ack is HONEST (reports unresolved tokens + a 0-card status)
+            # so the model retries with correct ids instead of falsely believing it sent images.
+            tokens = [str(x) for x in (args.get("place_ids") or [])]
+            shown, unresolved = [], []
+            for token in tokens:
+                p = _resolve_curated(token)
+                if not p:
+                    unresolved.append(token)
+                    continue
+                if p["id"] in shown:
+                    continue
+                ctx["card_blocks"].append(PlaceCardBlock(
+                    id=p["id"],
+                    name=p["name"],
+                    category=p.get("category"),
+                    image_url=p.get("image_url"),
+                    suggested_duration_minutes=p.get("suggested_duration_minutes"),
+                ))
+                shown.append(p["id"])
+            return {
+                "status": "displayed" if shown else "no_match",
+                "shown_place_ids": shown,
+                "count": len(shown),
+                "unresolved": unresolved,
+            }
 
         if tool == "compare_routes":
             from app.services import onemap
