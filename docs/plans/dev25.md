@@ -289,8 +289,71 @@ building on the existing `switch_leg_now` tool and `get_weather`.
 - Trigger source TBD at Phase-4 planning: client-side geofence/weather poll vs. extending the
   scheduler. Decide then; do not pre-build infra now.
 
-> Phase 5 gets its own short design note appended here before coding (kept minimal so Phases
-> 1–4 aren't blocked).
+---
+
+### Design note (finalized 2026-06-13, code-verified)
+
+**Why this is not already done by P1.** The scheduler's `adaptation_agent._check_live_rain`
+already inserts `weather_live` alerts and those reach chat as proactive bubbles — **but it is
+anchored to the trip's stored centroid**, not where the user actually is. Phase 5 adds the one
+missing thing: a live rain nudge anchored to the user's **real GPS**, only while the chat
+companion is active. No new mutation primitive, no scheduler change.
+
+**Decision — trigger source: client-side GPS poll (NOT the scheduler).** Mirrors P1, where the
+client drives the proactive call when it has the data. Active only when `user && tripId && gps`
+and the widget is mounted; polls a new endpoint on mount + every ~4 min.
+
+**Anti-double-notify.** The GPS nudge reuses `alert_type:"weather_live"` and the **same dedupe
+window** (`settings.weather_live_dedup_min`), keyed in-memory by `session_id`, so a user who
+already got the scheduler's centroid rain alert (or a recent GPS one) is not pinged again inside
+the window. The GPS check returns `None` far more often than not (dry / no outdoor stop) → silent.
+
+#### Backend
+- `agents/chat_agent.py`: `async def companion_check(trip_id, gps, current_user, lang) -> Optional[dict]`
+  — fully rule-based gate (no LLM unless a nudge actually fires):
+  1. load plan via `get_trip` (owner-checked); collect `is_outdoor` places (exclude `hotel`).
+     No GPS / no outdoor stops → `None`.
+  2. `openweather.get_current_weather(gps.lat, gps.lng)` at the USER's coords; on
+     `WeatherUnavailableError` → `None` (no fabrication).
+  3. not raining (`rain_1h <= 0` and `condition != "Rain"`) → `None`.
+  4. pick the **nearest outdoor stop to the user** (haversine over plan places).
+  5. nearest indoor alternative via the existing `adaptation_agent._nearest_indoor` →
+     build a base message ("it's raining near you … your nearest outdoor stop is X … want to
+     shelter, swap to Y, or a covered route?"); warm-phrase it with the existing
+     `gemini.phrase_alert` (template fallback, never fabricates).
+  6. in-memory dedupe `_companion_seen[session_id] = expires_monotonic` over
+     `weather_live_dedup_min` → suppress repeats. Returns `{text, place_name,
+     alert_type:"weather_live"}` or `None`.
+- `models/chat.py`: `CompanionCheckRequest {session_id, trip_id, gps, lang}`,
+  `CompanionCheckResponse {nudge: Optional[ProactiveMessage]}` (reuse `ProactiveMessage`).
+- `routers/chat.py`: `POST /chat/companion-check` (`require_current_user`) → `companion_check(...)`.
+
+**Acting on the nudge:** the user just replies in chat ("swap it" / "covered route?") → the
+normal loop runs `switch_leg_now` / `compare_routes` (already wired). No new write path.
+
+#### Frontend
+- `hooks/useLiveCompanion.js` (NEW): when `user && tripId && gps`, poll `/chat/companion-check`
+  on mount + every 4 min; on a non-null nudge call `onNudge(text, id)`; dedupe by id. No-op for
+  guests / missing GPS; clears its interval on unmount.
+- `ChatWidget.jsx`: `useLiveCompanion(user ? tripId : null, position, onNudge)`; `onNudge`
+  appends an assistant bubble + bumps the unread badge (reuse the exact P1 mechanism).
+- `services/api.js`: `companionCheck: (body) => request('/chat/companion-check', …)`.
+
+#### Tests
+- backend (`test_chat_agent.py` + `test_chat.py`): nudge when raining + outdoor; `None` when dry;
+  `None` when no outdoor stop; `None` on weather-unavailable; dedupe suppresses the 2nd call
+  within the window; nearest-stop selection picks the closest outdoor place; endpoint 401 without
+  auth; nudge wraps as `ProactiveMessage`.
+- frontend (`useLiveCompanion.test` + `ChatWidget.test`): hook posts one bubble on a nudge,
+  silent when `null`, no double-post on re-poll, guest never polls.
+
+#### Impact
+| Area | Change | Risk |
+|------|--------|------|
+| chat mutations / scheduler / `lta_alerts` | none (reply-to-act; no new write/poll infra) | none |
+| Gemini quota | +1 phrase call ONLY when a nudge actually fires | LOW |
+| OpenWeather | +1 current-weather call per poll while widget open w/ GPS | LOW |
+| double-notify | guarded by shared `weather_live` dedupe window | LOW |
 
 ---
 

@@ -362,3 +362,112 @@ async def test_run_chat_injects_trip_start_date_into_system_prompt():
     sys_instr = mock.call_args.kwargs["system_instruction"]
     assert "2026-06-20" in sys_instr
     assert "TRIP DATES" in sys_instr
+
+
+# ── live GPS companion (dev25 P5) ─────────────────────────────────────────────────
+
+def _cplace(pid, name, lat, lng, is_outdoor):
+    return SimpleNamespace(id=pid, name=name, lat=lat, lng=lng, is_outdoor=is_outdoor)
+
+
+def _cplan(places):
+    return SimpleNamespace(places=places)
+
+
+def _companion_patches(plan, weather, *, indoor=None, phrase_echo=True):
+    """Bundle the four collaborators companion_check touches into one context manager list."""
+    echo = AsyncMock(side_effect=lambda alert, lang: alert["message"]) if phrase_echo else AsyncMock(return_value="warm")
+    return [
+        patch.object(chat_agent, "_load_plan", AsyncMock(return_value=plan)),
+        patch("app.services.openweather.get_current_weather", weather),
+        patch("app.agents.adaptation_agent._nearest_indoor", return_value=indoor),
+        patch.object(chat_agent.gemini, "phrase_alert", echo),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_companion_check_nudges_when_raining_near_outdoor_stop():
+    plan = _cplan([
+        _cplace("hotel", "Hotel", 1.30, 103.80, False),
+        _cplace("merlion-park", "Merlion Park", 1.2868, 103.8545, True),
+        _cplace("museum", "Museum", 1.30, 103.85, False),
+    ])
+    wx = AsyncMock(return_value={"condition": "Rain", "temp_c": 27.0, "rain_1h": 3.2})
+    patches = _companion_patches(plan, wx, indoor={"name": "ArtScience Museum"})
+    with patches[0], patches[1], patches[2], patches[3]:
+        nudge = await chat_agent.companion_check(
+            "s1", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1", lang="en")
+    assert nudge is not None
+    assert nudge.alert_type == "weather_live"
+    assert "Merlion Park" in nudge.text
+    assert "ArtScience Museum" in nudge.text  # indoor alternative surfaced
+
+
+@pytest.mark.asyncio
+async def test_companion_check_none_without_gps():
+    assert await chat_agent.companion_check("s2", "trip1", None, current_user="u1") is None
+
+
+@pytest.mark.asyncio
+async def test_companion_check_silent_when_dry():
+    plan = _cplan([_cplace("merlion-park", "Merlion Park", 1.2868, 103.8545, True)])
+    wx = AsyncMock(return_value={"condition": "Clear", "temp_c": 31.0, "rain_1h": 0.0})
+    patches = _companion_patches(plan, wx)
+    with patches[0], patches[1], patches[2], patches[3]:
+        nudge = await chat_agent.companion_check(
+            "s3", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
+    assert nudge is None
+
+
+@pytest.mark.asyncio
+async def test_companion_check_silent_without_outdoor_stops():
+    plan = _cplan([_cplace("museum", "Museum", 1.30, 103.85, False)])
+    wx = AsyncMock(return_value={"condition": "Rain", "rain_1h": 5.0})
+    patches = _companion_patches(plan, wx)
+    with patches[0], patches[1], patches[2], patches[3]:
+        nudge = await chat_agent.companion_check(
+            "s4", "trip1", Gps(lat=1.30, lng=103.85), current_user="u1")
+    assert nudge is None
+    wx.assert_not_called()  # short-circuits before the weather call (no outdoor stop)
+
+
+@pytest.mark.asyncio
+async def test_companion_check_silent_when_weather_unavailable():
+    from app.services.openweather import WeatherUnavailableError
+    plan = _cplan([_cplace("merlion-park", "Merlion Park", 1.2868, 103.8545, True)])
+    wx = AsyncMock(side_effect=WeatherUnavailableError("down"))
+    patches = _companion_patches(plan, wx)
+    with patches[0], patches[1], patches[2], patches[3]:
+        nudge = await chat_agent.companion_check(
+            "s5", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
+    assert nudge is None  # no fabrication when weather is down
+
+
+@pytest.mark.asyncio
+async def test_companion_check_dedupes_within_window():
+    plan = _cplan([_cplace("merlion-park", "Merlion Park", 1.2868, 103.8545, True)])
+    wx = AsyncMock(return_value={"condition": "Rain", "rain_1h": 2.0})
+    patches = _companion_patches(plan, wx)
+    with patches[0], patches[1], patches[2], patches[3]:
+        first = await chat_agent.companion_check(
+            "s6", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
+        second = await chat_agent.companion_check(
+            "s6", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
+    assert first is not None
+    assert second is None
+    assert wx.call_count == 1  # second short-circuited by dedupe before any work
+
+
+@pytest.mark.asyncio
+async def test_companion_check_picks_nearest_outdoor_to_user():
+    plan = _cplan([
+        _cplace("far", "Far Park", 1.45, 103.95, True),
+        _cplace("near", "Near Park", 1.287, 103.854, True),
+    ])
+    wx = AsyncMock(return_value={"condition": "Rain", "rain_1h": 1.0})
+    patches = _companion_patches(plan, wx)
+    with patches[0], patches[1], patches[2], patches[3]:
+        nudge = await chat_agent.companion_check(
+            "s7", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
+    assert "Near Park" in nudge.text
+    assert "Far Park" not in nudge.text

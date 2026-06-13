@@ -14,6 +14,7 @@ from app.services import gemini
 from app.models.chat import (
     ChatRequest, ChatResponse, ChatConfirmRequest, ChatConfirmResponse,
     PhraseAlertRequest, ProactiveMessage,
+    CompanionCheckRequest, CompanionCheckResponse,
 )
 from app.routers import trips
 from app.models.trip import (
@@ -52,6 +53,28 @@ async def phrase_alert(
         alert_type=body.alert.alert_type,
         day_number=body.alert.day_number,
     )
+
+
+@router.post("/companion-check", response_model=CompanionCheckResponse)
+async def companion_check(
+    body: CompanionCheckRequest,
+    current_user: str = Depends(require_current_user),
+):
+    """Live, GPS-anchored rain nudge for the chat companion (dev25 P5).
+
+    The client polls this while the chat widget is open and it has the user's real GPS. The
+    backend checks the weather at those coords (not the trip centroid) and returns a warm nudge
+    only when it's raining near an upcoming outdoor stop — else `nudge=None` (the common case),
+    so the client stays quiet. The user acts by replying in chat (→ switch_leg_now / compare).
+    """
+    nudge = await chat_agent.companion_check(
+        session_id=body.session_id,
+        trip_id=body.trip_id,
+        gps=body.gps,
+        current_user=current_user,
+        lang=body.lang,
+    )
+    return CompanionCheckResponse(nudge=nudge)
 
 
 @router.post("/confirm", response_model=ChatConfirmResponse)

@@ -6,6 +6,7 @@ import { useT } from '../../contexts/LanguageContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useGeolocation } from '../../hooks/useGeolocation'
 import { useAlerts } from '../../hooks/useAlerts'
+import { useLiveCompanion } from '../../hooks/useLiveCompanion'
 import AlertActionCard from '../adaptation/AlertActionCard'
 import ChatBlocks from './ChatBlocks'
 import { api } from '../../services/api'
@@ -84,6 +85,21 @@ export default function ChatWidget() {
     })()
     return () => { cancelled = true }
   }, [alerts, user, tripId, lang])
+
+  // dev25 P5 — live GPS companion: while logged in on a trip with real GPS, surface a rain nudge
+  // anchored to where the user actually is (vs the scheduler's centroid alert). Posts a bubble +
+  // unread badge, reusing the proactive path; the user acts by replying in chat.
+  useLiveCompanion({
+    enabled: !!user,
+    sessionId: getSessionId(),
+    tripId,
+    gps: position,
+    lang,
+    onNudge: (text, id) => {
+      setMessages((m) => [...m, { role: 'assistant', text, companionId: id }])
+      if (!open) setUnread((u) => u + 1)
+    },
+  })
 
   // dev25 P2 — resolve an alert from inside the chat. Accepting an adaptation reuses the same
   // backend (api.adaptTrip/acceptSwap, inside AlertActionCard); on success we broadcast the

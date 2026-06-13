@@ -9,6 +9,7 @@ State is in-memory, keyed by session_id (like trips._pending_swaps) — lost on 
 """
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -17,7 +18,7 @@ from google.genai import types
 
 from app.services import gemini
 from app.models.chat import (
-    ChatResponse, ProposedAction, Gps,
+    ChatResponse, ProactiveMessage, ProposedAction, Gps,
     TextBlock, PlaceCardBlock, RouteOption, RouteCompareBlock, BusService, BusArrivalsBlock,
 )
 
@@ -29,6 +30,8 @@ _chat_history: dict[str, list] = {}
 _pending_actions: dict[str, dict] = {}
 # session_id -> {trip_id, ...} — persists resolved context across requests
 _chat_ctx: dict[str, dict] = {}
+# session_id -> monotonic expiry — dev25 P5 live-companion dedupe (shares the weather_live window)
+_companion_seen: dict[str, float] = {}
 
 _MAX_TURNS = 4
 
@@ -277,6 +280,7 @@ def reset() -> None:
     _chat_history.clear()
     _pending_actions.clear()
     _chat_ctx.clear()
+    _companion_seen.clear()
 
 
 async def run_chat(
@@ -371,6 +375,79 @@ _FALLBACK = (
     "Sorry, I couldn't complete that just now. Could you rephrase or try again? "
     "(Xin lỗi, tôi chưa xử lý được — bạn thử diễn đạt lại giúp nhé.)"
 )
+
+
+# ── live GPS companion (dev25 P5) ─────────────────────────────────────────────────
+
+async def companion_check(
+    session_id: str,
+    trip_id: str,
+    gps: Optional[Gps],
+    current_user: Optional[str] = None,
+    lang: str = "en",
+) -> Optional[ProactiveMessage]:
+    """Live, GPS-anchored rain nudge for the chat companion (dev25 P5).
+
+    Unlike the scheduler's centroid-based `weather_live` alert, this checks the weather at the
+    user's REAL coordinates and names the nearest upcoming outdoor stop. Fully rule-based — it
+    only calls the LLM (`phrase_alert`) when a nudge actually fires. Returns None far more often
+    than not (dry / no outdoor stop / weather unavailable / deduped) so the client stays quiet.
+    Never fabricates. The user acts by replying in chat (→ switch_leg_now / compare_routes).
+    """
+    if gps is None:
+        return None
+
+    # Dedupe repeated polls: after a nudge fires, stay quiet for the shared weather_live window
+    # so the companion doesn't ping every few minutes about the same shower.
+    now = time.monotonic()
+    exp = _companion_seen.get(session_id)
+    if exp and exp > now:
+        return None
+
+    plan = await _load_plan({"trip_id": trip_id, "current_user": current_user})
+    if plan is None:
+        return None
+
+    outdoor = [p for p in plan.places if getattr(p, "is_outdoor", False) and p.id != "hotel"]
+    if not outdoor:
+        return None
+
+    from app.services import openweather
+    try:
+        current = await openweather.get_current_weather(gps.lat, gps.lng)
+    except Exception:
+        return None  # weather down → say nothing (never fabricate)
+
+    rain_mm = float(current.get("rain_1h", 0.0) or 0.0)
+    if not (rain_mm > 0 or current.get("condition") == "Rain"):
+        return None
+
+    # Nearest outdoor stop to the USER (GPS-anchored — the whole point of P5).
+    from app.agents.planning_agent import _haversine_km
+    nxt = min(outdoor, key=lambda p: _haversine_km(gps.lat, gps.lng, p.lat, p.lng))
+
+    # Optional nearby indoor alternative (reuse the adaptation helper; tolerate failure).
+    from app.agents.adaptation_agent import _nearest_indoor
+    try:
+        alt = _nearest_indoor(nxt.lat, nxt.lng, exclude_ids={p.id for p in plan.places})
+    except Exception:
+        alt = None
+    swap = f", swap to {alt['name']}," if alt and alt.get("name") else ""
+
+    rate = f"{rain_mm:.1f}mm/h" if rain_mm > 0 else "rain"
+    base = (
+        f"It's raining near you right now ({rate}). Your nearest outdoor stop is {nxt.name} — "
+        f"want to shelter{swap} or find a covered route?"
+    )
+
+    # Warm-phrase via the existing alert phraser (template fallback baked in — never fabricates).
+    text = await gemini.phrase_alert(
+        {"alert_type": "weather_live", "message": base, "day_number": None}, lang
+    )
+
+    from app.config import settings
+    _companion_seen[session_id] = now + getattr(settings, "weather_live_dedup_min", 10) * 60
+    return ProactiveMessage(text=text or base, alert_type="weather_live")
 
 
 # ── rich blocks (dev25 P3) ────────────────────────────────────────────────────────
