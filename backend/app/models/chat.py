@@ -120,3 +120,20 @@ class ProactiveMessage(BaseModel):
     text: str
     alert_type: Optional[str] = None
     day_number: Optional[int] = None
+
+
+# ── Live GPS companion nudge (dev25 P5) ───────────────────────────────────────────
+# Anchored to the user's REAL position (vs the scheduler's centroid-based weather_live):
+# the client polls while the chat companion is open; the backend returns a warm rain nudge
+# only when it is raining at the user's coords near an upcoming outdoor stop — else nudge=None.
+
+
+class CompanionCheckRequest(BaseModel):
+    session_id: str
+    trip_id: str
+    gps: Gps
+    lang: str = "en"
+
+
+class CompanionCheckResponse(BaseModel):
+    nudge: Optional[ProactiveMessage] = None

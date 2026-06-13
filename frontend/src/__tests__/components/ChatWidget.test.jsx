@@ -20,6 +20,7 @@ vi.mock('../../services/api', () => ({
     phraseAlert: vi.fn(),
     sendChat: vi.fn(),
     confirmChatAction: vi.fn(),
+    companionCheck: vi.fn(),
     adaptTrip: vi.fn(),
     acceptSwap: vi.fn(),
     submitFeedback: vi.fn(),

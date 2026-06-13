@@ -202,3 +202,40 @@ def test_phrase_alert_requires_auth():
     # No auth override → real require_current_user raises 401 (supabase is None in tests).
     resp = client.post("/chat/phrase-alert", json={"alert": {"message": "x"}})
     assert resp.status_code == 401
+
+
+# ── /chat/companion-check (dev25 P5 live GPS companion) ───────────────────────────
+
+def test_companion_check_returns_nudge():
+    from app.models.chat import ProactiveMessage
+    nudge = ProactiveMessage(text="It's raining near you — your nearest outdoor stop is X.",
+                             alert_type="weather_live")
+    with _auth_as("user-1"), patch(
+        "app.routers.chat.chat_agent.companion_check", new=AsyncMock(return_value=nudge),
+    ):
+        resp = client.post("/chat/companion-check", json={
+            "session_id": "s1", "trip_id": "t1",
+            "gps": {"lat": 1.287, "lng": 103.854}, "lang": "en",
+        })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["nudge"]["alert_type"] == "weather_live"
+    assert "raining" in body["nudge"]["text"]
+
+
+def test_companion_check_returns_null_when_quiet():
+    with _auth_as("user-1"), patch(
+        "app.routers.chat.chat_agent.companion_check", new=AsyncMock(return_value=None),
+    ):
+        resp = client.post("/chat/companion-check", json={
+            "session_id": "s1", "trip_id": "t1", "gps": {"lat": 1.30, "lng": 103.85},
+        })
+    assert resp.status_code == 200
+    assert resp.json()["nudge"] is None
+
+
+def test_companion_check_requires_auth():
+    resp = client.post("/chat/companion-check", json={
+        "session_id": "s1", "trip_id": "t1", "gps": {"lat": 1.30, "lng": 103.85},
+    })
+    assert resp.status_code == 401

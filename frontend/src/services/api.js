@@ -82,6 +82,9 @@ export const api = {
   confirmChatAction: (body) => request('/chat/confirm', { method: 'POST', body: JSON.stringify(body) }),
   // dev25 P1 — rephrase a live alert as a friendly proactive chat message
   phraseAlert: (body) => request('/chat/phrase-alert', { method: 'POST', body: JSON.stringify(body) }),
+  // dev25 P5 — live GPS companion: returns { nudge: {text,...} | null } based on weather at the
+  // user's real position; null (the common case) means stay quiet.
+  companionCheck: (body) => request('/chat/companion-check', { method: 'POST', body: JSON.stringify(body) }),
 
   // localStorage trip metadata helpers — per-user isolated via userId key suffix
   saveTrip(tripId, meta, userId) {
