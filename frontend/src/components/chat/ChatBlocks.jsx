@@ -27,12 +27,29 @@ function TextBlock({ markdown }) {
   )
 }
 
+// Pexels originals are multi-MB — request a small, compressed rendition for the chat card.
+function thumb(url) {
+  if (!url || !url.includes('images.pexels.com')) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}auto=compress&cs=tinysrgb&w=600`
+}
+
 function PlaceCard({ name, category, image_url, suggested_duration_minutes }) {
   const { t } = useT()
   return (
     <div className="self-start w-full max-w-[88%] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       {image_url && (
-        <img src={image_url} alt={name} loading="lazy" className="h-28 w-full object-cover" />
+        // No loading="lazy": lazy images inserted into the auto-scrolling chat container often
+        // never trigger their intersection check and stay blank. Eager-load + placeholder bg +
+        // onError (matches the proven pattern in planner/Trip cards).
+        <div className="h-28 w-full bg-slate-100">
+          <img
+            src={thumb(image_url)}
+            alt={name}
+            className="h-28 w-full object-cover"
+            onError={(e) => { e.currentTarget.style.display = 'none' }}
+          />
+        </div>
       )}
       <div className="p-2.5">
         <p className="text-sm font-semibold text-slate-800">{name}</p>
