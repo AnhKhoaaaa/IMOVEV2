@@ -201,6 +201,46 @@ async def test_show_places_ignores_unknown_ids():
 
 
 @pytest.mark.asyncio
+async def test_show_places_resolves_display_name_not_just_id():
+    """The model often passes a place's display NAME instead of its dataset id — the card must
+    still build (dev25 P3 fix: 'images not sent' bug)."""
+    pid = _a_curated_id()
+    from app.agents.planning_agent import get_curated_place
+    name = get_curated_place(pid)["name"]
+    cm, _ = _patch_gen(
+        _resp([_fc_part("show_places", {"place_ids": [name]})]),   # NAME, not id
+        _resp([_text_part("Here's a spot.")]),
+    )
+    with cm:
+        res = await chat_agent.run_chat("b8", "đề xuất kèm ảnh", trip_id=None)
+    cards = [b for b in res.blocks if b.type == "place_card"]
+    assert len(cards) == 1 and cards[0].id == pid
+
+
+@pytest.mark.asyncio
+async def test_show_places_ack_reports_no_match_for_bad_token():
+    """A 0-card call must NOT ack 'displayed' — otherwise the model thinks it sent images and
+    refuses to retry on 'send again'."""
+    ctx = {"card_blocks": []}
+    ack = await chat_agent._execute_read_tool("show_places", {"place_ids": ["totally-bogus-xyz"]}, ctx)
+    assert ack["status"] == "no_match"
+    assert ack["count"] == 0
+    assert ack["unresolved"] == ["totally-bogus-xyz"]
+    assert ctx["card_blocks"] == []
+
+
+@pytest.mark.asyncio
+async def test_show_places_dedupes_repeated_tokens():
+    pid = _a_curated_id()
+    from app.agents.planning_agent import get_curated_place
+    name = get_curated_place(pid)["name"]
+    ctx = {"card_blocks": []}
+    ack = await chat_agent._execute_read_tool("show_places", {"place_ids": [pid, name]}, ctx)
+    assert ack["count"] == 1                 # id + its name = one card, not two
+    assert len(ctx["card_blocks"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_compare_routes_yields_route_compare_block():
     routes = {
         "pt": {"available": True, "duration_minutes": 22, "fare_sgd": 1.5, "distance_km": 8, "summary": "Bus 14"},
