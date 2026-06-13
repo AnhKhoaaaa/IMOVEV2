@@ -16,8 +16,20 @@ describe('ChatBlocks', () => {
     }]} />)
     const img = screen.getByRole('img', { name: 'Gardens by the Bay' })
     expect(img).toHaveAttribute('src', 'https://img/g.jpg')
+    // Eager load — must NOT be lazy (lazy images stay blank in the auto-scrolling chat panel).
+    expect(img).not.toHaveAttribute('loading', 'lazy')
     expect(screen.getByText('Gardens by the Bay')).toBeInTheDocument()
     expect(screen.getByText('90 min')).toBeInTheDocument()
+  })
+
+  it('requests a small compressed rendition for Pexels images', () => {
+    render(<ChatBlocks blocks={[{
+      type: 'place_card', id: 'p2', name: 'Merlion Park',
+      image_url: 'https://images.pexels.com/photos/30570494/pexels-photo-30570494.jpeg?auto=compress',
+    }]} />)
+    const img = screen.getByRole('img', { name: 'Merlion Park' })
+    expect(img.getAttribute('src')).toContain('w=600')
+    expect(img.getAttribute('src')).toContain('cs=tinysrgb')
   })
 
   it('renders markdown bold + list in a text block', () => {
