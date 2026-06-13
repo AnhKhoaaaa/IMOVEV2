@@ -144,7 +144,8 @@ _ROUTE_RETRY_DELAY_S = 0.5
 
 # OTP returns its single best itinerary first; for short legs that is often all-walk,
 # hiding viable transit. Request a few so we can pick the best one that actually rides transit.
-_PT_NUM_ITINERARIES = 4
+# OneMap hard-caps this at 1–3 inclusive (HTTP 400 otherwise), so 3 is the usable maximum.
+_PT_NUM_ITINERARIES = 3
 
 
 def _has_transit(itin: dict) -> bool:

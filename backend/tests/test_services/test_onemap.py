@@ -362,7 +362,9 @@ async def test_get_route_pt_requests_multiple_itineraries():
         await get_route(1.28, 103.85, 1.30, 103.82, "pt")
     params = client.get.call_args.kwargs.get("params", {})
     assert params.get("numItineraries") == _onemap._PT_NUM_ITINERARIES
-    assert _onemap._PT_NUM_ITINERARIES > 1
+    # OneMap hard-caps numItineraries at 1–3 inclusive (4+ → HTTP 400). Must stay in range
+    # AND ask for more than 1 so the all-walk-first itinerary can be skipped.
+    assert 1 < _onemap._PT_NUM_ITINERARIES <= 3
 
 
 @pytest.mark.asyncio
