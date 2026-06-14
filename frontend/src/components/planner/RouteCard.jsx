@@ -6,11 +6,13 @@ import { Label } from '../ui/label'
 import { Button } from '../ui/button'
 import { Alert, AlertDescription } from '../ui/alert'
 import { AlertCircle } from 'lucide-react'
+import { useT } from '../../contexts/LanguageContext'
 
 const MODES = ['MRT', 'LRT', 'BUS', 'WALK', 'DRIVE']
-const MODE_LABEL = { MRT: 'MRT', LRT: 'LRT', BUS: 'Bus', WALK: 'Walk', DRIVE: 'Drive / Taxi' }
+const MODE_LABEL_KEY = { MRT: 'transport_mrt', LRT: 'ctLrt', BUS: 'transport_bus', WALK: 'transport_walk', DRIVE: 'ctDriveTaxi' }
 
 export default function RouteCard({ leg, tripId, onUpdated }) {
+  const { t } = useT()
   const [editOpen, setEditOpen] = useState(false)
   const [confirmedMode, setConfirmedMode] = useState(leg.transport_mode)
   const [newMode, setNewMode] = useState(leg.transport_mode)
@@ -45,11 +47,11 @@ export default function RouteCard({ leg, tripId, onUpdated }) {
         <Dialog open={editOpen} onOpenChange={(open) => { if (!open) { setEditOpen(false); setUpdateError(null) } }}>
           <DialogContent className="sm:max-w-xs">
             <DialogHeader>
-              <DialogTitle>Change transport mode</DialogTitle>
+              <DialogTitle>{t('rcChangeMode')}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="transport-mode-select">New mode</Label>
+                <Label htmlFor="transport-mode-select">{t('rcNewMode')}</Label>
                 <select
                   id="transport-mode-select"
                   value={newMode}
@@ -57,7 +59,7 @@ export default function RouteCard({ leg, tripId, onUpdated }) {
                   className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   {MODES.map((m) => (
-                    <option key={m} value={m}>{MODE_LABEL[m]}</option>
+                    <option key={m} value={m}>{t(MODE_LABEL_KEY[m])}</option>
                   ))}
                 </select>
               </div>
@@ -69,10 +71,10 @@ export default function RouteCard({ leg, tripId, onUpdated }) {
               )}
               <div className="flex gap-2">
                 <Button className="flex-1" onClick={handleUpdate} disabled={updating}>
-                  {updating ? 'Saving...' : 'Confirm'}
+                  {updating ? t('rcSaving') : t('tripConfirm')}
                 </Button>
                 <Button variant="outline" onClick={() => { setEditOpen(false); setUpdateError(null) }}>
-                  Cancel
+                  {t('tripCancel')}
                 </Button>
               </div>
             </div>

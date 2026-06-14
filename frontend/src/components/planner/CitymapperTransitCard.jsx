@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Train, Bus, Footprints, Car, Bike, ChevronDown, AlertTriangle, X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import BusArrivalPanel from '../transit/BusArrivalPanel'
+import { useT } from '../../contexts/LanguageContext'
 
 const SUB_LEG_ICONS = { MRT: Train, LRT: Train, BUS: Bus, WALK: Footprints }
 
@@ -12,72 +13,73 @@ function getLineBadge(leg) {
 
 const MODE_CONFIG = {
   MRT: {
-    label: 'MRT',
+    labelKey: 'transport_mrt',
     Icon: Train,
     color: '#4f46e5',
     bg: '#eef2ff',
     border: 'border-indigo-200',
     accentText: 'text-indigo-700',
-    crowding: 'Low',
+    crowdingKey: 'ctCrowdLow',
     crowdingColor: 'bg-emerald-500',
     crowdingText: 'text-emerald-700',
     badgeBg: '#4f46e5',
   },
   LRT: {
-    label: 'LRT',
+    labelKey: 'ctLrt',
     Icon: Train,
     color: '#7c3aed',
     bg: '#f5f3ff',
     border: 'border-violet-200',
     accentText: 'text-violet-700',
-    crowding: 'Low',
+    crowdingKey: 'ctCrowdLow',
     crowdingColor: 'bg-emerald-500',
     crowdingText: 'text-emerald-700',
     badgeBg: '#7c3aed',
   },
   BUS: {
-    label: 'Bus',
+    labelKey: 'transport_bus',
     Icon: Bus,
     color: '#059669',
     bg: '#ecfdf5',
     border: 'border-emerald-200',
     accentText: 'text-emerald-700',
-    crowding: 'Moderate',
+    crowdingKey: 'ctCrowdModerate',
     crowdingColor: 'bg-amber-500',
     crowdingText: 'text-amber-700',
     badgeBg: '#e11d48',
   },
   WALK: {
-    label: 'Walk',
+    labelKey: 'transport_walk',
     Icon: Footprints,
     color: '#ea580c',
     bg: '#fff7ed',
     border: 'border-orange-200',
     accentText: 'text-orange-700',
-    crowding: null,
+    crowdingKey: null,
   },
   DRIVE: {
-    label: 'Drive / Taxi',
+    labelKey: 'ctDriveTaxi',
     Icon: Car,
     color: '#7c3aed',
     bg: '#f5f3ff',
     border: 'border-violet-200',
     accentText: 'text-violet-700',
-    crowding: null,
+    crowdingKey: null,
   },
   CYCLE: {
-    label: 'Cycle',
+    labelKey: 'transport_cycle',
     Icon: Bike,
     color: '#0d9488',
     bg: '#f0fdfa',
     border: 'border-teal-200',
     accentText: 'text-teal-700',
-    crowding: null,
+    crowdingKey: null,
   },
 }
 
 /* ── Sub-leg row (structured board/alight data from backend) ───── */
 function SubLegRow({ sub, isLast, accentColor }) {
+  const { t } = useT()
   const Icon = SUB_LEG_ICONS[sub.mode] ?? Footprints
   const [showArrivals, setShowArrivals] = useState(false)
   const canShowArrivals = sub.mode === 'BUS' && !!sub.from_stop_code
@@ -85,14 +87,13 @@ function SubLegRow({ sub, isLast, accentColor }) {
   let text
   if (sub.mode === 'WALK') {
     text = sub.to_name
-      ? `Walk to ${sub.to_name}${sub.duration_minutes ? ` (${sub.duration_minutes} min)` : ''}`
-      : `Walk${sub.duration_minutes ? ` (${sub.duration_minutes} min)` : ''}`
+      ? t('ctWalkTo', sub.to_name, sub.duration_minutes)
+      : t('ctWalk', sub.duration_minutes)
   } else {
-    const stopInfo = sub.num_stops ? `, ${sub.num_stops} stops` : ''
-    const dur = sub.duration_minutes ? ` (${sub.duration_minutes} min${stopInfo})` : ''
+    const dur = sub.duration_minutes ? t('ctDur', sub.duration_minutes, sub.num_stops) : ''
     const line = sub.route ? `[${sub.route}] ` : ''
-    const board = sub.from_name ? `Board at ${sub.from_name}` : 'Board'
-    const alight = sub.to_name ? ` → Alight at ${sub.to_name}` : ''
+    const board = sub.from_name ? t('ctBoardAt', sub.from_name) : t('ctBoard')
+    const alight = sub.to_name ? t('ctAlightAt', sub.to_name) : ''
     text = `${line}${board}${alight}${dur}`
   }
   return (
@@ -114,7 +115,7 @@ function SubLegRow({ sub, isLast, accentColor }) {
               onClick={() => setShowArrivals((v) => !v)}
               className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 h-5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-100 transition"
             >
-              {showArrivals ? 'Hide' : 'Live arrivals'}
+              {showArrivals ? t('ctHide') : t('ctLiveArrivals')}
             </button>
           )}
         </div>
@@ -148,15 +149,16 @@ function InstructionRow({ text, isLast, accentColor }) {
 
 /* ── Transit alert strip ──────────────────────────────────────────── */
 function TransitAlertStrip({ onDismiss }) {
+  const { t } = useT()
   return (
     <div className="rounded-xl border border-red-200 bg-red-50 p-3 mt-2 animate-fade-up">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2">
           <AlertTriangle size={13} className="text-red-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-[12.5px] font-semibold text-red-900">Live alert · Signal fault</p>
+            <p className="text-[12.5px] font-semibold text-red-900">{t('ctLiveAlert')}</p>
             <p className="text-[12px] text-red-700 mt-0.5">
-              Delays up to 15 mins between Somerset and Bugis
+              {t('ctDelayMsg')}
             </p>
           </div>
         </div>
@@ -172,18 +174,19 @@ function TransitAlertStrip({ onDismiss }) {
 
 /* ── Alternative bus panel ────────────────────────────────────────── */
 function AlternativeBusPanel({ leg, onSwitchToBus }) {
+  const { t } = useT()
   const busDuration = Math.round((leg.duration_minutes ?? 14) * 0.9)
   const timeSaved = (leg.duration_minutes ?? 14) - busDuration
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 mt-2 animate-fade-up">
-      <p className="text-[12px] font-semibold text-slate-700 mb-2">Alternative route available</p>
+      <p className="text-[12px] font-semibold text-slate-700 mb-2">{t('ctAltRoute')}</p>
       <div className="flex items-center gap-3 text-[11.5px] text-slate-600 mb-3">
         <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 border border-rose-200 px-2 h-5 text-rose-700 font-semibold">
           Bus 7
         </span>
-        <span>~{busDuration} min</span>
+        <span>{t('ctApproxMin', busDuration)}</span>
         {timeSaved > 0 && (
-          <span className="text-emerald-700 font-semibold">Save ~{timeSaved} min</span>
+          <span className="text-emerald-700 font-semibold">{t('ctSaveMin', timeSaved)}</span>
         )}
         <span>· S${leg.cost_sgd != null ? leg.cost_sgd.toFixed(2) : '1.90'}</span>
       </div>
@@ -191,7 +194,7 @@ function AlternativeBusPanel({ leg, onSwitchToBus }) {
         onClick={onSwitchToBus}
         className="w-full h-8 rounded-lg bg-rose-600 text-white text-[12.5px] font-semibold hover:bg-rose-700 transition inline-flex items-center justify-center gap-1.5"
       >
-        <Bus size={12} /> Switch to Bus Route ▶
+        <Bus size={12} /> {t('ctSwitchBus')}
       </button>
     </div>
   )
@@ -207,6 +210,7 @@ export default function CitymapperTransitCard({
   onSwitchToBus,
   onDismissTransit,
 }) {
+  const { t } = useT()
   const hasSubLegs = Array.isArray(leg.sub_legs) && leg.sub_legs.length > 0
   const hasInstructions = Array.isArray(leg.instructions) && leg.instructions.length > 0
   const [open, setOpen] = useState(isActive)
@@ -216,7 +220,9 @@ export default function CitymapperTransitCard({
     : (leg.transport_mode ?? 'BUS').toUpperCase()
 
   const config = MODE_CONFIG[effectiveMode] ?? MODE_CONFIG.BUS
-  const { label, Icon, color, bg, border, crowding, crowdingColor, crowdingText } = config
+  const { Icon, color, bg, border, crowdingColor, crowdingText } = config
+  const label = t(config.labelKey)
+  const crowding = config.crowdingKey ? t(config.crowdingKey) : null
   const cost = leg.cost_sgd != null ? `S$${leg.cost_sgd.toFixed(2)}` : null
 
   const lineBadge = getLineBadge(leg)
@@ -259,7 +265,7 @@ export default function CitymapperTransitCard({
             {label}
             {alertMode && (
               <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 text-red-700 px-1.5 h-4 text-[10px] font-bold">
-                DISRUPTED
+                {t('ctDisrupted')}
               </span>
             )}
             {lineBadge && (
@@ -272,8 +278,8 @@ export default function CitymapperTransitCard({
             )}
           </p>
           <p className="text-xs text-slate-500">
-            {leg.duration_minutes} min{cost ? ` · ${cost}` : ''}
-            {leg.is_estimated && ' · ~Est.'}
+            {t('tripMinShort', leg.duration_minutes)}{cost ? ` · ${cost}` : ''}
+            {leg.is_estimated && ` · ${t('ctEst')}`}
           </p>
         </div>
         {crowding && !isActive && hasInstructions && (
@@ -286,7 +292,7 @@ export default function CitymapperTransitCard({
           <button
             onClick={(e) => { e.stopPropagation(); onEdit() }}
             className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0"
-            aria-label="Edit transport mode"
+            aria-label={t('ctEditMode')}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -316,7 +322,7 @@ export default function CitymapperTransitCard({
               ))}
               {leg.is_estimated && (
                 <p className="mt-1 text-xs text-amber-600">
-                  ~ Times are estimated based on typical route durations
+                  {t('ctEstimatedNote')}
                 </p>
               )}
             </>
@@ -332,7 +338,7 @@ export default function CitymapperTransitCard({
               ))}
               {leg.is_estimated && (
                 <p className="mt-1 text-xs text-amber-600">
-                  ~ Times are estimated based on typical route durations
+                  {t('ctEstimatedNote')}
                 </p>
               )}
             </>
