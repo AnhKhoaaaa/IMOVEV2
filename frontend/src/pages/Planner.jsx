@@ -31,6 +31,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import PlaceBrowser from '../components/planner/PlaceBrowser'
+import DateRangePicker, { isoToDate, dateToIso, daysBetweenInclusive } from '../components/ui/DateRangePicker'
+import TimePicker from '../components/ui/TimePicker'
 
 // Maps the chosen travel-style preset to a localized short label (Trip Config Summary).
 const STYLE_LABEL_KEY = {
@@ -370,7 +372,7 @@ const user = auth?.user
   }, [selectedIds, optimizeOrder, hotel, budget, selectedPreset, dayStartTimes])
 
   return (
-    <main className="min-h-[calc(100vh-56px)] bg-slate-50 py-8 px-6">
+    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 py-8 px-6">
       <div className="mx-auto max-w-7xl">
         
         {/* Header section */}
@@ -519,11 +521,13 @@ const user = auth?.user
                     {!flexible && (
                       <div className="animate-fade-in">
                         <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnStartDate')}</label>
-                        <input
-                          type="date"
-                          value={startDate}
-                          onChange={(e) => setStartDate(e.target.value)}
-                          className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] outline-none focus:border-blue-400 transition"
+                        <DateRangePicker
+                          from={isoToDate(startDate)}
+                          to={isoToDate(endDate(startDate, numDays))}
+                          onSelect={(range) => {
+                            setStartDate(dateToIso(range.from))
+                            if (range.from && range.to) setNumDays(daysBetweenInclusive(range.from, range.to))
+                          }}
                         />
                       </div>
                     )}
@@ -537,15 +541,15 @@ const user = auth?.user
                         {Array.from({ length: numDays }, (_, i) => (
                           <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2">
                             <span className="text-[11px] font-bold text-slate-400 w-9 shrink-0">{t('tripDay', i + 1)}</span>
-                            <input
-                              type="time"
+                            <TimePicker
                               value={dayStartTimes[i] ?? '09:00'}
-                              onChange={(e) => {
+                              onChange={(val) => {
                                 const next = [...dayStartTimes]
-                                next[i] = e.target.value
+                                next[i] = val
                                 setDayStartTimes(next)
                               }}
-                              className="flex-1 min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-900 outline-none focus:border-blue-400 transition"
+                              ariaLabel={`${t('tripDay', i + 1)} ${t('plnDailyStart')}`}
+                              className="flex-1 min-w-0"
                             />
                           </div>
                         ))}

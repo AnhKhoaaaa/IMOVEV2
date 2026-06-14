@@ -44,6 +44,7 @@ import TripSetupModal from '../components/planner/TripSetupModal'
 import SummaryTab from '../components/planner/SummaryTab'
 import PlaceSearch from '../components/planner/PlaceSearch'
 import BusArrivalPanel from '../components/transit/BusArrivalPanel'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 // DEV25-BANNER-RETAINED: as of dev25 Phase 1, live alerts surface through the ChatWidget for
 // logged-in users and guests get no alerts, so the on-page AlertBanner is not mounted. The
@@ -937,6 +938,7 @@ export default function Trip() {
   const [setupOpen, setSetupOpen] = useState(false)
   const [addDayFor, setAddDayFor] = useState(null)
   const [uiWarning, setUiWarning] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [mutating, setMutating] = useState(false)
   const [optimizeMsg, setOptimizeMsg] = useState(null)
   const [todayBanner, setTodayBanner] = useState(false)
@@ -1456,7 +1458,7 @@ export default function Trip() {
 
   if (loading) {
     return (
-      <main aria-label="Loading trip" className="grid min-h-[calc(100vh-56px)] place-items-center bg-slate-50">
+      <main aria-label="Loading trip" className="grid min-h-[calc(100dvh-56px)] place-items-center bg-slate-50">
         <Loader2 className="h-7 w-7 animate-spin text-blue-600" />
       </main>
     )
@@ -1464,7 +1466,7 @@ export default function Trip() {
 
   if (error || !trip) {
     return (
-      <main className="grid min-h-[calc(100vh-56px)] place-items-center bg-slate-50 px-6">
+      <main className="grid min-h-[calc(100dvh-56px)] place-items-center bg-slate-50 px-6">
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-700">
           {t('tripLoadError', String(error?.message ?? t('tripNotFound')))}
         </div>
@@ -1473,7 +1475,7 @@ export default function Trip() {
   }
 
   return (
-    <main className="flex h-[calc(100vh-56px)] flex-col overflow-hidden bg-white">
+    <main className="flex h-[calc(100dvh-56px)] flex-col overflow-hidden bg-white">
       <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
         <div className="flex items-center justify-between gap-6">
           <div className="flex min-w-0 items-center gap-4">
@@ -1703,16 +1705,7 @@ export default function Trip() {
                 setPendingSave(null)
                 sessionStorage.removeItem(pendingKey)
               }}
-              onDelete={async () => {
-                if (!window.confirm(t('tripDeleteConfirm'))) return
-                try {
-                  await api.deleteTrip(id)
-                  api.deleteSavedTrip(id, user?.id ?? null)
-                  navigate('/')
-                } catch (e) {
-                  setUiWarning(e.message)
-                }
-              }}
+              onDelete={() => setConfirmDelete(true)}
             />
           )}
         </section>
@@ -1812,6 +1805,25 @@ export default function Trip() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={t('confirmDeleteTitle')}
+        message={t('tripDeleteConfirm')}
+        confirmLabel={t('confirmDeleteBtn')}
+        cancelLabel={t('cancelBtn')}
+        onConfirm={async () => {
+          setConfirmDelete(false)
+          try {
+            await api.deleteTrip(id)
+            api.deleteSavedTrip(id, user?.id ?? null)
+            navigate('/')
+          } catch (e) {
+            setUiWarning(e.message)
+          }
+        }}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </main>
   )
 }
