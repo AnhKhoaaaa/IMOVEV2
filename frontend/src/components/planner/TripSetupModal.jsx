@@ -3,6 +3,8 @@ import { X, Calendar, Clock, AlertTriangle, Check, AlarmClock, Building2, Loader
 import { cn } from '../../lib/utils'
 import { api } from '../../services/api'
 import { useT } from '../../contexts/LanguageContext'
+import DateRangePicker, { isoToDate, dateToIso } from '../ui/DateRangePicker'
+import TimePicker from '../ui/TimePicker'
 
 const COMPANIONS = [
   { id: 'solo',     emoji: '🚶',    labelKey: 'comp_solo' },
@@ -145,7 +147,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
       onClick={onClose}
     >
       <div
-        className="w-[min(560px,calc(100vw-24px))] max-h-[calc(100vh-40px)] overflow-y-auto rounded-2xl bg-white shadow-pop border border-slate-200 animate-slide-up"
+        className="w-[min(560px,calc(100vw-24px))] max-h-[calc(100dvh-40px)] overflow-y-auto rounded-2xl bg-white shadow-pop border border-slate-200 animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -225,26 +227,17 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
             </div>
 
             {draft.dateMode === 'specific' ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11.5px] text-slate-500 block mb-1">{t('tsmStart')}</label>
-                  <input
-                    type="date"
-                    value={draft.startDate}
-                    onChange={(e) => set('startDate', e.target.value)}
-                    className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] focus:outline-none focus:border-indigo-400"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11.5px] text-slate-500 block mb-1">{t('tsmEnd')}</label>
-                  <input
-                    type="date"
-                    value={draft.endDate}
-                    onChange={(e) => set('endDate', e.target.value)}
-                    className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] focus:outline-none focus:border-indigo-400"
-                  />
-                </div>
-              </div>
+              <DateRangePicker
+                from={isoToDate(draft.startDate)}
+                to={isoToDate(draft.endDate)}
+                onSelect={(range) => {
+                  setDraft((d) => ({
+                    ...d,
+                    startDate: dateToIso(range.from),
+                    endDate: dateToIso(range.to),
+                  }))
+                }}
+              />
             ) : (
               <div className="flex items-center justify-between">
                 <span className="text-[13px] font-medium text-slate-700">{t('plnDuration')}</span>
@@ -274,12 +267,12 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
               {t('tsmDailyStart')}
             </label>
             <div className="flex items-center gap-2">
-              <AlarmClock size={14} className="text-slate-400" />
-              <input
-                type="time"
+              <AlarmClock size={14} className="shrink-0 text-slate-400" />
+              <TimePicker
                 value={draft.startTime}
-                onChange={(e) => set('startTime', e.target.value)}
-                className="flex h-9 w-36 rounded-lg border border-slate-200 bg-white px-3 text-[13px] focus:outline-none focus:border-indigo-400"
+                onChange={(val) => set('startTime', val)}
+                ariaLabel={t('tsmDailyStart')}
+                className="w-36"
               />
               <span className="text-[12px] text-slate-400">{t('tsmEachDay')}</span>
             </div>
