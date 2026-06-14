@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     # Optional: Adaptation Agent soft-error path
     openweather_api_key: Optional[str] = None
 
+    # Weather alert tuning (dev19)
+    weather_forecast_threshold: int = 70    # % pop to trigger a forecast swap suggestion
+    weather_poll_minutes: int = 120         # background weather poll cadence (min)
+    weather_forecast_ttl_s: int = 5400      # OpenWeather /forecast cache TTL (~90 min)
+    weather_live_dedup_min: int = 20        # dedup window for live-rain alerts (min)
+
+    # Closing-risk alert tuning (dev20)
+    closing_min_useful_min: int = 30        # min minutes a stop is worth visiting before it closes
+    closing_risk_dedup_min: int = 10        # dedup window for closing_risk alerts (min)
+
     # Optional: production frontend URL for CORS (e.g. https://imove.vercel.app)
     frontend_url: Optional[str] = None
 
@@ -47,6 +57,15 @@ class Settings(BaseSettings):
     google_cloud_location: Optional[str] = None       # GOOGLE_CLOUD_LOCATION
     google_application_credentials: Optional[str] = None  # GOOGLE_APPLICATION_CREDENTIALS
     chat_model: str = "gemini-2.5-flash"              # CHAT_MODEL
+
+    # ── DEMO-ONLY ⚠️ (video capture) — NOT product logic ────────────────────────────
+    # FOR OTHER AGENTS: this flag exists solely to record the dev25 Phase-5 chat-companion
+    # demo. When True, chat_agent.companion_check treats the weather at the user's GPS as light
+    # rain so the rain nudge fires on demand instead of waiting for real rain. EVERYTHING ELSE
+    # stays real (login/trip/outdoor/GPS gating, nearest-stop pick, LLM phrasing). Default False —
+    # NEVER set this in a production .env. The only consumer is chat_agent._companion_weather;
+    # do not read this flag anywhere else or build features on it. (dev25 P5)
+    demo_force_rain: bool = False                      # DEMO_FORCE_RAIN
 
 
 settings = Settings()

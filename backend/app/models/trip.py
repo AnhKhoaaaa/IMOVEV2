@@ -137,11 +137,23 @@ class AdaptRequest(BaseModel):
     alert_id: str
     # session_id should match the one used in POST /trips — used to verify ownership.
     session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    # closing_risk resolutions (dev20): how the user chose to resolve a running-late alert.
+    # leave_earlier = advisory (no structural change); skip = drop the stop; push = move to target_day.
+    resolution: Optional[Literal["leave_earlier", "skip", "push"]] = None
+    target_day: Optional[int] = Field(default=None, ge=1)
 
 
 class CheckAlertsRequest(BaseModel):
     """Request body for POST /trips/{id}/check-alerts (demand-triggered, UPCOMING trips)."""
     session_id: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    # Live-trip progress (dev19 P2.2): limits the live-rain check to outdoor stops not yet passed.
+    active_day: Optional[int] = Field(default=None, ge=1)
+    active_leg_index: Optional[int] = Field(default=None, ge=0)
+    # Live closing-risk timeline anchors (dev20), minute-of-day SGT:
+    # arrived_at_min — when the user pressed "Arrived" at the stop they are dwelling at.
+    # anchor_min     — when the user pressed "I left this stop" (re-anchors the projection).
+    arrived_at_min: Optional[int] = Field(default=None, ge=0, le=1439)
+    anchor_min: Optional[int] = Field(default=None, ge=0, le=1439)
 
 
 class AdaptResponse(BaseModel):

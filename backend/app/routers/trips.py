@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -42,6 +43,7 @@ async def create_trip(body: TripCreate):
         "session_id": body.session_id,
         "user_id": str(body.user_id) if body.user_id else None,
         "name": body.name,
+        "start_date": body.start_date,   # date | None — used for close_days-aware planning (dev21)
     }
 
     if supabase:
@@ -97,6 +99,7 @@ async def plan_trip(
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=body.place_ids,
             num_days=num_days,
             budget_sgd=budget_sgd,
@@ -243,6 +246,7 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
             "geometries":       leg.geometries if leg.geometries else [],
             "sub_legs":         [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
             "distance_km":      float(leg.distance_km) if leg.distance_km is not None else None,
+            "alternatives":     _serialize_alternatives(leg.alternatives),
         }
         try:
             supabase.table("route_legs").update({
@@ -252,7 +256,12 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
             }).eq("id", leg_id).execute()
         except Exception:
             # geometry/instructions columns not yet in schema — update core fields only
-            supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
+            try:
+                supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
+            except Exception:
+                # 'alternatives' column also missing (pre-019) — drop it and retry
+                base_update.pop("alternatives", None)
+                supabase.table("route_legs").update(base_update).eq("id", leg_id).execute()
 
         try:
             supabase.table("trip_feedback").insert({
@@ -323,7 +332,7 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
     # Persist all updated fields to Supabase
     if supabase:
         leg = result.updated_leg
-        supabase.table("route_legs").update({
+        live_update = {
             "transport_mode":   leg.transport_mode,
             "duration_minutes": leg.duration_minutes,
             "cost_sgd":         leg.cost_sgd,
@@ -333,7 +342,15 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
             "instructions":     leg.instructions,
             "sub_legs":         [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
             "distance_km":      float(leg.distance_km) if leg.distance_km is not None else None,
-        }).eq("id", leg_id).execute()
+            "alternatives":     _serialize_alternatives(leg.alternatives),
+        }
+        try:
+            supabase.table("route_legs").update(live_update).eq("id", leg_id).execute()
+        except Exception:
+            # 'alternatives' column not yet in schema (pre-019) — drop it so the live
+            # switch still persists core fields instead of 500-ing.
+            live_update.pop("alternatives", None)
+            supabase.table("route_legs").update(live_update).eq("id", leg_id).execute()
 
         origin_note = "from GPS" if result.routed_from_current_position else "from place"
         try:
@@ -365,7 +382,10 @@ async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
-    result = await adaptation_agent.adapt_trip(trip_id, body.alert_id, plan)
+    result = await adaptation_agent.adapt_trip(
+        trip_id, body.alert_id, plan,
+        resolution=body.resolution, target_day=body.target_day,
+    )
 
     # Store proposal in memory — do NOT persist to DB until user calls /accept-swap (§6)
     if result.adapted:
@@ -419,6 +439,7 @@ async def optimize_trip(
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=replan_ids,
             num_days=num_days,
             budget_sgd=budget_sgd,
@@ -510,10 +531,25 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
-    replan_ids = [p.id for p in plan.places if p.id != "hotel"]
+    # dev26: honour which day is removed instead of re-distributing everything. Keep all other
+    # days' groupings intact; the removed day's places (if any) move to the previous remaining
+    # day (or the first one when day 1 is removed). Removing an empty day touches nothing else.
+    days_map: dict[int, list[str]] = {
+        d.day: [pid for pid in (d.place_ids or _ordered_place_ids(d.legs, plan.places)) if pid != "hotel"]
+        for d in plan.days
+    }
+    removed_places = days_map.pop(day_num, [])
+    remaining_nums = sorted(days_map.keys())
+    day_assignments = [list(days_map[dn]) for dn in remaining_nums]
+    if removed_places and day_assignments:
+        prev_nums = [dn for dn in remaining_nums if dn < day_num]
+        target_idx = remaining_nums.index(prev_nums[-1]) if prev_nums else 0
+        day_assignments[target_idx].extend(removed_places)
+    replan_ids = [pid for group in day_assignments for pid in group]
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=replan_ids,
             num_days=new_num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
@@ -524,6 +560,7 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -560,14 +597,24 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
         raise HTTPException(status_code=422, detail="Trip must have at least 2 places")
 
     meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
+
+    # dev26: keep surviving places on their original days instead of re-distributing.
+    days_map: dict[int, list[str]] = {
+        d.day: [pid for pid in (d.place_ids or _ordered_place_ids(d.legs, plan.places))
+                if pid not in ("hotel", place_id)]
+        for d in plan.days
+    }
+    day_assignments = _day_assignments_from_map(days_map, num_days)
 
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=remaining_ids,
-            num_days=meta.get("num_days", len(plan.days)),
+            num_days=num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
             optimize_order=False,
             preferences=None,
@@ -576,6 +623,7 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -615,28 +663,24 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
     if not get_curated_place(body.place_id):
         raise HTTPException(status_code=422, detail=f"Place '{body.place_id}' not in curated dataset")
 
-    # Map day number → ordered place ids (legs-based reconstruction)
+    # Map day number → ordered place ids. dev26: use DayPlan.place_ids (covers single-place
+    # and empty days) rather than legs-based reconstruction, so the explicit day grouping we
+    # pass to plan_trip is complete.
     days_map: dict[int, list[str]] = {}
     for d in plan.days:
-        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+        ordered = d.place_ids or _ordered_place_ids(d.legs, plan.places)
+        days_map[d.day] = [pid for pid in ordered if pid != "hotel"]
 
     target_day = body.day
     if target_day not in days_map:
         days_map[target_day] = []
-    days_map[target_day].append(body.place_id)
+    if body.place_id not in days_map[target_day]:
+        days_map[target_day].append(body.place_id)
 
-    # Flatten to ordered place list; preserve single-place days not captured by legs
-    all_ids: list[str] = []
-    for day_num in sorted(days_map.keys()):
-        for pid in days_map[day_num]:
-            if pid not in all_ids:
-                all_ids.append(pid)
-    # P5-BUG-2b: add any places that were in single-place days (no legs → not in days_map)
-    for p in plan.places:
-        if p.id not in all_ids:
-            all_ids.append(p.id)
-    if body.place_id not in all_ids:
-        all_ids.append(body.place_id)
+    # dev26: preserve the user's day grouping verbatim. day_assignments keeps each place on the
+    # day it was added to; all_ids is the flat union plan_trip needs to resolve place dicts.
+    day_assignments = _day_assignments_from_map(days_map, num_days)
+    all_ids = [pid for group in day_assignments for pid in group]
 
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
@@ -644,6 +688,7 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=all_ids,
             num_days=num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
@@ -654,6 +699,7 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -683,10 +729,13 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
     meta = _trip_meta.get(trip_id, {})
     num_days = meta.get("num_days", len(plan.days))
 
-    # Rebuild place list: replace target day's order, keep other days unchanged
+    # Rebuild place list: replace target day's order, keep other days unchanged.
+    # dev26: source from DayPlan.place_ids so single-place/empty days are captured too
+    # (legs-based fallback for fixtures/legacy plans that carry legs but no place_ids).
     days_map: dict[int, list[str]] = {}
     for d in plan.days:
-        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+        ordered = d.place_ids or _ordered_place_ids(d.legs, plan.places)
+        days_map[d.day] = [pid for pid in ordered if pid != "hotel"]
 
     # P5-BUG-4: validate provided place_ids exactly match the current day's places.
     # Hotel is excluded: its position is managed server-side and must not appear in reorder requests.
@@ -701,15 +750,9 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
 
     days_map[body.day] = [pid for pid in body.place_ids if pid != "hotel"]
 
-    all_ids: list[str] = []
-    for day_num in sorted(days_map.keys()):
-        for pid in days_map[day_num]:
-            if pid not in all_ids and pid != "hotel":
-                all_ids.append(pid)
-    # P5-BUG-2b: preserve single-place days not captured by legs
-    for p in plan.places:
-        if p.id not in all_ids and p.id != "hotel":
-            all_ids.append(p.id)
+    # dev26: keep every day on its own day — only the target day's order changes.
+    day_assignments = _day_assignments_from_map(days_map, num_days)
+    all_ids = [pid for group in day_assignments for pid in group]
 
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
@@ -717,6 +760,7 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
+            start_date=_get_trip_start_date(trip_id),
             place_ids=all_ids,
             num_days=num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
@@ -729,6 +773,7 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
             hotel_lng=h_lng,
             force_real_routes=True,
             existing_real_legs=body.existing_legs or [],
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -796,7 +841,11 @@ async def check_trip_alerts(trip_id: str, body: CheckAlertsRequest):
     if plan is None:
         raise HTTPException(status_code=404, detail=f"Trip '{trip_id}' not found")
 
-    result = await adaptation_agent.check_alerts_for_trip(trip_id, plan)
+    result = await adaptation_agent.check_alerts_for_trip(
+        trip_id, plan,
+        active_day=body.active_day, active_leg_index=body.active_leg_index,
+        arrived_at_min=body.arrived_at_min, anchor_min=body.anchor_min,
+    )
     return result
 
 
@@ -887,6 +936,35 @@ def _get_trip_params(trip_id: str, body: TripPlanRequest) -> tuple[int, float]:
     return 1, budget_override
 
 
+def _get_trip_start_date(trip_id: str) -> Optional[date]:
+    """Return the trip's start_date for close_days-aware planning (dev21), or None.
+
+    Prefers the in-process meta cache, falls back to Supabase. None when unknown
+    (guest / no dates) → planning's close_days gate becomes a graceful no-op.
+    """
+    def _parse(v) -> Optional[date]:
+        if isinstance(v, date):
+            return v
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v)
+            except ValueError:
+                return None
+        return None
+
+    meta = _trip_meta.get(trip_id)
+    if meta and meta.get("start_date"):
+        return _parse(meta["start_date"])
+    if supabase:
+        try:
+            resp = supabase.table("trips").select("start_date").eq("id", trip_id).execute()
+            if resp.data and resp.data[0].get("start_date"):
+                return _parse(resp.data[0]["start_date"])
+        except Exception as exc:
+            log.warning("start_date fetch failed for trip %s: %s", trip_id, exc)
+    return None
+
+
 def _verify_user_ownership(trip_id: str, current_user: Optional[str]) -> None:
     """Raise 403 if an authenticated user doesn't own this trip."""
     if current_user is None:
@@ -925,6 +1003,34 @@ def _verify_session_ownership(trip_id: str, session_id: str) -> None:
         raise HTTPException(status_code=403, detail="session_id does not match trip owner")
 
 
+def _serialize_alternatives(alts: dict) -> dict:
+    """Compact AlternativeRoute map for DB (migration 019): keep only the fields the mode
+    menu needs; drop polylines/instructions/sub_legs (re-fetched lazily on switch)."""
+    out = {}
+    for mode, alt in (alts or {}).items():
+        out[mode] = {
+            "duration_minutes": alt.duration_minutes,
+            "cost_sgd":         alt.cost_sgd,
+            "is_estimated":     alt.is_estimated,
+            "distance_km":      float(alt.distance_km) if alt.distance_km is not None else None,
+        }
+    return out
+
+
+def _deserialize_alternatives(raw: dict | None) -> dict:
+    """DB jsonb → {mode: AlternativeRoute} (geometry/sub_legs empty; filled on switch)."""
+    from app.models.trip import AlternativeRoute
+    out = {}
+    for mode, d in (raw or {}).items():
+        out[mode] = AlternativeRoute(
+            duration_minutes=d.get("duration_minutes", 0),
+            cost_sgd=d.get("cost_sgd", 0.0),
+            is_estimated=d.get("is_estimated", True),
+            distance_km=d.get("distance_km"),
+        )
+    return out
+
+
 def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
     """Batch-write trip_places and route_legs to Supabase.
 
@@ -946,7 +1052,10 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
     # Hotel ("hotel") is stored with day_number=NULL (shared across all days).
     place_day_order: dict[str, tuple[int | None, int | None]] = {}
     for day in plan.days:
-        for order_idx, pid in enumerate(day.place_ids):
+        # Fall back to the leg chain when place_ids is empty so places never persist
+        # with day_number=NULL and float to the end of the itinerary on reload.
+        ordered_ids = day.place_ids or _ordered_place_ids(day.legs, plan.places)
+        for order_idx, pid in enumerate(ordered_ids):
             if pid == "hotel":
                 place_day_order.setdefault("hotel", (None, None))
             else:
@@ -985,12 +1094,20 @@ def _persist_trip_plan(trip_id: str, plan: TripPlan) -> None:
             "sub_legs": [sl.model_dump() for sl in leg.sub_legs] if leg.sub_legs else [],
             "first_bus_stop_code": leg.first_bus_stop_code,
             "geometries": leg.geometries if leg.geometries else [],
+            "alternatives": _serialize_alternatives(leg.alternatives),
         }
         for day in plan.days
         for leg in day.legs
     ]
     if leg_rows:
-        supabase.table("route_legs").insert(leg_rows).execute()
+        try:
+            supabase.table("route_legs").insert(leg_rows).execute()
+        except Exception:
+            # 'alternatives' column not yet in schema (pre-019) — retry without it so a
+            # plan still persists on older DBs (mode menu falls back to coord-rebuild on read).
+            for row in leg_rows:
+                row.pop("alternatives", None)
+            supabase.table("route_legs").insert(leg_rows).execute()
 
 
 def _ordered_place_ids(legs: list, places) -> list[str]:
@@ -1008,6 +1125,25 @@ def _ordered_place_ids(legs: list, places) -> list[str]:
     if legs[-1].to_place_id not in ids:
         ids.append(legs[-1].to_place_id)
     return ids
+
+
+def _day_assignments_from_map(days_map: dict[int, list[str]], num_days: int) -> list[list[str]]:
+    """dev26: turn a {day_number: [place_id, …]} map into an ordered, gap-free list of
+    per-day place groups for plan_trip(day_assignments=…).
+
+    One group per day 1..num_days (empty groups preserved so the user's day count holds).
+    Duplicate ids are dropped, keeping the first day a place appears on.
+    """
+    seen: set[str] = set()
+    groups: list[list[str]] = []
+    for day_num in range(1, num_days + 1):
+        group: list[str] = []
+        for pid in days_map.get(day_num, []):
+            if pid != "hotel" and pid not in seen:
+                seen.add(pid)
+                group.append(pid)
+        groups.append(group)
+    return groups
 
 
 def _apply_leg_update(plan: TripPlan, leg_id: str, updated_leg) -> TripPlan:
@@ -1041,7 +1177,7 @@ def _fetch_trip_from_db(trip_id: str):
     legs_resp = supabase.table("route_legs").select("*").eq("trip_id", trip_id).order("day_number").execute()
 
     from app.models.place import Place
-    from app.models.trip import LegResponse, DayPlan, TripPlan
+    from app.models.trip import LegResponse, DayPlan, TripPlan, AlternativeRoute
 
     # Build flat places list — hotel first (reconstructed from trips table), then POIs
     places: list[Place] = []
@@ -1096,6 +1232,24 @@ def _fetch_trip_from_db(trip_id: str):
         d = leg["day_number"]
         raw_mode = leg["transport_mode"]
         transport_mode = _LEGACY_MODE.get(raw_mode, raw_mode)
+
+        # Restore the switchable mode menu (migration 019). Legacy rows (pre-019, no stored
+        # alternatives) rebuild the always-modes from place coords so the menu still works.
+        stored = _deserialize_alternatives(leg.get("alternatives"))
+        if not stored:
+            fp = next((p for p in places if p.id == leg["from_place_id"]), None)
+            tp = next((p for p in places if p.id == leg["to_place_id"]), None)
+            if fp and tp:
+                stored = planning_agent.estimated_alternatives_models(
+                    fp.lat, fp.lng, tp.lat, tp.lng, fp.name)
+        # Always keep the leg's own current mode selectable.
+        stored.setdefault(transport_mode, AlternativeRoute(
+            duration_minutes=leg["duration_minutes"],
+            cost_sgd=float(leg["cost_sgd"]),
+            is_estimated=leg["is_estimated"],
+            distance_km=leg.get("distance_km"),
+        ))
+
         legs_map.setdefault(d, []).append(LegResponse(
             id=leg["id"],
             from_place_id=leg["from_place_id"],
@@ -1110,6 +1264,7 @@ def _fetch_trip_from_db(trip_id: str):
             sub_legs=leg.get("sub_legs") or [],
             first_bus_stop_code=leg.get("first_bus_stop_code"),
             geometries=leg.get("geometries") or [],
+            alternatives=stored,
         ))
 
     # Determine all days from both place_ids and legs

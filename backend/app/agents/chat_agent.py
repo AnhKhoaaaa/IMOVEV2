@@ -8,13 +8,19 @@ action* that the user must confirm via POST /chat/confirm.
 State is in-memory, keyed by session_id (like trips._pending_swaps) — lost on restart.
 """
 import logging
+import re
+import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from google.genai import types
 
 from app.services import gemini
-from app.models.chat import ChatResponse, ProposedAction, Gps
+from app.models.chat import (
+    ChatResponse, ProactiveMessage, ProposedAction, Gps,
+    TextBlock, PlaceCardBlock, RouteOption, RouteCompareBlock, BusService, BusArrivalsBlock,
+)
 
 log = logging.getLogger(__name__)
 
@@ -24,12 +30,17 @@ _chat_history: dict[str, list] = {}
 _pending_actions: dict[str, dict] = {}
 # session_id -> {trip_id, ...} — persists resolved context across requests
 _chat_ctx: dict[str, dict] = {}
+# session_id -> monotonic expiry — dev25 P5 live-companion dedupe (shares the weather_live window)
+_companion_seen: dict[str, float] = {}
 
 _MAX_TURNS = 4
+
+_SGT = timezone(timedelta(hours=8))
 
 READ_TOOLS = {
     "get_current_trip", "list_my_trips", "search_places", "get_curated_places",
     "compare_routes", "get_bus_arrivals", "get_trip_alerts", "get_weather",
+    "show_places", "get_current_events",
 }
 WRITE_TOOLS = {
     "add_place", "remove_place", "reorder_places", "change_leg_mode",
@@ -53,8 +64,65 @@ SYSTEM_PROMPT = (
     "ids you must reference in write tools). "
     "ANY change to the itinerary MUST go through the matching write tool as a PROPOSAL — "
     "never claim a change is done, because writes require the user to confirm. "
-    "Weather and alerts are read-only."
+    "Weather and alerts are read-only. "
+    "PRESENTATION — whenever you recommend one or more curated places (especially if the user "
+    "asks for photos/images), you MUST call show_places to display photo cards; do not just list "
+    "them in text. Pass the dataset IDS — the exact `id` field from search_places / "
+    "get_curated_places (e.g. 'merlion-park'), NOT the display name. If show_places returns "
+    "status 'no_match' or any unresolved ids, look up the correct id and call it again. Keep your "
+    "own text short and conversational (the cards carry the details), and separate distinct ideas "
+    "into their own paragraphs (blank line between them) so they render as separate blocks."
 )
+
+
+def build_system_prompt(
+    today: Optional[str] = None,
+    trip_start: Optional[str] = None,
+    num_days: Optional[int] = None,
+) -> str:
+    """dev25 P4 — inject the current Singapore date + web-grounding rules into the base prompt.
+
+    Built per request so the model always knows 'today' for seasonal/event answers. When a trip
+    is open, also injects its start date + length so the model can map a trip Day N to a real
+    calendar date and suggest events that actually fall during the itinerary (dev25 P4 follow-up).
+    """
+    today = today or datetime.now(_SGT).strftime("%A, %d %B %Y")
+    prompt = SYSTEM_PROMPT + (
+        f"\nCONTEXT — today in Singapore is {today}. "
+        "For questions about CURRENT or seasonal happenings (events, festivals, public holidays, "
+        "what's on this weekend, neighbourhood vibes, up-to-date travel tips), call "
+        "get_current_events ONCE to fetch fresh web info. Web results are INFORMATIONAL ONLY: you "
+        "may name and describe a place from them, but you MUST NOT add a non-curated place to the "
+        "itinerary (only curated place_ids can be added via the write tools). Do NOT call "
+        "get_current_events for itinerary edits, routes, weather, or places already in the dataset."
+    )
+    if trip_start:
+        span = f" and runs {num_days} day(s)" if num_days else ""
+        prompt += (
+            f"\nTRIP DATES — the user's current trip starts on {trip_start}{span}; Day 1 is "
+            f"{trip_start} and each later day is the next calendar day. When the user asks what's "
+            "on during their trip — or when you proactively suggest events — match each event to "
+            "the ACTUAL date of the relevant trip day and tell them which day it falls on."
+        )
+    return prompt
+
+
+def _trip_date_context(trip_id: Optional[str]) -> tuple[Optional[str], Optional[int]]:
+    """Cheaply resolve (start_date_iso, num_days) for an open trip — never raises.
+
+    Uses the focused trips._get_trip_start_date helper (in-memory meta first, one tiny query
+    fallback) and the in-process meta cache for num_days, so a normal chat turn doesn't pay a
+    full plan load just to know the trip's dates.
+    """
+    if not trip_id:
+        return None, None
+    try:
+        from app.routers import trips
+        start = trips._get_trip_start_date(trip_id)
+        meta = trips._trip_meta.get(trip_id) or {}
+        return (start.isoformat() if start else None), meta.get("num_days")
+    except Exception:
+        return None, None
 
 
 # ── Tool declarations ──────────────────────────────────────────────────────────
@@ -121,6 +189,33 @@ def _build_tool() -> types.Tool:
             description="Current weather at a coordinate (condition, temp_c, rain_1h).",
             parameters=_obj({"lat": _S(NUM), "lng": _S(NUM)}, ["lat", "lng"]),
         ),
+        types.FunctionDeclaration(
+            name="show_places",
+            description=(
+                "Display rich place cards (photo + name + category + suggested duration) for the "
+                "curated places you are recommending. Call this AFTER mentioning places, passing "
+                "their curated ids (from search_places / get_curated_places). The app renders the "
+                "cards from the dataset — do not describe images yourself."
+            ),
+            parameters=_obj(
+                {"place_ids": _S(types.Type.ARRAY, items=_S(STR))},
+                ["place_ids"],
+            ),
+        ),
+        types.FunctionDeclaration(
+            name="get_current_events",
+            description=(
+                "Fetch UP-TO-DATE info from the web about current/seasonal happenings in "
+                "Singapore: events, festivals, public holidays, what's on now, travel tips, "
+                "neighbourhood guides. Call at most ONCE per message, and only for time/season/"
+                "event/neighbourhood questions. Returns an informational summary — never use it "
+                "to add itinerary stops (only curated places can be added)."
+            ),
+            parameters=_obj({
+                "query": _S(STR, description="What to look up, e.g. 'festivals this weekend', 'things to do in Kampong Glam'."),
+                "month": _S(STR, description="Optional month/season hint, e.g. 'June 2026'."),
+            }),
+        ),
         # ── write (proposal only) ──
         types.FunctionDeclaration(
             name="add_place",
@@ -185,6 +280,7 @@ def reset() -> None:
     _chat_history.clear()
     _pending_actions.clear()
     _chat_ctx.clear()
+    _companion_seen.clear()
 
 
 async def run_chat(
@@ -206,14 +302,22 @@ async def run_chat(
         "trip_id": resolved_trip_id,
         "gps": gps,
         "current_user": current_user,
+        # dev25 P3 — data-card blocks captured across the turn (place cards / route / bus),
+        # built backend-side from tools so images & ids are always real.
+        "card_blocks": [],
+        # dev25 P4 — at most ONE web-grounded events lookup per message (hard cap).
+        "events_call_used": False,
     }
+
+    trip_start, trip_days = _trip_date_context(resolved_trip_id)
+    system_prompt = build_system_prompt(trip_start=trip_start, num_days=trip_days)
 
     for _ in range(_MAX_TURNS):
         try:
             response = await gemini.generate_chat(
                 contents=history,
                 tools=[_TOOLS],
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_prompt,
             )
         except Exception as exc:  # network/LLM failure — never crash the request
             log.warning("generate_chat failed: %s", exc)
@@ -226,7 +330,10 @@ async def run_chat(
         if not fcs:
             if ctx.get("trip_id"):
                 session_ctx["trip_id"] = ctx["trip_id"]
-            return ChatResponse(reply=text or _FALLBACK)
+            return ChatResponse(
+                reply=text or _FALLBACK,
+                blocks=_assemble_blocks(text, ctx["card_blocks"]),
+            )
 
         response_parts = []
         proposal_stop = None
@@ -268,6 +375,150 @@ _FALLBACK = (
     "Sorry, I couldn't complete that just now. Could you rephrase or try again? "
     "(Xin lỗi, tôi chưa xử lý được — bạn thử diễn đạt lại giúp nhé.)"
 )
+
+
+# ── live GPS companion (dev25 P5) ─────────────────────────────────────────────────
+
+# ── DEMO-ONLY hook (DEMO_FORCE_RAIN) ⚠️ ─────────────────────────────────────────────
+# FOR OTHER AGENTS / FUTURE EDITORS: the next two definitions exist ONLY to record the
+# Phase-5 companion demo video. They are NOT product logic.
+#   • Do NOT call _companion_weather / _DEMO_RAIN from anywhere except companion_check.
+#   • Do NOT build features on settings.demo_force_rain, and never enable it in production.
+#   • To fully revert the demo capability: delete these two defs, the `demo_force_rain` setting
+#     in config.py, and the `.env.example` entry — companion_check then uses OpenWeather only.
+# When the flag is OFF (the default) this is a transparent pass-through to OpenWeather, so the
+# real companion path is byte-for-byte unchanged.
+_DEMO_RAIN = {"condition": "Rain", "temp_c": 27.0, "rain_1h": 2.4}
+
+
+async def _companion_weather(gps: Gps) -> dict:
+    """Weather source for companion_check: real OpenWeather, except the isolated demo override."""
+    from app.config import settings
+    if settings.demo_force_rain:                       # DEMO-ONLY — see warning block above
+        log.warning("DEMO_FORCE_RAIN is ON — companion is using FAKE rain, not real weather.")
+        return dict(_DEMO_RAIN)
+    from app.services import openweather
+    return await openweather.get_current_weather(gps.lat, gps.lng)
+
+
+async def companion_check(
+    session_id: str,
+    trip_id: str,
+    gps: Optional[Gps],
+    current_user: Optional[str] = None,
+    lang: str = "en",
+) -> Optional[ProactiveMessage]:
+    """Live, GPS-anchored rain nudge for the chat companion (dev25 P5).
+
+    Unlike the scheduler's centroid-based `weather_live` alert, this checks the weather at the
+    user's REAL coordinates and names the nearest upcoming outdoor stop. Fully rule-based — it
+    only calls the LLM (`phrase_alert`) when a nudge actually fires. Returns None far more often
+    than not (dry / no outdoor stop / weather unavailable / deduped) so the client stays quiet.
+    Never fabricates. The user acts by replying in chat (→ switch_leg_now / compare_routes).
+    """
+    if gps is None:
+        return None
+
+    # Dedupe repeated polls: after a nudge fires, stay quiet for the shared weather_live window
+    # so the companion doesn't ping every few minutes about the same shower.
+    now = time.monotonic()
+    exp = _companion_seen.get(session_id)
+    if exp and exp > now:
+        return None
+
+    plan = await _load_plan({"trip_id": trip_id, "current_user": current_user})
+    if plan is None:
+        return None
+
+    outdoor = [p for p in plan.places if getattr(p, "is_outdoor", False) and p.id != "hotel"]
+    if not outdoor:
+        return None
+
+    try:
+        current = await _companion_weather(gps)  # real OpenWeather (or demo override; see helper)
+    except Exception:
+        return None  # weather down → say nothing (never fabricate)
+
+    rain_mm = float(current.get("rain_1h", 0.0) or 0.0)
+    if not (rain_mm > 0 or current.get("condition") == "Rain"):
+        return None
+
+    # Nearest outdoor stop to the USER (GPS-anchored — the whole point of P5).
+    from app.agents.planning_agent import _haversine_km
+    nxt = min(outdoor, key=lambda p: _haversine_km(gps.lat, gps.lng, p.lat, p.lng))
+
+    # Optional nearby indoor alternative (reuse the adaptation helper; tolerate failure).
+    from app.agents.adaptation_agent import _nearest_indoor
+    try:
+        alt = _nearest_indoor(nxt.lat, nxt.lng, exclude_ids={p.id for p in plan.places})
+    except Exception:
+        alt = None
+    swap = f", swap to {alt['name']}," if alt and alt.get("name") else ""
+
+    rate = f"{rain_mm:.1f}mm/h" if rain_mm > 0 else "rain"
+    base = (
+        f"It's raining near you right now ({rate}). Your nearest outdoor stop is {nxt.name} — "
+        f"want to shelter{swap} or find a covered route?"
+    )
+
+    # Warm-phrase via the existing alert phraser (template fallback baked in — never fabricates).
+    text = await gemini.phrase_alert(
+        {"alert_type": "weather_live", "message": base, "day_number": None}, lang
+    )
+
+    from app.config import settings
+    _companion_seen[session_id] = now + getattr(settings, "weather_live_dedup_min", 10) * 60
+    return ProactiveMessage(text=text or base, alert_type="weather_live")
+
+
+# ── rich blocks (dev25 P3) ────────────────────────────────────────────────────────
+
+def _text_blocks(text: str) -> list:
+    """Split the model's final prose into one TextBlock per paragraph (blank-line separated)."""
+    if not text:
+        return []
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    return [TextBlock(markdown=p) for p in paras]
+
+
+def _assemble_blocks(text: str, card_blocks: list):
+    """Final answer = text paragraphs followed by captured data cards (in call order).
+
+    Returns None when there's nothing structured (plain answer / fallback) so the client
+    falls back to `reply`.
+    """
+    blocks = _text_blocks(text) + list(card_blocks)
+    return blocks or None
+
+
+def _route_compare_block(result: dict) -> Optional[RouteCompareBlock]:
+    if not isinstance(result, dict):
+        return None
+    label = {"pt": "TRANSIT", "walk": "WALK", "cycle": "CYCLE"}
+    options = []
+    for key, mode in label.items():
+        m = result.get(key)
+        if isinstance(m, dict) and m.get("available"):
+            options.append(RouteOption(
+                mode=mode,
+                duration_minutes=m.get("duration_minutes"),
+                fare_sgd=m.get("fare_sgd"),
+            ))
+    return RouteCompareBlock(options=options) if options else None
+
+
+def _bus_arrivals_block(stop_code: str, result) -> Optional[BusArrivalsBlock]:
+    if not isinstance(result, list):
+        return None
+    services = [
+        BusService(
+            service_no=str(s.get("service_no")),
+            eta_min=s.get("next_arrival_minutes"),
+            load=s.get("load") or None,
+        )
+        for s in result if isinstance(s, dict) and s.get("service_no")
+    ]
+    return BusArrivalsBlock(stop_code=stop_code, services=services)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────────
@@ -347,6 +598,31 @@ def _read_alerts(trip_id) -> object:
         return {"error": str(exc)}
 
 
+def _resolve_curated(token: str) -> Optional[dict]:
+    """Resolve a show_places token to a curated place — tolerant of LLM input (dev25 P3 fix).
+
+    The model is told to pass dataset ids (e.g. 'merlion-park') but often passes the display
+    name ('Merlion Park') or a near-id. Try, in order: exact id → exact name (case-insensitive)
+    → unique case-insensitive substring of the name. Returns None when nothing resolves
+    unambiguously (so the ack can honestly report it instead of silently showing nothing).
+    """
+    from app.agents.planning_agent import get_curated_place, get_all_places
+    if not token:
+        return None
+    p = get_curated_place(token)
+    if p:
+        return p
+    t = token.strip().lower()
+    if not t:
+        return None
+    places = list(get_all_places().values())
+    for pl in places:
+        if (pl.get("name") or "").lower() == t:
+            return pl
+    matches = [pl for pl in places if t in (pl.get("name") or "").lower()]
+    return matches[0] if len(matches) == 1 else None
+
+
 async def _execute_read_tool(tool, args, ctx) -> object:
     try:
         if tool == "get_current_trip":
@@ -374,15 +650,53 @@ async def _execute_read_tool(tool, args, ctx) -> object:
                 for p in get_all_places().values()
             ]
 
+        if tool == "show_places":
+            # Presentation tool — build photo cards from the curated dataset (never the model),
+            # so image_url / place_id are always real. Tolerant of names/near-ids via
+            # _resolve_curated; the ack is HONEST (reports unresolved tokens + a 0-card status)
+            # so the model retries with correct ids instead of falsely believing it sent images.
+            tokens = [str(x) for x in (args.get("place_ids") or [])]
+            shown, unresolved = [], []
+            for token in tokens:
+                p = _resolve_curated(token)
+                if not p:
+                    unresolved.append(token)
+                    continue
+                if p["id"] in shown:
+                    continue
+                ctx["card_blocks"].append(PlaceCardBlock(
+                    id=p["id"],
+                    name=p["name"],
+                    category=p.get("category"),
+                    image_url=p.get("image_url"),
+                    suggested_duration_minutes=p.get("suggested_duration_minutes"),
+                ))
+                shown.append(p["id"])
+            return {
+                "status": "displayed" if shown else "no_match",
+                "shown_place_ids": shown,
+                "count": len(shown),
+                "unresolved": unresolved,
+            }
+
         if tool == "compare_routes":
             from app.services import onemap
-            return await onemap.get_all_routes(
+            result = await onemap.get_all_routes(
                 args["from_lat"], args["from_lng"], args["to_lat"], args["to_lng"]
             )
+            block = _route_compare_block(result)
+            if block:
+                ctx["card_blocks"].append(block)
+            return result
 
         if tool == "get_bus_arrivals":
             from app.services import lta
-            return await lta.get_bus_arrival(args["stop_code"])
+            stop_code = args["stop_code"]
+            result = await lta.get_bus_arrival(stop_code)
+            block = _bus_arrivals_block(stop_code, result)
+            if block:
+                ctx["card_blocks"].append(block)
+            return result
 
         if tool == "get_trip_alerts":
             return _read_alerts(ctx.get("trip_id"))
@@ -393,6 +707,21 @@ async def _execute_read_tool(tool, args, ctx) -> object:
             if lat is None or lng is None:
                 return {"error": "GPS coordinates are required for weather."}
             return await openweather.get_current_weather(lat, lng)
+
+        if tool == "get_current_events":
+            # Hard cap: one grounded web call per message (prevents quota burn / loops).
+            if ctx.get("events_call_used"):
+                return {"error": "A web lookup was already used for this message."}
+            ctx["events_call_used"] = True
+            q = (args.get("query") or "").strip() or "current events and festivals in Singapore"
+            month = (args.get("month") or "").strip()
+            full_q = f"{q} ({month})" if month else q
+            today = datetime.now(_SGT).strftime("%Y-%m-%d")
+            result = await gemini.search_events_grounded(full_q, today=today)
+            text = (result or {}).get("text", "").strip()
+            if not text:
+                return {"error": "No up-to-date information is available right now."}
+            return {"summary": text, "citations": result.get("citations", [])}
     except Exception as exc:
         return {"error": str(exc)}
 

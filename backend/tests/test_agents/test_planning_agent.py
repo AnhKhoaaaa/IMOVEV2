@@ -6,6 +6,10 @@ from app.agents.planning_agent import (
     switch_leg_mode,
     switch_leg_mode_live,
     _fetch_all_alternatives,
+    _ensure_always_modes,
+    estimated_alternatives_models,
+    _fill_transit_fare,
+    _apply_mode_safety_guard,
     _classify_place,
     _assign_evening_to_days,
     _day_bucketed_greedy,
@@ -13,6 +17,9 @@ from app.agents.planning_agent import (
     _parse_opening_hours,
     _check_schedule_fit,
     _haversine_km,
+    _is_open_on_weekday,
+    _weekdays_for_days,
+    _relocate_closed_day_places,
     _PLACES,
 )
 from app.exceptions import PlaceDataMissingError
@@ -153,6 +160,65 @@ def test_distribute_days_respects_num_days_cap():
     assert len(days) <= 2  # cannot exceed num_days
 
 
+# ── dev21: close_days awareness + window-urgency ordering ─────────────────────
+
+def test_is_open_on_weekday():
+    assert _is_open_on_weekday({"close_days": ["Monday"]}, "Monday") is False
+    assert _is_open_on_weekday({"close_days": ["Monday"]}, "Tuesday") is True
+    assert _is_open_on_weekday({}, "Monday") is True
+    assert _is_open_on_weekday({"close_days": []}, "Sunday") is True
+
+
+def test_weekdays_for_days():
+    from datetime import date
+    start = date(2026, 6, 15)  # a Monday
+    assert _weekdays_for_days(start, 3) == ["Monday", "Tuesday", "Wednesday"]
+    assert _weekdays_for_days(None, 3) is None
+
+
+def test_relocate_closed_day_moves_to_open_day():
+    weekdays = ["Monday", "Tuesday"]
+    a = {"id": "a", "name": "Museum", "close_days": ["Monday"]}
+    b = {"id": "b", "name": "Park", "close_days": []}
+    day_groups = [[a], [b]]
+    warnings = []
+    _relocate_closed_day_places(day_groups, weekdays, warnings)
+    assert a not in day_groups[0]
+    assert a in day_groups[1]
+    assert any("moved to day 2" in w for w in warnings)
+
+
+def test_relocate_closed_every_day_warns_and_keeps():
+    weekdays = ["Monday", "Monday"]
+    a = {"id": "a", "name": "Museum", "close_days": ["Monday"]}
+    day_groups = [[a], []]
+    warnings = []
+    _relocate_closed_day_places(day_groups, weekdays, warnings)
+    assert a in day_groups[0]  # nowhere open → stays put
+    assert any("closed every day" in w for w in warnings)
+
+
+def test_relocate_noop_without_start_date():
+    a = {"id": "a", "name": "Museum", "close_days": ["Monday"]}
+    day_groups = [[a]]
+    warnings = []
+    _relocate_closed_day_places(day_groups, None, warnings)
+    assert day_groups == [[a]]
+    assert warnings == []
+
+
+def test_day_bucketed_greedy_prefers_closing_soon_window():
+    # 'near' is closest to the 09:00 anchor but open all day; 'tight' is slightly farther
+    # but closes soon — dev21 P2 should pick 'tight' first so it isn't deferred until infeasible.
+    near  = {"id": "near",  "lat": 1.280, "lng": 103.850, "dwell_minutes": 30,
+             "opening_hours": "00:00-23:59"}
+    tight = {"id": "tight", "lat": 1.281, "lng": 103.851, "dwell_minutes": 30,
+             "opening_hours": "09:00-10:30"}
+    day_groups, _ = _day_bucketed_greedy([near, tight], num_days=1)
+    order = [p["id"] for p in day_groups[0]]
+    assert order.index("tight") < order.index("near")
+
+
 # ── unit tests: _parse_opening_hours ─────────────────────────────────────────
 
 def test_parse_opening_hours_24h():
@@ -291,6 +357,43 @@ async def test_plan_trip_valid_returns_tripplan():
     assert len(result.places) == 2
     assert len(result.days[0].legs) == 1
     assert result.days[0].legs[0].is_estimated is False
+
+
+@pytest.mark.asyncio
+async def test_day_assignments_honoured_verbatim():
+    """dev26: explicit day_assignments must place each id on its assigned day,
+    bypassing _distribute_days' time-of-day re-bucketing."""
+    ids = VALID_IDS[:2]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        return_value=_mock_route(),
+    ):
+        result = await plan_trip(
+            "t-da", ids, num_days=2, budget_sgd=999.0, optimize_order=False,
+            preferences=None, day_assignments=[[ids[0]], [ids[1]]],
+        )
+    assert len(result.days) == 2
+    assert [pid for pid in result.days[0].place_ids if pid != "hotel"] == [ids[0]]
+    assert [pid for pid in result.days[1].place_ids if pid != "hotel"] == [ids[1]]
+
+
+@pytest.mark.asyncio
+async def test_day_assignments_preserves_empty_day():
+    """dev26: an empty group in day_assignments stays an empty day — the day count
+    must not collapse (this is the Bug 2 setup: adding to an otherwise-empty day)."""
+    ids = VALID_IDS[:2]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        return_value=_mock_route(),
+    ):
+        result = await plan_trip(
+            "t-da-empty", ids, num_days=2, budget_sgd=999.0, optimize_order=False,
+            preferences=None, day_assignments=[[ids[0], ids[1]], []],
+        )
+    assert len(result.days) == 2
+    assert [pid for pid in result.days[1].place_ids if pid != "hotel"] == []
 
 
 @pytest.mark.asyncio
@@ -545,6 +648,79 @@ async def test_gemini_exception_falls_back_to_place_missing():
 
 # ── _fetch_all_alternatives ──────────────────────────────────────────────────
 
+def test_mode_safety_guard_replaces_long_cycle_with_fastest_transit():
+    alternatives = {
+        "CYCLE": {"duration_minutes": 180},
+        "METRO": {"duration_minutes": 45},
+        "BUS": {"duration_minutes": 60},
+        "GRAB": {"duration_minutes": 25},
+    }
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=12.0) == "METRO"
+
+
+def test_mode_safety_guard_replaces_long_cycle_with_grab_without_transit():
+    alternatives = {
+        "CYCLE": {"duration_minutes": 180},
+        "GRAB": {"duration_minutes": 25},
+    }
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=12.0) == "GRAB"
+
+
+def test_mode_safety_guard_keeps_short_cycle_recommendation():
+    alternatives = {
+        "CYCLE": {"duration_minutes": 35},
+        "METRO": {"duration_minutes": 30},
+        "GRAB": {"duration_minutes": 15},
+    }
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=6.0) == "CYCLE"
+
+
+def test_mode_safety_guard_keeps_long_cycle_when_no_practical_alternative():
+    """Cycle > 60 min but no transit and dist < 2km → nothing safer to swap to → keep CYCLE."""
+    alternatives = {"CYCLE": {"duration_minutes": 65}}
+
+    assert _apply_mode_safety_guard("CYCLE", alternatives, dist_km=1.8) == "CYCLE"
+
+
+def test_mode_safety_guard_replaces_long_walk_with_fastest_transit():
+    alternatives = {
+        "WALK": {"duration_minutes": 40},
+        "METRO": {"duration_minutes": 20},
+        "BUS": {"duration_minutes": 15},
+    }
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=3.0) == "BUS"
+
+
+def test_mode_safety_guard_replaces_long_walk_with_grab_without_transit():
+    alternatives = {
+        "WALK": {"duration_minutes": 40},
+        "GRAB": {"duration_minutes": 12},
+    }
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=3.0) == "GRAB"
+
+
+def test_mode_safety_guard_keeps_walk_below_distance_floor():
+    """WALK under 1.5 km stays WALK even when transit exists."""
+    alternatives = {
+        "WALK": {"duration_minutes": 14},
+        "METRO": {"duration_minutes": 9},
+    }
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=1.2) == "WALK"
+
+
+def test_mode_safety_guard_keeps_mid_distance_walk_without_grab():
+    """1.5 km ≤ dist < 2 km with no transit and no Grab → keep WALK (Grab floor not met)."""
+    alternatives = {"WALK": {"duration_minutes": 22}}
+
+    assert _apply_mode_safety_guard("WALK", alternatives, dist_km=1.7) == "WALK"
+
+
 @pytest.mark.asyncio
 async def test_fetch_all_alternatives_returns_available_modes():
     """Standard PT + walk both succeed → both stored under correct keys."""
@@ -630,12 +806,115 @@ async def test_plan_trip_populates_alternatives():
     assert len(leg.alternatives) >= 1
 
 
+# ── dev22 Phase 1: always-switchable WALK/CYCLE/GRAB ──────────────────────────
+
+def test_ensure_always_modes_fills_missing():
+    """Missing WALK/CYCLE/GRAB are filled (estimated); a real entry is preserved by identity."""
+    real_metro = {"duration_minutes": 12, "fare_sgd": 1.5, "is_estimated": False,
+                  "legs": [{"mode": "SUBWAY"}], "distance_km": 4.0}
+    out = _ensure_always_modes({"METRO": real_metro},
+                               {"name": "Gardens"}, {"name": "MBS"}, dist_km=4.0)
+    assert set(out) >= {"METRO", "WALK", "CYCLE", "GRAB"}
+    assert out["METRO"] is real_metro                 # real route untouched
+    assert out["WALK"]["is_estimated"] is True
+    assert out["CYCLE"]["is_estimated"] is True
+    assert out["GRAB"]["is_estimated"] is True
+
+
+def test_ensure_always_modes_keeps_real_active():
+    """A real WALK/CYCLE/GRAB already present is never overwritten by the estimate."""
+    real_walk = {"duration_minutes": 9, "fare_sgd": 0.0, "is_estimated": False,
+                 "legs": [{"mode": "WALK"}], "distance_km": 0.5}
+    out = _ensure_always_modes({"WALK": real_walk}, {"name": "A"}, {"name": "B"}, dist_km=0.5)
+    assert out["WALK"] is real_walk
+    assert out["WALK"]["is_estimated"] is False
+    assert "CYCLE" in out and "GRAB" in out
+
+
+def test_ensure_always_modes_does_not_mutate_input():
+    """Enrichment must produce a NEW dict — scoring reads the raw input (Impact §A)."""
+    src = {"METRO": {"duration_minutes": 12, "distance_km": 4.0}}
+    out = _ensure_always_modes(src, {"name": "A"}, {"name": "B"}, dist_km=4.0)
+    assert set(src) == {"METRO"}      # input untouched
+    assert out is not src
+
+
+def test_estimated_alternatives_models_returns_three_modes():
+    """DB-reload fallback yields WALK/CYCLE/GRAB as AlternativeRoute models."""
+    models = estimated_alternatives_models(1.2816, 103.8636, 1.2834, 103.8607, "Gardens")
+    assert set(models) == {"WALK", "CYCLE", "GRAB"}
+    assert all(isinstance(v, AlternativeRoute) for v in models.values())
+    assert all(v.is_estimated for v in models.values())
+
+
+@pytest.mark.asyncio
+async def test_estimate_path_exposes_always_modes():
+    """Non-optimize (estimate) plan: every leg's menu offers WALK/CYCLE/GRAB to switch to."""
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
+        result = await plan_trip("t-always", ids, 1, 999.0, optimize_order=False, preferences=None)
+    for day in result.days:
+        for leg in day.legs:
+            assert {"WALK", "CYCLE", "GRAB"} <= set(leg.alternatives)
+
+
+@pytest.mark.asyncio
+async def test_estimate_path_recommendation_unchanged():
+    """Enrichment must NOT change the recommended transport_mode (still METRO on the far leg)."""
+    ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(return_value=_mock_route())):
+        result = await plan_trip("t-rec", ids, 1, 999.0, optimize_order=False, preferences=None)
+    assert result.days[0].legs[0].transport_mode == "METRO"
+
+
+# ── dev23: transit fare backfill (PTC bands) ─────────────────────────────────
+
+def test_fill_transit_fare_metro_from_distance():
+    route = {"fare_sgd": 0.0, "distance_km": 9.0}
+    _fill_transit_fare("METRO", route)
+    assert route["fare_sgd"] == 1.82
+
+
+def test_fill_transit_fare_bus_from_distance():
+    route = {"fare_sgd": 0.0, "distance_km": 4.0}   # band ≤4.2km → 1.38
+    _fill_transit_fare("BUS", route)
+    assert route["fare_sgd"] == 1.38
+    route2 = {"fare_sgd": 0.0, "distance_km": 5.0}  # band ≤5.2km → 1.49
+    _fill_transit_fare("BUS", route2)
+    assert route2["fare_sgd"] == 1.49
+
+
+def test_fill_transit_fare_onemap_first_keeps_real_fare():
+    route = {"fare_sgd": 1.20, "distance_km": 9.0}
+    _fill_transit_fare("METRO", route)
+    assert route["fare_sgd"] == 1.20      # real OneMap fare untouched
+
+
+def test_fill_transit_fare_non_transit_untouched():
+    walk = {"fare_sgd": 0.0, "distance_km": 2.0}
+    _fill_transit_fare("WALK", walk)
+    assert walk["fare_sgd"] == 0.0
+    grab = {"fare_sgd": 8.50, "distance_km": 5.0}
+    _fill_transit_fare("GRAB", grab)
+    assert grab["fare_sgd"] == 8.50
+
+
+def test_fill_transit_fare_missing_or_zero_distance_no_change():
+    no_dist = {"fare_sgd": 0.0}
+    _fill_transit_fare("METRO", no_dist)
+    assert no_dist["fare_sgd"] == 0.0
+    zero_dist = {"fare_sgd": 0.0, "distance_km": 0}
+    _fill_transit_fare("BUS", zero_dist)
+    assert zero_dist["fare_sgd"] == 0.0
+
+
 # ── switch_leg_mode ───────────────────────────────────────────────────────────
 
 def _make_plan_for_switch(trip_id: str = "t-sw") -> TripPlan:
     """TripPlan with Gardens→MBS leg, BUS alternative pre-populated."""
-    bus_alt = AlternativeRoute(duration_minutes=20, cost_sgd=1.20, is_estimated=False)
-    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False)
+    # Real cached transit alts carry geometry (in-memory after a live plan) → no lazy re-fetch.
+    bus_alt = AlternativeRoute(duration_minutes=20, cost_sgd=1.20, is_estimated=False, geometry="bus_poly")
+    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False, geometry="mrt_poly")
     walk_alt  = AlternativeRoute(duration_minutes=45, cost_sgd=0.0,  is_estimated=False)
     leg = LegResponse(
         id="leg-sw",
@@ -703,6 +982,63 @@ async def test_switch_leg_mode_cache_miss_fetches_on_demand():
 
 
 @pytest.mark.asyncio
+async def test_switch_leg_mode_lazy_refetches_geometry_when_missing():
+    """dev22 §F: a cached transit alt with no polyline (DB reload) lazily re-fetches the
+    real route so the map can draw a line; time/cost come from the real route."""
+    metro_route = {"duration_minutes": 11, "fare_sgd": 1.7, "is_estimated": False,
+                   "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}],
+                   "geometry": "real_mrt_poly", "geometries": ["g1"], "instructions": ["Board NS"],
+                   "sub_legs": [], "distance_km": 2.0}
+
+    async def _mock(from_lat, from_lng, to_lat, to_lng, mode, transit_modes=None):
+        if mode == "walk":
+            return {"duration_minutes": 40, "fare_sgd": 0.0, "is_estimated": False,
+                    "legs": [{"mode": "WALK"}], "geometry": None, "geometries": [],
+                    "instructions": [], "sub_legs": [], "distance_km": 2.0}
+        return metro_route   # mixed pt + bus-only → SUBWAY primary
+
+    # Reload-like leg: METRO alt present but geometry stripped by compact persistence.
+    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False, geometry=None)
+    leg = LegResponse(
+        id="leg-lazy", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="BUS", duration_minutes=20, cost_sgd=1.20, is_estimated=False,
+        alternatives={"METRO": metro_alt},
+    )
+    p_a = _make_place("gardens-by-the-bay", lat=1.2816, lng=103.8636)
+    p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607)
+    plan = TripPlan(id="t-lazy", days=[DayPlan(day=1, legs=[leg])], places=[p_a, p_b], warnings=[])
+
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+        result = await switch_leg_mode("METRO", leg, plan)
+
+    assert result.updated_leg.transport_mode == "METRO"
+    assert result.updated_leg.geometry == "real_mrt_poly"   # polyline restored
+    assert result.updated_leg.duration_minutes == 11        # real route values
+
+
+@pytest.mark.asyncio
+async def test_switch_leg_mode_lazy_refetch_best_effort_on_failure():
+    """If the lazy geometry re-fetch fails, the switch still succeeds with the cached alt
+    (never turns a switch into a click-then-fail)."""
+    metro_alt = AlternativeRoute(duration_minutes=10, cost_sgd=1.80, is_estimated=False, geometry=None)
+    leg = LegResponse(
+        id="leg-lazy2", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
+        transport_mode="BUS", duration_minutes=20, cost_sgd=1.20, is_estimated=False,
+        alternatives={"METRO": metro_alt},
+    )
+    p_a = _make_place("gardens-by-the-bay", lat=1.2816, lng=103.8636)
+    p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607)
+    plan = TripPlan(id="t-lazy2", days=[DayPlan(day=1, legs=[leg])], places=[p_a, p_b], warnings=[])
+
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(side_effect=Exception("OneMap down"))):
+        result = await switch_leg_mode("METRO", leg, plan)
+
+    assert result.updated_leg.transport_mode == "METRO"
+    assert result.updated_leg.geometry is None              # still no polyline, but no crash
+    assert result.updated_leg.duration_minutes == 10        # cached values preserved
+
+
+@pytest.mark.asyncio
 async def test_switch_leg_mode_raises_when_mode_unavailable():
     """If requested mode has no route at all → NoRouteError with clear message."""
     leg = LegResponse(
@@ -745,7 +1081,7 @@ async def test_switch_leg_mode_schedule_warning_when_overfull():
 @pytest.mark.asyncio
 async def test_switch_leg_mode_no_warning_when_fits():
     """Fast switch that keeps day within 17:30 → no schedule warning."""
-    fast_bus = AlternativeRoute(duration_minutes=12, cost_sgd=1.20)
+    fast_bus = AlternativeRoute(duration_minutes=12, cost_sgd=1.20, geometry="bus_poly")
     leg = LegResponse(
         id="leg-ok", from_place_id="gardens-by-the-bay", to_place_id="marina-bay-sands",
         transport_mode="METRO", duration_minutes=10, cost_sgd=1.80, is_estimated=False,

@@ -174,6 +174,99 @@ async def generate_gap_notifications(gap_events: list[dict]) -> list[str]:
     ]
 
 
+_ALERT_PHRASE_TEMPLATE = (
+    "You are IMOVE, a warm Singapore travel companion chatting with a tourist in their app.\n"
+    "A live trip alert just fired. Rewrite it as ONE friendly heads-up message (max 2 sentences) "
+    "in {lang_name}, the way a helpful friend would flag it. Keep every concrete fact from the "
+    "alert (place, day, time, %); do NOT invent anything new and do NOT add greetings or sign-offs.\n\n"
+    "Alert type: {alert_type}\n"
+    "Day: {day}\n"
+    "Original message: {message}"
+)
+
+
+async def phrase_alert(alert: dict, lang: str = "en") -> str:
+    """[LLM] Rewrite a trip alert as a warm, friend-like chat message (dev25 P1).
+
+    Rate-limited via the shared 15-RPM guard. Returns the alert's own `message` unchanged on
+    any failure or empty output — never fabricates beyond the alert.
+    """
+    await _rate_limit()
+
+    original = (alert.get("message") or "").strip()
+    prompt = _ALERT_PHRASE_TEMPLATE.format(
+        lang_name="Vietnamese" if lang == "vi" else "English",
+        alert_type=alert.get("alert_type") or "alert",
+        day=alert.get("day_number") if alert.get("day_number") is not None else "—",
+        message=original,
+    )
+    try:
+        response = await _client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return (response.text or "").strip() or original
+    except Exception:
+        return original
+
+
+_EVENTS_GROUNDED_TEMPLATE = (
+    "You are IMOVE's Singapore travel assistant. Using up-to-date web information, answer the "
+    "tourist's question about CURRENT or seasonal happenings in Singapore — events, festivals, "
+    "public holidays, what's on now, travel tips, or neighbourhood guides. "
+    "Be concise (3-5 sentences), specific to Singapore, and practical. Reply in the same "
+    "language as the question. If you mention an attraction, you may describe it, but do NOT "
+    "claim it can be added to the user's itinerary. Today's date in Singapore: {today}.\n\n"
+    "Question: {query}"
+)
+
+
+def _extract_citations(response) -> list[str]:
+    """Best-effort pull of source URIs from grounding metadata (never raises)."""
+    try:
+        meta = response.candidates[0].grounding_metadata
+        chunks = getattr(meta, "grounding_chunks", None) or []
+        uris = []
+        for c in chunks:
+            web = getattr(c, "web", None)
+            uri = getattr(web, "uri", None) if web else None
+            if uri:
+                uris.append(uri)
+        return uris
+    except Exception:
+        return []
+
+
+async def search_events_grounded(query: str, today: str | None = None) -> dict:
+    """[LLM] Isolated, google_search-grounded answer about current SG events / tips.
+
+    Hard guardrail: this call attaches ONLY the google_search tool and NO function
+    declarations, so web text injected into the result can never trigger an app action
+    (no tool conflict, no prompt-injection → action path). Rate-limited in api-key mode
+    (Vertex has higher quota). Returns {"text": str, "citations": list[str]}; on any
+    failure or empty output returns an empty typed result — never fabricates.
+    """
+    if not settings.google_genai_use_vertexai:
+        await _rate_limit()
+
+    prompt = _EVENTS_GROUNDED_TEMPLATE.format(today=today or "unknown", query=query)
+    try:
+        config = types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+        )
+        response = await _client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config,
+        )
+        text = (response.text or "").strip()
+        if not text:
+            return {"text": "", "citations": []}
+        return {"text": text, "citations": _extract_citations(response)}
+    except Exception:
+        return {"text": "", "citations": []}
+
+
 async def parse_places_input(raw_text: str) -> list[str]:
     """Parse natural language place input into a list of place name strings.
 

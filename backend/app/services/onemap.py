@@ -111,7 +111,13 @@ async def get_all_routes(
     async def _safe(mode: str) -> dict:
         try:
             r = await get_route(from_lat, from_lng, to_lat, to_lng, mode)
-            summary = _pt_summary(r.get("sub_legs", [])) if mode == "pt" else "direct"
+            if mode == "pt":
+                sub_legs = r.get("sub_legs", [])
+                if not any(s.get("mode") != "WALK" for s in sub_legs):
+                    return dict(_UNAVAILABLE)
+                summary = _pt_summary(sub_legs)
+            else:
+                summary = "direct"
             return {
                 "available": True,
                 "duration_minutes": r["duration_minutes"],
@@ -128,6 +134,26 @@ async def get_all_routes(
 
 _SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search"
 _ROUTE_URL = "https://www.onemap.gov.sg/api/public/routingsvc/route"
+
+# /optimize fans out _fetch_all_alternatives() (5 routing calls) across every place
+# pair via asyncio.gather — without a cap, a multi-day plan can fire dozens of
+# concurrent requests and trip OneMap's rate limit, causing scattered failures
+# that fall back to is_estimated=True routes (locking the day tabs in the UI).
+_ROUTE_SEMAPHORE = asyncio.Semaphore(6)
+_ROUTE_RETRY_DELAY_S = 0.5
+
+# OTP returns its single best itinerary first; for short legs that is often all-walk,
+# hiding viable transit. Request a few so we can pick the best one that actually rides transit.
+# OneMap hard-caps this at 1–3 inclusive (HTTP 400 otherwise), so 3 is the usable maximum.
+_PT_NUM_ITINERARIES = 3
+
+
+def _has_transit(itin: dict) -> bool:
+    """True when an OTP itinerary uses at least one non-walk leg (bus/rail/etc.)."""
+    return any(
+        (leg.get("mode") or "").upper() not in ("WALK", "")
+        for leg in itin.get("legs", [])
+    )
 
 
 async def _get_token() -> str:
@@ -211,17 +237,25 @@ async def get_route(
             "date": now_sgt.strftime("%m-%d-%Y"),
             "time": now_sgt.strftime("%H:%M:%S"),
             "mode": "TRANSIT",
-            "numItineraries": 1,
+            "numItineraries": _PT_NUM_ITINERARIES,
         })
         if transit_modes:
             params["transitModes"] = transit_modes  # e.g. "BUS" for bus-only routing
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(_ROUTE_URL, params=params, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        raise NoRouteError(f"OneMap routing unavailable: {exc}") from exc
+    last_exc: Exception | None = None
+    for attempt in range(2):  # one retry on transient rate-limit/timeout
+        if attempt:
+            await asyncio.sleep(_ROUTE_RETRY_DELAY_S)
+        try:
+            async with _ROUTE_SEMAPHORE:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(_ROUTE_URL, params=params, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+            break
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+    else:
+        raise NoRouteError(f"OneMap routing unavailable: {last_exc}") from last_exc
 
     if mode.lower() == "pt":
         itineraries = data.get("plan", {}).get("itineraries", [])
@@ -229,7 +263,9 @@ async def get_route(
             raise NoRouteError(
                 f"No PT route from ({from_lat},{from_lng}) to ({to_lat},{to_lng})"
             )
-        itin = itineraries[0]
+        # Prefer OTP's best transit itinerary; fall back to its first when every option is
+        # all-walk (so a genuinely walk-only pair still resolves instead of disappearing).
+        itin = next((it for it in itineraries if _has_transit(it)), itineraries[0])
         itin_legs = itin.get("legs", [])
         legs = [
             {
