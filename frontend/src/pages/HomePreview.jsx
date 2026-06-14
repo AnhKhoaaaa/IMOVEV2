@@ -65,14 +65,14 @@ export default function HomePreview() {
   return (
     <div className="bg-white">
       <main className="relative z-10 overflow-hidden rounded-b-[32px] bg-white shadow-[0_30px_80px_-48px_rgba(15,23,42,0.32)]">
-        <section className="preview-hero relative isolate min-h-[calc(100vh-56px)] overflow-hidden bg-[#f8f9fa]">
+        <section className="preview-hero relative isolate min-h-[calc(100dvh-56px)] overflow-hidden bg-[#f8f9fa]">
           <div className="preview-hero-word pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none">
             SINGAPORE
           </div>
           <div className="absolute -left-32 top-20 h-96 w-96 rounded-full bg-blue-200/50 blur-3xl" />
           <div className="absolute -right-32 bottom-10 h-96 w-96 rounded-full bg-emerald-100/60 blur-3xl" />
 
-          <div className="relative mx-auto grid min-h-[calc(100vh-56px)] max-w-7xl items-center gap-14 px-6 py-16 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="relative mx-auto grid min-h-[calc(100dvh-56px)] max-w-7xl items-center gap-14 px-6 py-16 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="preview-hero-copy">
               <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-blue-700">
                 <Sparkles className="h-3.5 w-3.5" /> Cinematic homepage preview
