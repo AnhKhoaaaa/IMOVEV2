@@ -379,6 +379,28 @@ _FALLBACK = (
 
 # ── live GPS companion (dev25 P5) ─────────────────────────────────────────────────
 
+# ── DEMO-ONLY hook (DEMO_FORCE_RAIN) ⚠️ ─────────────────────────────────────────────
+# FOR OTHER AGENTS / FUTURE EDITORS: the next two definitions exist ONLY to record the
+# Phase-5 companion demo video. They are NOT product logic.
+#   • Do NOT call _companion_weather / _DEMO_RAIN from anywhere except companion_check.
+#   • Do NOT build features on settings.demo_force_rain, and never enable it in production.
+#   • To fully revert the demo capability: delete these two defs, the `demo_force_rain` setting
+#     in config.py, and the `.env.example` entry — companion_check then uses OpenWeather only.
+# When the flag is OFF (the default) this is a transparent pass-through to OpenWeather, so the
+# real companion path is byte-for-byte unchanged.
+_DEMO_RAIN = {"condition": "Rain", "temp_c": 27.0, "rain_1h": 2.4}
+
+
+async def _companion_weather(gps: Gps) -> dict:
+    """Weather source for companion_check: real OpenWeather, except the isolated demo override."""
+    from app.config import settings
+    if settings.demo_force_rain:                       # DEMO-ONLY — see warning block above
+        log.warning("DEMO_FORCE_RAIN is ON — companion is using FAKE rain, not real weather.")
+        return dict(_DEMO_RAIN)
+    from app.services import openweather
+    return await openweather.get_current_weather(gps.lat, gps.lng)
+
+
 async def companion_check(
     session_id: str,
     trip_id: str,
@@ -412,9 +434,8 @@ async def companion_check(
     if not outdoor:
         return None
 
-    from app.services import openweather
     try:
-        current = await openweather.get_current_weather(gps.lat, gps.lng)
+        current = await _companion_weather(gps)  # real OpenWeather (or demo override; see helper)
     except Exception:
         return None  # weather down → say nothing (never fabricate)
 

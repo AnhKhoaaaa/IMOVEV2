@@ -471,3 +471,36 @@ async def test_companion_check_picks_nearest_outdoor_to_user():
             "s7", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
     assert "Near Park" in nudge.text
     assert "Far Park" not in nudge.text
+
+
+@pytest.mark.asyncio
+async def test_companion_check_demo_force_rain_bypasses_real_weather(monkeypatch):
+    # DEMO_FORCE_RAIN on → companion fabricates light rain WITHOUT touching OpenWeather, so the
+    # nudge fires on demand. Real weather is wired to FAIL to prove the demo path never calls it.
+    monkeypatch.setattr("app.config.settings.demo_force_rain", True)
+    plan = _cplan([_cplace("merlion-park", "Merlion Park", 1.2868, 103.8545, True)])
+    wx = AsyncMock(side_effect=AssertionError("OpenWeather must not be called in demo mode"))
+    with patch.object(chat_agent, "_load_plan", AsyncMock(return_value=plan)), \
+         patch("app.services.openweather.get_current_weather", wx), \
+         patch("app.agents.adaptation_agent._nearest_indoor", return_value=None), \
+         patch.object(chat_agent.gemini, "phrase_alert", AsyncMock(side_effect=lambda a, l: a["message"])):
+        nudge = await chat_agent.companion_check(
+            "sd", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
+    assert nudge is not None
+    assert nudge.alert_type == "weather_live"
+    assert "Merlion Park" in nudge.text
+    wx.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_companion_check_demo_flag_off_uses_real_weather(monkeypatch):
+    # Default (flag off) → the real OpenWeather call IS made (proves the seam is a pass-through).
+    monkeypatch.setattr("app.config.settings.demo_force_rain", False)
+    plan = _cplan([_cplace("merlion-park", "Merlion Park", 1.2868, 103.8545, True)])
+    wx = AsyncMock(return_value={"condition": "Clear", "rain_1h": 0.0})
+    with patch.object(chat_agent, "_load_plan", AsyncMock(return_value=plan)), \
+         patch("app.services.openweather.get_current_weather", wx):
+        nudge = await chat_agent.companion_check(
+            "sd2", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
+    assert nudge is None        # dry → silent
+    wx.assert_called_once()     # real weather path taken

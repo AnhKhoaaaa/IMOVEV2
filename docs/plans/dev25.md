@@ -355,6 +355,16 @@ normal loop runs `switch_leg_now` / `compare_routes` (already wired). No new wri
 | OpenWeather | +1 current-weather call per poll while widget open w/ GPS | LOW |
 | double-notify | guarded by shared `weather_live` dedupe window | LOW |
 
+#### DEMO-ONLY flag — `DEMO_FORCE_RAIN` (video capture; NOT product logic)
+Added so the P5 nudge can be recorded without waiting for real rain. **Default False; never enable
+in production.** Isolated to a single seam: `config.demo_force_rain` is read ONLY by
+`chat_agent._companion_weather`, which returns fake light rain (`_DEMO_RAIN`) when on and otherwise
+passes through to OpenWeather — so with the flag off the real path is byte-for-byte unchanged. All
+other companion gating (login + open trip + outdoor stop + GPS, nearest-stop pick, LLM phrasing)
+stays real. **To revert entirely:** delete the setting, `_companion_weather`/`_DEMO_RAIN`, and the
+`.env.example` entry. To record: set `DEMO_FORCE_RAIN=true` in `backend/.env`, restart, set a
+Singapore GPS (DevTools → Sensors), reload the trip page → nudge fires within seconds.
+
 ---
 
 ## Cross-cutting guardrails
