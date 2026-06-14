@@ -58,5 +58,14 @@ class Settings(BaseSettings):
     google_application_credentials: Optional[str] = None  # GOOGLE_APPLICATION_CREDENTIALS
     chat_model: str = "gemini-2.5-flash"              # CHAT_MODEL
 
+    # ── DEMO-ONLY ⚠️ (video capture) — NOT product logic ────────────────────────────
+    # FOR OTHER AGENTS: this flag exists solely to record the dev25 Phase-5 chat-companion
+    # demo. When True, chat_agent.companion_check treats the weather at the user's GPS as light
+    # rain so the rain nudge fires on demand instead of waiting for real rain. EVERYTHING ELSE
+    # stays real (login/trip/outdoor/GPS gating, nearest-stop pick, LLM phrasing). Default False —
+    # NEVER set this in a production .env. The only consumer is chat_agent._companion_weather;
+    # do not read this flag anywhere else or build features on it. (dev25 P5)
+    demo_force_rain: bool = False                      # DEMO_FORCE_RAIN
+
 
 settings = Settings()
