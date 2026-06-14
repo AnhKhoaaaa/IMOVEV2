@@ -28,8 +28,18 @@ import {
 } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import PlaceBrowser from '../components/planner/PlaceBrowser'
+
+// Maps the chosen travel-style preset to a localized short label (Trip Config Summary).
+const STYLE_LABEL_KEY = {
+  fastest: 'plnFastest',
+  cheapest: 'plnCheapest',
+  leisure: 'plnLeastWalking',
+  direct: 'plnLeastTransfers',
+  user: 'plnUseProfile',
+}
 
 const PRESETS = {
   fastest: { duration_w: 0.70, cost_w: 0.10, walking_w: 0.10, transfers_w: 0.10 },
@@ -40,9 +50,9 @@ const PRESETS = {
 
 // Qualitative priority shown to users instead of raw percentages (matches Settings).
 const LEVEL_META = {
-  high: { label: 'High', segs: 3 },
-  med:  { label: 'Medium', segs: 2 },
-  low:  { label: 'Low', segs: 1 },
+  high: { labelKey: 'lvlHigh', segs: 3 },
+  med:  { labelKey: 'lvlMed', segs: 2 },
+  low:  { labelKey: 'lvlLow', segs: 1 },
 }
 function weightLevel(weight) {
   const w = Number(weight ?? 0)
@@ -64,6 +74,7 @@ function endDate(startDate, numDays) {
 }
 
 function PlaceMiniCard({ place, onRemove }) {
+  const { t } = useT()
   return (
     <div className="group flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       <div className="h-14 w-16 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
@@ -83,7 +94,7 @@ function PlaceMiniCard({ place, onRemove }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-bold text-slate-900">{place.name}</p>
         <p className="mt-0.5 truncate text-[11px] font-semibold capitalize text-slate-400">
-          {place.category || 'place'} · {place.dwell_minutes ?? place.suggested_duration_minutes ?? 60} min
+          {place.category || t('tripCategoryFallback')} · {t('tripMinShort', place.dwell_minutes ?? place.suggested_duration_minutes ?? 60)}
         </p>
         {place.formatted_address && (
           <p className="mt-1 truncate text-[11px] text-slate-500">{place.formatted_address}</p>
@@ -93,7 +104,7 @@ function PlaceMiniCard({ place, onRemove }) {
         type="button"
         onClick={onRemove}
         className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 transition hover:bg-red-50 hover:text-red-500"
-        title="Remove"
+        title={t('tripRemove')}
       >
         <Trash2 size={13} />
       </button>
@@ -102,12 +113,13 @@ function PlaceMiniCard({ place, onRemove }) {
 }
 
 function SelectedList({ places, onRemove }) {
+  const { t } = useT()
   if (!places.length) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
         <MapPin className="mx-auto h-6 w-6 text-slate-300" />
-        <p className="mt-2 text-[12.5px] font-bold text-slate-600">No places selected yet</p>
-        <p className="mt-1 text-[11.5px] text-slate-400">Select places on the left to add them to your trip.</p>
+        <p className="mt-2 text-[12.5px] font-bold text-slate-600">{t('plnNoSelected')}</p>
+        <p className="mt-1 text-[11.5px] text-slate-400">{t('plnNoSelectedDesc')}</p>
       </div>
     )
   }
@@ -125,6 +137,7 @@ export default function Planner() {
   const navigate = useNavigate()
 const auth = useAuth()
 const user = auth?.user
+  const { t } = useT()
   
   // Wizard steps: 1: Essentials, 2: Hotel, 3: Travel Style, 4: Places
   const [currentStep, setCurrentStep] = useState(1)
@@ -259,7 +272,7 @@ const user = auth?.user
 
   const createPlan = async () => {
     if (selected.length < 2) {
-      setError('Please select at least 2 places before generating a plan.')
+      setError(t('plnMin2Places'))
       return
     }
     setCreating(true)
@@ -365,13 +378,13 @@ const user = auth?.user
           <button
             onClick={() => navigate('/')}
             className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700 hover:shadow-sm transition"
-            title="Cancel and Back to Home"
+            title={t('plnBackHome')}
           >
             <ChevronLeft size={18} />
           </button>
           <div>
-            <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">Itinerary Builder</p>
-            <h1 className="font-display text-[28px] font-extrabold text-slate-900">Configure Singapore Trip</h1>
+            <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{t('plnEyebrow')}</p>
+            <h1 className="font-display text-[28px] font-extrabold text-slate-900">{t('plnTitle')}</h1>
           </div>
         </div>
 
@@ -390,10 +403,10 @@ const user = auth?.user
                 />
                 
                 {[
-                  { label: 'Essentials', num: 1 },
-                  { label: 'Hotel Location', num: 2 },
-                  { label: 'Travel Style', num: 3 },
-                  { label: 'Sightseeing', num: 4 },
+                  { label: t('plnStep1'), num: 1 },
+                  { label: t('plnStep2'), num: 2 },
+                  { label: t('plnStep3'), num: 3 },
+                  { label: t('plnStep4'), num: 4 },
                 ].map((s) => (
                   <button
                     key={s.num}
@@ -432,13 +445,13 @@ const user = auth?.user
                 {currentStep === 1 && (
                   <div className="space-y-4 animate-fade-in">
                     <div>
-                      <h2 className="font-display font-extrabold text-[18px] text-slate-900">General settings</h2>
-                      <p className="text-[12.5px] text-slate-500">Provide basic parameters to structure your itinerary.</p>
+                      <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnGeneralSettings')}</h2>
+                      <p className="text-[12.5px] text-slate-500">{t('plnGeneralDesc')}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Trip Name</label>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnTripName')}</label>
                         <input
                           value={tripName}
                           onChange={(e) => setTripName(e.target.value)}
@@ -446,7 +459,7 @@ const user = auth?.user
                         />
                       </div>
                       <div>
-                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Transit Budget (SGD)</label>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnBudget')}</label>
                         <input
                           type="number"
                           min="0"
@@ -462,7 +475,7 @@ const user = auth?.user
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Days</label>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnDays')}</label>
                         <input
                           type="number"
                           min="1"
@@ -477,7 +490,7 @@ const user = auth?.user
                         />
                       </div>
                       <div>
-                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Dates mode</label>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnDatesMode')}</label>
                         <div className="flex h-10 rounded-lg border border-slate-200 p-0.5 bg-slate-50 gap-0.5">
                           <button
                             type="button"
@@ -487,7 +500,7 @@ const user = auth?.user
                               flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
                             )}
                           >
-                            <Clock size={12} /> Flexible
+                            <Clock size={12} /> {t('plnFlexible')}
                           </button>
                           <button
                             type="button"
@@ -497,7 +510,7 @@ const user = auth?.user
                               !flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
                             )}
                           >
-                            <Calendar size={12} /> Calendar
+                            <Calendar size={12} /> {t('plnCalendar')}
                           </button>
                         </div>
                       </div>
@@ -505,7 +518,7 @@ const user = auth?.user
 
                     {!flexible && (
                       <div className="animate-fade-in">
-                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Start date</label>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnStartDate')}</label>
                         <input
                           type="date"
                           value={startDate}
@@ -518,12 +531,12 @@ const user = auth?.user
                     <div className="animate-fade-in">
                       <label className="text-[12px] font-bold text-slate-500 block mb-2">
                         <Clock size={11} className="inline mr-1" />
-                        Daily Start Times
+                        {t('plnDailyStart')}
                       </label>
                       <div className={cn('grid gap-2', numDays > 4 ? 'grid-cols-3' : 'grid-cols-2')}>
                         {Array.from({ length: numDays }, (_, i) => (
                           <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2">
-                            <span className="text-[11px] font-bold text-slate-400 w-9 shrink-0">Day {i + 1}</span>
+                            <span className="text-[11px] font-bold text-slate-400 w-9 shrink-0">{t('tripDay', i + 1)}</span>
                             <input
                               type="time"
                               value={dayStartTimes[i] ?? '09:00'}
@@ -542,8 +555,8 @@ const user = auth?.user
                     <div className="border-t border-slate-100 pt-4 mt-2">
                       <div className="flex items-center justify-between bg-slate-50/50 rounded-xl border border-slate-200 p-3 shadow-sm">
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[13px] font-bold text-slate-900">Auto-Optimize Order</span>
-                          <span className="text-[11.5px] text-slate-400">Reorders places dynamically to save transit times.</span>
+                          <span className="text-[13px] font-bold text-slate-900">{t('plnAutoOptimize')}</span>
+                          <span className="text-[11.5px] text-slate-400">{t('plnAutoOptimizeDesc')}</span>
                         </div>
                         <button
                           type="button"
@@ -570,10 +583,10 @@ const user = auth?.user
                   <div className="space-y-4 animate-fade-in">
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">Hotel Accommodation</h2>
-                        <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Optional</span>
+                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnHotelTitle')}</h2>
+                        <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{t('plnOptional')}</span>
                       </div>
-                      <p className="text-[12.5px] text-slate-500">Provide where you stay. We start each day's route directly from your hotel.</p>
+                      <p className="text-[12.5px] text-slate-500">{t('plnHotelDesc')}</p>
                     </div>
 
                     {hotel ? (
@@ -593,13 +606,13 @@ const user = auth?.user
                       </div>
                     ) : (
                       <div className="relative">
-                        <label className="text-[12px] font-bold text-slate-500 block mb-1">Hotel Search</label>
+                        <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnHotelSearch')}</label>
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                           <input
                             value={hotelQuery}
                             onChange={(e) => setHotelQuery(e.target.value)}
-                            placeholder="e.g. Marina Bay Sands, Orchard Hotel"
+                            placeholder={t('plnHotelPlaceholder')}
                             className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-400 transition"
                           />
                           {hotelLoading && (
@@ -622,13 +635,13 @@ const user = auth?.user
                               }}
                               className="flex shrink-0 items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-500 shadow-sm"
                             >
-                              <Check size={11} /> Use
+                              <Check size={11} /> {t('plnUse')}
                             </button>
                           </div>
                         )}
                         {hotelNotFound && !hotelLoading && (
                           <p className="mt-1.5 text-[11.5px] font-medium text-red-500 inline-flex items-center gap-1">
-                            <AlertCircle size={12} /> No location found. Try a more specific name.
+                            <AlertCircle size={12} /> {t('plnHotelNotFound')}
                           </p>
                         )}
                       </div>
@@ -640,8 +653,8 @@ const user = auth?.user
                 {currentStep === 3 && (
                   <div className="space-y-4 animate-fade-in">
                     <div>
-                      <h2 className="font-display font-extrabold text-[18px] text-slate-900">Transit weights</h2>
-                      <p className="text-[12.5px] text-slate-500">Pick a travel profile to fine-tune how our routing ranks transport modes.</p>
+                      <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnTransitWeights')}</h2>
+                      <p className="text-[12.5px] text-slate-500">{t('plnTransitDesc')}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -656,9 +669,9 @@ const user = auth?.user
                         )}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
-                          <Zap size={14} className="text-amber-500" /> Fastest
+                          <Zap size={14} className="text-amber-500" /> {t('plnFastest')}
                         </div>
-                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Minimizes travel duration. Prefers high-speed MRT lines.</p>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnFastestDesc')}</p>
                       </button>
 
                       <button
@@ -672,9 +685,9 @@ const user = auth?.user
                         )}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
-                          <Banknote size={14} className="text-emerald-500" /> Cheapest
+                          <Banknote size={14} className="text-emerald-500" /> {t('plnCheapest')}
                         </div>
-                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Minimizes fares. Prefers local bus lines and walk segments.</p>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnCheapestDesc')}</p>
                       </button>
 
                       <button
@@ -688,9 +701,9 @@ const user = auth?.user
                         )}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
-                          <Footprints size={14} className="text-indigo-500" /> Least Walking
+                          <Footprints size={14} className="text-indigo-500" /> {t('plnLeastWalking')}
                         </div>
-                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Hates walking. Selects door-to-door transit links.</p>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastWalkingDesc')}</p>
                       </button>
 
                       <button
@@ -704,9 +717,9 @@ const user = auth?.user
                         )}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
-                          <Shuffle size={14} className="text-purple-500" /> Least Transfers
+                          <Shuffle size={14} className="text-purple-500" /> {t('plnLeastTransfers')}
                         </div>
-                        <p className="text-[11.5px] text-slate-400 leading-relaxed">Avoids line switches. Recommends single-board options.</p>
+                        <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastTransfersDesc')}</p>
                       </button>
 
                       {user && (
@@ -722,28 +735,28 @@ const user = auth?.user
                           )}
                         >
                           <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
-                            <User size={14} className="text-emerald-600" /> Use My Preferences Profile
+                            <User size={14} className="text-emerald-600" /> {t('plnUseProfile')}
                           </div>
-                          <p className="text-[11.5px] text-slate-400 leading-relaxed">Automatically loads your personalized scoring weights configured in user account settings.</p>
+                          <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnUseProfileDesc')}</p>
                         </button>
                       )}
                     </div>
 
                     {/* Preset breakdown preview */}
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 mt-2">
-                      <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400 mb-3">Scoring Weights Allocation</p>
-                      
+                      <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400 mb-3">{t('plnWeightsAlloc')}</p>
+
                       {selectedPreset === 'user' ? (
                         <div className="py-2 text-center text-[12.5px] font-medium text-slate-500 flex items-center justify-center gap-1.5">
-                          <Check size={14} className="text-emerald-600" /> Loads account profile values from database
+                          <Check size={14} className="text-emerald-600" /> {t('plnLoadsProfile')}
                         </div>
                       ) : (
                         <div className="space-y-3">
                           {[
-                            { label: 'Travel Duration', key: 'duration_w', icon: Clock },
-                            { label: 'Fare Cost', key: 'cost_w', icon: Banknote },
-                            { label: 'Walking Minutes', key: 'walking_w', icon: Footprints },
-                            { label: 'Number of Transfers', key: 'transfers_w', icon: Shuffle },
+                            { label: t('plnDimDuration'), key: 'duration_w', icon: Clock },
+                            { label: t('plnDimCost'), key: 'cost_w', icon: Banknote },
+                            { label: t('plnDimWalking'), key: 'walking_w', icon: Footprints },
+                            { label: t('plnDimTransfers'), key: 'transfers_w', icon: Shuffle },
                           ].map((dim) => {
                             const meta = LEVEL_META[weightLevel(PRESETS[selectedPreset][dim.key])]
                             return (
@@ -764,7 +777,7 @@ const user = auth?.user
                                       />
                                     ))}
                                   </span>
-                                  <span className="w-14 text-right text-[12px] font-bold text-blue-700">{meta.label}</span>
+                                  <span className="w-14 text-right text-[12px] font-bold text-blue-700">{t(meta.labelKey)}</span>
                                 </span>
                               </div>
                             )
@@ -780,17 +793,17 @@ const user = auth?.user
                   <div className="space-y-4 animate-fade-in">
                     <div>
                       <div className="flex justify-between items-baseline">
-                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">Singapore attractions</h2>
-                        <span className="text-[11.5px] font-semibold text-slate-400">Step 4 of 4</span>
+                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnAttractions')}</h2>
+                        <span className="text-[11.5px] font-semibold text-slate-400">{t('plnStep4of4')}</span>
                       </div>
-                      <p className="text-[12.5px] text-slate-500">Pick sights. Select at least 2 places. You can search or use AI suggestions.</p>
+                      <p className="text-[12.5px] text-slate-500">{t('plnPickSights')}</p>
                     </div>
 
                     <div className="grid grid-cols-[1fr_260px] gap-6">
                       {/* Left: Place Browser */}
                       <div className="border-r border-slate-100 pr-6">
                         <div className="flex justify-between items-center mb-2">
-                          <span className="text-[12px] font-bold text-slate-500">Curated POI Search</span>
+                          <span className="text-[12px] font-bold text-slate-500">{t('plnCuratedSearch')}</span>
                           <button
                             type="button"
                             onClick={suggestPlaces}
@@ -798,7 +811,7 @@ const user = auth?.user
                             className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-extrabold rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition"
                           >
                             {suggestState === 'thinking' ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                            Auto AI Shortlist
+                            {t('plnAutoShortlist')}
                           </button>
                         </div>
 
@@ -806,14 +819,14 @@ const user = auth?.user
                           <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 flex items-start gap-2 animate-pulse">
                             <Loader2 size={14} className="animate-spin text-blue-600 shrink-0 mt-0.5" />
                             <p className="text-[11.5px] text-blue-700 leading-normal">
-                              AI is analyzing {numDays} days and routing to shortlist matching sights...
+                              {t('plnAnalyzing', numDays)}
                             </p>
                           </div>
                         )}
 
                         {suggestState === 'done' && (
                           <div className="mb-3 flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-[11.5px] font-bold text-emerald-700 animate-pop-in">
-                            <Check size={13} /> AI Shortlist pre-selected. Edit as you wish!
+                            <Check size={13} /> {t('plnShortlistDone')}
                           </div>
                         )}
 
@@ -823,7 +836,7 @@ const user = auth?.user
                       {/* Right: Selected List */}
                       <div className="flex flex-col">
                         <div>
-                          <span className="text-[12px] font-bold text-slate-500 block mb-2">Selected Shortlist ({selected.length})</span>
+                          <span className="text-[12px] font-bold text-slate-500 block mb-2">{t('plnSelectedShortlist', selected.length)}</span>
                           <SelectedList places={selected} onRemove={removePlace} />
                         </div>
                         <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
@@ -835,11 +848,11 @@ const user = auth?.user
                           >
                             {creating ? (
                               <>
-                                <Loader2 size={14} className="animate-spin" /> Generating...
+                                <Loader2 size={14} className="animate-spin" /> {t('plnGenerating')}
                               </>
                             ) : (
                               <>
-                                Generate plan <Navigation2 size={13} />
+                                {t('plnGeneratePlan')} <Navigation2 size={13} />
                               </>
                             )}
                           </button>
@@ -848,7 +861,7 @@ const user = auth?.user
                             onClick={handlePrev}
                             className="h-10 w-full rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition inline-flex items-center justify-center gap-1.5"
                           >
-                            <ArrowLeft size={14} /> Back
+                            <ArrowLeft size={14} /> {t('tripBack')}
                           </button>
                         </div>
                       </div>
@@ -868,7 +881,7 @@ const user = auth?.user
                   disabled={currentStep === 1}
                   className="h-10 px-4 rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                 >
-                  <ArrowLeft size={14} /> Back
+                  <ArrowLeft size={14} /> {t('tripBack')}
                 </button>
                 <button
                   type="button"
@@ -876,7 +889,7 @@ const user = auth?.user
                   disabled={creating}
                   className="h-10 px-5 rounded-lg bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-500 transition shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Next <ArrowRight size={14} />
+                  {t('plnNext')} <ArrowRight size={14} />
                 </button>
               </div>
             )}
@@ -890,44 +903,44 @@ const user = auth?.user
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-1.5 border-b border-slate-100 pb-3 mb-4">
                 <div className="grid h-7 w-7 place-items-center rounded bg-blue-50 text-blue-600 font-bold text-sm">🗓</div>
-                <h3 className="font-display font-bold text-[15px] text-slate-900">Trip Config Summary</h3>
+                <h3 className="font-display font-bold text-[15px] text-slate-900">{t('plnConfigSummary')}</h3>
               </div>
 
               <div className="space-y-3">
                 <div className="flex justify-between border-b border-slate-100/50 pb-2">
-                  <span className="text-[12px] text-slate-400 font-medium">Trip Name</span>
+                  <span className="text-[12px] text-slate-400 font-medium">{t('plnTripName')}</span>
                   <span className="text-[12.5px] font-bold text-slate-800 max-w-[160px] truncate" title={tripName}>{tripName}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-100/50 pb-2">
-                  <span className="text-[12px] text-slate-400 font-medium">Duration</span>
-                  <span className="text-[12.5px] font-bold text-slate-800">{numDays} Days</span>
+                  <span className="text-[12px] text-slate-400 font-medium">{t('plnDuration')}</span>
+                  <span className="text-[12.5px] font-bold text-slate-800">{t('plnDaysValue', numDays)}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-100/50 pb-2">
-                  <span className="text-[12px] text-slate-400 font-medium">Transit Budget</span>
+                  <span className="text-[12px] text-slate-400 font-medium">{t('plnSumBudget')}</span>
                   <span className="text-[12.5px] font-bold text-slate-800">S${budget.toFixed(2)}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-100/50 pb-2">
-                  <span className="text-[12px] text-slate-400 font-medium">Hotel Start</span>
-                  <span 
-                    className="text-[12.5px] font-bold max-w-[180px] truncate" 
+                  <span className="text-[12px] text-slate-400 font-medium">{t('plnHotelStart')}</span>
+                  <span
+                    className="text-[12.5px] font-bold max-w-[180px] truncate"
                     style={{ color: hotel ? '#2563eb' : '#94a3b8' }}
-                    title={hotel ? hotel.name : 'Starts at first stop'}
+                    title={hotel ? hotel.name : t('plnStartsFirstStop')}
                   >
-                    {hotel ? hotel.name : 'Not Set'}
+                    {hotel ? hotel.name : t('plnNotSet')}
                   </span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-100/50 pb-2">
-                  <span className="text-[12px] text-slate-400 font-medium">Travel Style</span>
-                  <span className="text-[12.5px] font-bold capitalize text-amber-600">{selectedPreset}</span>
+                  <span className="text-[12px] text-slate-400 font-medium">{t('plnTravelStyle')}</span>
+                  <span className="text-[12.5px] font-bold text-amber-600">{t(STYLE_LABEL_KEY[selectedPreset] ?? 'plnFastest')}</span>
                 </div>
 
                 <div className="flex justify-between pb-1">
-                  <span className="text-[12px] text-slate-400 font-medium">Stops Selected</span>
-                  <span className="text-[12.5px] font-bold text-slate-800">{selected.length} stops</span>
+                  <span className="text-[12px] text-slate-400 font-medium">{t('plnStopsSelected')}</span>
+                  <span className="text-[12.5px] font-bold text-slate-800">{t('plnStopsValue', selected.length)}</span>
                 </div>
               </div>
             </section>
@@ -939,7 +952,7 @@ const user = auth?.user
                 onClick={() => setPayloadOpen((v) => !v)}
                 className="w-full flex items-center justify-between gap-2 px-5 py-3 hover:bg-slate-50 transition"
               >
-                <span className="text-[12px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">API Live payload</span>
+                <span className="text-[12px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">{t('plnApiPayload')}</span>
                 <ChevronDown
                   size={14}
                   className={cn('text-slate-400 transition-transform duration-200', payloadOpen && 'rotate-180')}
@@ -969,8 +982,8 @@ const user = auth?.user
         <button
           type="button"
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          title="Back to top"
-          aria-label="Back to top"
+          title={t('plnBackToTop')}
+          aria-label={t('plnBackToTop')}
           className="fixed bottom-[88px] right-5 z-40 grid h-11 w-11 place-items-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-pop transition hover:bg-slate-50 active:scale-95"
         >
           <ArrowUp size={18} />
