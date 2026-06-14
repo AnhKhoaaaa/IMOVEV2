@@ -740,6 +740,7 @@ async def plan_trip(
     hotel_lng: float | None = None,
     force_real_routes: bool = False,
     existing_real_legs: list[dict] | None = None,
+    day_assignments: list[list[str]] | None = None,
 ) -> TripPlan:
     prefs = preferences or {}
     effective_profile = profile or UserPreferenceProfile()
@@ -823,7 +824,26 @@ async def plan_trip(
         route_cache[(from_id, to_id)]    = route
         best_key_cache[(from_id, to_id)] = mode
 
-    if optimize_order:
+    if day_assignments is not None:
+        # dev26: caller supplied an explicit per-day grouping (add/remove place, reorder,
+        # remove_day on the non-optimize path). Honour it verbatim instead of re-bucketing —
+        # this is what keeps a place the user put on day 2 from migrating to day 1, and keeps
+        # untouched days untouched. Empty groups are preserved so the user's day count holds.
+        _place_lookup = {p["id"]: p for p in places}
+        day_groups = [
+            [_place_lookup[pid] for pid in group if pid in _place_lookup and pid != "hotel"]
+            for group in day_assignments
+        ]
+        # Safety net: any resolved place not named in any group is appended to the last group
+        # so it is never silently dropped (callers build groups to cover every id, so this is
+        # a no-op in practice).
+        _assigned = {p["id"] for group in day_groups for p in group}
+        _orphans = [p for p in places if p["id"] not in _assigned and p["id"] != "hotel"]
+        if _orphans:
+            if not day_groups:
+                day_groups = [[]]
+            day_groups[-1].extend(_orphans)
+    elif optimize_order:
         classified  = {p["id"]: _classify_place(p) for p in places}
         day_overlap = [p for p in places if classified[p["id"]] != "evening"]
         evening     = [p for p in places if classified[p["id"]] == "evening"]

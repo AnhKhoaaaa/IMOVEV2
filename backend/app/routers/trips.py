@@ -531,7 +531,21 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
-    replan_ids = [p.id for p in plan.places if p.id != "hotel"]
+    # dev26: honour which day is removed instead of re-distributing everything. Keep all other
+    # days' groupings intact; the removed day's places (if any) move to the previous remaining
+    # day (or the first one when day 1 is removed). Removing an empty day touches nothing else.
+    days_map: dict[int, list[str]] = {
+        d.day: [pid for pid in (d.place_ids or _ordered_place_ids(d.legs, plan.places)) if pid != "hotel"]
+        for d in plan.days
+    }
+    removed_places = days_map.pop(day_num, [])
+    remaining_nums = sorted(days_map.keys())
+    day_assignments = [list(days_map[dn]) for dn in remaining_nums]
+    if removed_places and day_assignments:
+        prev_nums = [dn for dn in remaining_nums if dn < day_num]
+        target_idx = remaining_nums.index(prev_nums[-1]) if prev_nums else 0
+        day_assignments[target_idx].extend(removed_places)
+    replan_ids = [pid for group in day_assignments for pid in group]
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -546,6 +560,7 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -582,15 +597,24 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
         raise HTTPException(status_code=422, detail="Trip must have at least 2 places")
 
     meta = _trip_meta.get(trip_id, {})
+    num_days = meta.get("num_days", len(plan.days))
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
+
+    # dev26: keep surviving places on their original days instead of re-distributing.
+    days_map: dict[int, list[str]] = {
+        d.day: [pid for pid in (d.place_ids or _ordered_place_ids(d.legs, plan.places))
+                if pid not in ("hotel", place_id)]
+        for d in plan.days
+    }
+    day_assignments = _day_assignments_from_map(days_map, num_days)
 
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
             start_date=_get_trip_start_date(trip_id),
             place_ids=remaining_ids,
-            num_days=meta.get("num_days", len(plan.days)),
+            num_days=num_days,
             budget_sgd=meta.get("budget_sgd", 999.0),
             optimize_order=False,
             preferences=None,
@@ -599,6 +623,7 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -638,28 +663,24 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
     if not get_curated_place(body.place_id):
         raise HTTPException(status_code=422, detail=f"Place '{body.place_id}' not in curated dataset")
 
-    # Map day number → ordered place ids (legs-based reconstruction)
+    # Map day number → ordered place ids. dev26: use DayPlan.place_ids (covers single-place
+    # and empty days) rather than legs-based reconstruction, so the explicit day grouping we
+    # pass to plan_trip is complete.
     days_map: dict[int, list[str]] = {}
     for d in plan.days:
-        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+        ordered = d.place_ids or _ordered_place_ids(d.legs, plan.places)
+        days_map[d.day] = [pid for pid in ordered if pid != "hotel"]
 
     target_day = body.day
     if target_day not in days_map:
         days_map[target_day] = []
-    days_map[target_day].append(body.place_id)
+    if body.place_id not in days_map[target_day]:
+        days_map[target_day].append(body.place_id)
 
-    # Flatten to ordered place list; preserve single-place days not captured by legs
-    all_ids: list[str] = []
-    for day_num in sorted(days_map.keys()):
-        for pid in days_map[day_num]:
-            if pid not in all_ids and pid != "hotel":
-                all_ids.append(pid)
-    # P5-BUG-2b: add any places that were in single-place days (no legs → not in days_map)
-    for p in plan.places:
-        if p.id not in all_ids and p.id != "hotel":
-            all_ids.append(p.id)
-    if body.place_id not in all_ids:
-        all_ids.append(body.place_id)
+    # dev26: preserve the user's day grouping verbatim. day_assignments keeps each place on the
+    # day it was added to; all_ids is the flat union plan_trip needs to resolve place dicts.
+    day_assignments = _day_assignments_from_map(days_map, num_days)
+    all_ids = [pid for group in day_assignments for pid in group]
 
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
@@ -678,6 +699,7 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -707,10 +729,13 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
     meta = _trip_meta.get(trip_id, {})
     num_days = meta.get("num_days", len(plan.days))
 
-    # Rebuild place list: replace target day's order, keep other days unchanged
+    # Rebuild place list: replace target day's order, keep other days unchanged.
+    # dev26: source from DayPlan.place_ids so single-place/empty days are captured too
+    # (legs-based fallback for fixtures/legacy plans that carry legs but no place_ids).
     days_map: dict[int, list[str]] = {}
     for d in plan.days:
-        days_map[d.day] = _ordered_place_ids(d.legs, plan.places)
+        ordered = d.place_ids or _ordered_place_ids(d.legs, plan.places)
+        days_map[d.day] = [pid for pid in ordered if pid != "hotel"]
 
     # P5-BUG-4: validate provided place_ids exactly match the current day's places.
     # Hotel is excluded: its position is managed server-side and must not appear in reorder requests.
@@ -725,15 +750,9 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
 
     days_map[body.day] = [pid for pid in body.place_ids if pid != "hotel"]
 
-    all_ids: list[str] = []
-    for day_num in sorted(days_map.keys()):
-        for pid in days_map[day_num]:
-            if pid not in all_ids and pid != "hotel":
-                all_ids.append(pid)
-    # P5-BUG-2b: preserve single-place days not captured by legs
-    for p in plan.places:
-        if p.id not in all_ids and p.id != "hotel":
-            all_ids.append(p.id)
+    # dev26: keep every day on its own day — only the target day's order changes.
+    day_assignments = _day_assignments_from_map(days_map, num_days)
+    all_ids = [pid for group in day_assignments for pid in group]
 
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
@@ -754,6 +773,7 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
             hotel_lng=h_lng,
             force_real_routes=True,
             existing_real_legs=body.existing_legs or [],
+            day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1105,6 +1125,25 @@ def _ordered_place_ids(legs: list, places) -> list[str]:
     if legs[-1].to_place_id not in ids:
         ids.append(legs[-1].to_place_id)
     return ids
+
+
+def _day_assignments_from_map(days_map: dict[int, list[str]], num_days: int) -> list[list[str]]:
+    """dev26: turn a {day_number: [place_id, …]} map into an ordered, gap-free list of
+    per-day place groups for plan_trip(day_assignments=…).
+
+    One group per day 1..num_days (empty groups preserved so the user's day count holds).
+    Duplicate ids are dropped, keeping the first day a place appears on.
+    """
+    seen: set[str] = set()
+    groups: list[list[str]] = []
+    for day_num in range(1, num_days + 1):
+        group: list[str] = []
+        for pid in days_map.get(day_num, []):
+            if pid != "hotel" and pid not in seen:
+                seen.add(pid)
+                group.append(pid)
+        groups.append(group)
+    return groups
 
 
 def _apply_leg_update(plan: TripPlan, leg_id: str, updated_leg) -> TripPlan:

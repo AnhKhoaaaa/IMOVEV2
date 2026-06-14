@@ -360,6 +360,43 @@ async def test_plan_trip_valid_returns_tripplan():
 
 
 @pytest.mark.asyncio
+async def test_day_assignments_honoured_verbatim():
+    """dev26: explicit day_assignments must place each id on its assigned day,
+    bypassing _distribute_days' time-of-day re-bucketing."""
+    ids = VALID_IDS[:2]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        return_value=_mock_route(),
+    ):
+        result = await plan_trip(
+            "t-da", ids, num_days=2, budget_sgd=999.0, optimize_order=False,
+            preferences=None, day_assignments=[[ids[0]], [ids[1]]],
+        )
+    assert len(result.days) == 2
+    assert [pid for pid in result.days[0].place_ids if pid != "hotel"] == [ids[0]]
+    assert [pid for pid in result.days[1].place_ids if pid != "hotel"] == [ids[1]]
+
+
+@pytest.mark.asyncio
+async def test_day_assignments_preserves_empty_day():
+    """dev26: an empty group in day_assignments stays an empty day — the day count
+    must not collapse (this is the Bug 2 setup: adding to an otherwise-empty day)."""
+    ids = VALID_IDS[:2]
+    with patch(
+        "app.agents.planning_agent.onemap.get_route",
+        new_callable=AsyncMock,
+        return_value=_mock_route(),
+    ):
+        result = await plan_trip(
+            "t-da-empty", ids, num_days=2, budget_sgd=999.0, optimize_order=False,
+            preferences=None, day_assignments=[[ids[0], ids[1]], []],
+        )
+    assert len(result.days) == 2
+    assert [pid for pid in result.days[1].place_ids if pid != "hotel"] == []
+
+
+@pytest.mark.asyncio
 async def test_optimize_order_returns_all_places():
     ids = VALID_IDS[:3]
     with patch(
