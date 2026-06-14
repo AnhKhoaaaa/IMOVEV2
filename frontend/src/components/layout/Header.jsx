@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Navigation2, User, LogOut, Globe, Settings } from 'lucide-react'
+import { User, LogOut, Globe, Settings } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useLang, useT } from '../../contexts/LanguageContext'
 import AuthModal from '../auth/AuthModal'
@@ -28,13 +28,13 @@ export default function Header() {
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
 
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2.5">
-            <div className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-fuchsia-500 shadow-card">
-              <Navigation2 className="h-4 w-4 text-white" />
-            </div>
-            <span className="font-display font-extrabold text-lg tracking-tight text-slate-900">
-              IMOVE
-            </span>
+          <Link to="/" className="flex items-center" aria-label="IMOVE home">
+            <img
+              src="/imove-logo-transparent.png"
+              alt=""
+              className="h-10 w-auto max-w-[190px] object-contain"
+            />
+            <span className="sr-only">IMOVE</span>
           </Link>
 
           {/* Right side */}
