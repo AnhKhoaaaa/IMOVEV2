@@ -478,6 +478,122 @@ def test_add_place_day_in_range_does_not_422():
         _cleanup(trip_id)
 
 
+def test_add_place_to_day_excludes_hotel_from_replan_ids():
+    """Day legs starting with hotel must not leak 'hotel' into plan_trip's place_ids
+    (was raising PlaceDataMissingError("hotel") -> 422 'not found in curated dataset')."""
+    trip_id = "trip-add-place-hotel"
+    place_a = Place(
+        id="place-a", name="Place A", lat=1.28, lng=103.85,
+        dwell_minutes=120, best_time_start="09:00", best_time_end="17:00",
+        category="nature", is_outdoor=True, in_curated_dataset=True,
+    )
+    hotel_place = Place(
+        id="hotel", name="My Hotel", lat=1.30, lng=103.84,
+        dwell_minutes=0, best_time_start="00:00", best_time_end="23:59",
+        category="hotel", is_outdoor=False, in_curated_dataset=False,
+    )
+    legs = [
+        LegResponse(id="leg-h-a", from_place_id="hotel", to_place_id="place-a",
+                     transport_mode="METRO", duration_minutes=10, cost_sgd=1.50, is_estimated=False),
+        LegResponse(id="leg-a-h", from_place_id="place-a", to_place_id="hotel",
+                     transport_mode="METRO", duration_minutes=10, cost_sgd=1.50, is_estimated=False),
+    ]
+    plan = TripPlan(id=trip_id, days=[DayPlan(day=1, legs=legs)], places=[place_a, hotel_place], warnings=[])
+    _seed_trip(trip_id, plan)  # num_days=1
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ) as mock_plan_trip, patch(
+            "app.routers.trips.planning_agent.get_curated_place", return_value={"id": "place-b"}
+        ):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-b", "day": 1})
+        assert resp.status_code == 200
+        place_ids = mock_plan_trip.call_args.kwargs["place_ids"]
+        assert "hotel" not in place_ids
+        assert "place-a" in place_ids
+        assert "place-b" in place_ids
+    finally:
+        _cleanup(trip_id)
+
+
+# ── dev26: edits preserve the user's per-day grouping ─────────────────────────
+
+def _place(pid: str) -> Place:
+    return Place(
+        id=pid, name=pid, lat=1.28, lng=103.85,
+        dwell_minutes=60, best_time_start="09:00", best_time_end="17:00",
+        category="x", is_outdoor=False, in_curated_dataset=True,
+    )
+
+
+def _make_multiday_plan(trip_id: str, day_place_ids: dict[int, list[str]]) -> TripPlan:
+    """Build a plan from {day_number: [place_id, …]} using DayPlan.place_ids directly."""
+    all_pids = {pid for ids in day_place_ids.values() for pid in ids}
+    days = [DayPlan(day=d, legs=[], place_ids=list(ids)) for d, ids in sorted(day_place_ids.items())]
+    return TripPlan(id=trip_id, days=days, places=[_place(p) for p in sorted(all_pids)], warnings=[])
+
+
+def test_add_place_to_empty_day_stays_on_that_day():
+    """dev26 Bug 2: adding a place to empty day 2 must keep it on day 2 — day 1 untouched."""
+    trip_id = "trip-dev26-add"
+    plan = _make_multiday_plan(trip_id, {1: ["place-a", "place-b"], 2: []})
+    _seed_trip(trip_id, plan)  # num_days=2
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip, patch(
+            "app.routers.trips.planning_agent.get_curated_place", return_value={"id": "place-c"}
+        ):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-c", "day": 2})
+        assert resp.status_code == 200
+        da = mock_plan_trip.call_args.kwargs["day_assignments"]
+        assert da == [["place-a", "place-b"], ["place-c"]]
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_empty_day_leaves_other_days_intact():
+    """dev26 Bug 1: removing an empty day must not disturb any other day."""
+    trip_id = "trip-dev26-rmempty"
+    plan = _make_multiday_plan(trip_id, {1: ["place-a"], 2: ["place-b"], 3: []})
+    _seed_trip(trip_id, plan)  # num_days=3
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip:
+            resp = client.delete(f"/trips/{trip_id}/days/3")
+        assert resp.status_code == 200
+        kwargs = mock_plan_trip.call_args.kwargs
+        assert kwargs["num_days"] == 2
+        assert kwargs["day_assignments"] == [["place-a"], ["place-b"]]
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_middle_day_merges_into_previous_day():
+    """dev26: removing a non-empty middle day moves its places to the previous day,
+    keeping all others where they were."""
+    trip_id = "trip-dev26-rmmid"
+    plan = _make_multiday_plan(trip_id, {1: ["place-a"], 2: ["place-b"], 3: ["place-c"]})
+    _seed_trip(trip_id, plan)  # num_days=3
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip:
+            resp = client.delete(f"/trips/{trip_id}/days/2")
+        assert resp.status_code == 200
+        kwargs = mock_plan_trip.call_args.kwargs
+        assert kwargs["num_days"] == 2
+        assert kwargs["day_assignments"] == [["place-a", "place-b"], ["place-c"]]
+    finally:
+        _cleanup(trip_id)
+
+
 # ── P5-BUG-4: reorder validates place_ids match current day exactly ───────────
 
 def test_reorder_subset_ids_returns_422():
@@ -1159,3 +1275,92 @@ def test_persist_trip_plan_no_upsert_called():
     assert upsert_called == [], (
         f"upsert was called on tables {upsert_called} — must use DELETE+INSERT instead"
     )
+
+
+# ── dev22 Phase 2: alternatives persistence round-trip ────────────────────────
+
+class _FakeTable:
+    """Fluent stub: select/eq/order return self; execute() yields preset rows."""
+    def __init__(self, rows):
+        self._rows = rows
+    def select(self, *a, **k):  return self
+    def eq(self, *a, **k):      return self
+    def order(self, *a, **k):   return self
+    def execute(self):
+        resp = MagicMock()
+        resp.data = self._rows
+        return resp
+
+
+class _FakeSupabase:
+    def __init__(self, trips, places, legs):
+        self._map = {"trips": trips, "trip_places": places, "route_legs": legs}
+    def table(self, name):
+        return _FakeTable(self._map.get(name, []))
+
+
+def _leg_row(**over):
+    row = {
+        "id": "leg-1", "day_number": 1,
+        "from_place_id": "merlion-park", "to_place_id": "clarke-quay",
+        "transport_mode": "METRO", "duration_minutes": 12, "cost_sgd": 1.5,
+        "is_estimated": False, "instructions": [], "geometry": None,
+        "distance_km": 2.0, "sub_legs": [], "first_bus_stop_code": None,
+        "geometries": [],
+    }
+    row.update(over)
+    return row
+
+
+def _place_row(pid, name, lat, lng, day=1, order=0):
+    return {"place_id": pid, "place_name": name, "lat": lat, "lng": lng,
+            "dwell_minutes": 60, "day_number": day, "order_in_day": order}
+
+
+def test_serialize_deserialize_alternatives_round_trip():
+    from app.routers.trips import _serialize_alternatives, _deserialize_alternatives
+    alts = {
+        "METRO": AlternativeRoute(duration_minutes=12, cost_sgd=1.5, is_estimated=False,
+                                  distance_km=2.0, geometry="poly", instructions=["x"]),
+        "WALK":  AlternativeRoute(duration_minutes=30, cost_sgd=0.0, is_estimated=True, distance_km=2.0),
+    }
+    compact = _serialize_alternatives(alts)
+    assert compact["METRO"] == {"duration_minutes": 12, "cost_sgd": 1.5,
+                                "is_estimated": False, "distance_km": 2.0}
+    # polyline/instructions are intentionally dropped (re-fetched lazily on switch)
+    assert "geometry" not in compact["METRO"]
+    restored = _deserialize_alternatives(compact)
+    assert set(restored) == {"METRO", "WALK"}
+    assert restored["METRO"].duration_minutes == 12
+    assert restored["METRO"].cost_sgd == 1.5
+    assert restored["METRO"].geometry is None       # not persisted
+    assert restored["WALK"].is_estimated is True
+
+
+def test_fetch_trip_from_db_restores_stored_alternatives():
+    trip_row = {"id": "t1", "hotel_name": None, "hotel_lat": None, "hotel_lng": None}
+    places = [_place_row("merlion-park", "Merlion", 1.2868, 103.8545, order=0),
+              _place_row("clarke-quay", "Clarke Quay", 1.2906, 103.8465, order=1)]
+    legs = [_leg_row(alternatives={
+        "BUS":   {"duration_minutes": 18, "cost_sgd": 1.2, "is_estimated": False, "distance_km": 2.0},
+        "METRO": {"duration_minutes": 12, "cost_sgd": 1.5, "is_estimated": False, "distance_km": 2.0},
+    })]
+    with patch.object(_trips_module, "supabase", _FakeSupabase([trip_row], places, legs)):
+        plan = _trips_module._fetch_trip_from_db("t1")
+    leg = plan.days[0].legs[0]
+    assert {"BUS", "METRO"} <= set(leg.alternatives)
+    assert leg.alternatives["BUS"].duration_minutes == 18
+
+
+def test_fetch_trip_from_db_legacy_rebuilds_always_modes():
+    """Pre-019 rows have no 'alternatives' → rebuild WALK/CYCLE/GRAB from place coords."""
+    trip_row = {"id": "t2", "hotel_name": None, "hotel_lat": None, "hotel_lng": None}
+    places = [_place_row("merlion-park", "Merlion", 1.2868, 103.8545, order=0),
+              _place_row("clarke-quay", "Clarke Quay", 1.2906, 103.8465, order=1)]
+    legs = [_leg_row()]   # no 'alternatives' key (legacy)
+    with patch.object(_trips_module, "supabase", _FakeSupabase([trip_row], places, legs)):
+        plan = _trips_module._fetch_trip_from_db("t2")
+    leg = plan.days[0].legs[0]
+    assert {"WALK", "CYCLE", "GRAB"} <= set(leg.alternatives)
+    # current mode stays selectable too
+    assert "METRO" in leg.alternatives

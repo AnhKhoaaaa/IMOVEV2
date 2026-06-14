@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import uuid
+from datetime import date, timedelta
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ log = logging.getLogger(__name__)
 from app.services import onemap
 from app.services.onemap import NoRouteError
 from app.services.scoring import score_alternatives
+from app.services.fares import estimate_transit_fare
 from app.exceptions import PlaceDataMissingError
 from app.models.trip import (
     TripPlan, DayPlan, LegResponse, GapNotification,
@@ -24,6 +26,7 @@ from app.models.place import Place
 from app.models.preferences import UserPreferenceProfile, ContextSnapshot
 
 _PLACES_PATH = Path(__file__).parent.parent / "data" / "singapore_places.json"
+_MAX_RECOMMENDED_CYCLE_MINUTES = 60
 
 
 def _validate_time(t: str, place_id: str, field: str) -> None:
@@ -135,6 +138,63 @@ def _assign_evening_to_days(evening: list[dict], day_groups: list[list[dict]]) -
         day_groups[best].append(ep)
 
 
+# dev21 P2: a place whose opening window closes within this many minutes (relative to the
+# current schedule clock) is treated as "urgent" and picked before a merely-nearer place.
+_URGENCY_CLOSE_MIN = 90
+
+
+def _weekdays_for_days(start_date: date | None, num_days: int) -> list[str] | None:
+    """Map each day index 0..num_days-1 → weekday name (e.g. 'Monday', as date.strftime('%A')).
+
+    Returns None when start_date is unknown → all close_days gating becomes a graceful no-op.
+    """
+    if start_date is None:
+        return None
+    return [(start_date + timedelta(days=i)).strftime("%A") for i in range(num_days)]
+
+
+def _is_open_on_weekday(place: dict, weekday_name: str) -> bool:
+    """False only if the place explicitly lists this weekday in its close_days."""
+    return weekday_name not in (place.get("close_days") or [])
+
+
+def _relocate_closed_day_places(
+    day_groups: list[list[dict]],
+    weekdays: list[str] | None,
+    warnings_out: list[str],
+) -> None:
+    """[dev21 P1] Move any place scheduled on a day it is closed to the nearest open day.
+
+    Mutates day_groups in place; appends a clear warning per relocation and a distinct one
+    when a place is closed every day of the trip. No-op when weekdays is None (start_date
+    unknown). Hotel / 24h / no-close_days places are never affected (empty close_days).
+    """
+    if not weekdays:
+        return
+    num_days = len(day_groups)
+    for day_idx in range(min(num_days, len(weekdays))):
+        for place in list(day_groups[day_idx]):
+            if _is_open_on_weekday(place, weekdays[day_idx]):
+                continue
+            target = next(
+                (alt for alt in range(num_days)
+                 if alt != day_idx and alt < len(weekdays)
+                 and _is_open_on_weekday(place, weekdays[alt])),
+                None,
+            )
+            label = place.get("name") or place.get("id", "A place")
+            if target is not None:
+                day_groups[day_idx].remove(place)
+                day_groups[target].append(place)
+                warnings_out.append(
+                    f"{label}: closed on {weekdays[day_idx]} — moved to day {target + 1}"
+                )
+            else:
+                warnings_out.append(
+                    f"{label}: closed every day of your trip — consider different dates"
+                )
+
+
 def _day_bucketed_greedy(
     day_overlap: list[dict],
     num_days: int,
@@ -197,7 +257,17 @@ def _day_bucketed_greedy(
                 if not candidates:
                     break  # nothing fits today → remaining places flow to next day
 
-            pick = min(candidates, key=lambda p: _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"]))
+            # dev21 P2: among feasible candidates, prefer one whose opening window is about to
+            # close over a merely-nearer one — so a tight-window stop isn't deferred until it
+            # becomes infeasible. When nothing is urgent (e.g. 24h places), nearest still wins.
+            def _pick_key(p: dict) -> tuple:
+                dist  = _haversine_km(last_pos["lat"], last_pos["lng"], p["lat"], p["lng"])
+                t_est = max(dist / _TRAVEL_SPEED_KM_MIN, _MIN_TRANSIT_MIN)
+                _, oh_close = _parse_opening_hours(p.get("opening_hours", "24h"))
+                slack = oh_close - (clock + t_est + p.get("dwell_minutes", 60))
+                return (0, slack) if slack < _URGENCY_CLOSE_MIN else (1, dist)
+
+            pick = min(candidates, key=_pick_key)
             dwell = pick.get("dwell_minutes", 60)
             travel_est = max(_haversine_km(last_pos["lat"], last_pos["lng"], pick["lat"], pick["lng"]) / _TRAVEL_SPEED_KM_MIN, _MIN_TRANSIT_MIN)
             clock += travel_est + dwell
@@ -402,6 +472,24 @@ def _normalize_instructions(raw: list) -> list[str]:
     return result
 
 
+_TRANSIT_FARE_MODES = frozenset({"BUS", "METRO"})
+
+
+def _fill_transit_fare(mode_key: str, route: dict) -> None:
+    """Backfill a PTC distance-based fare for a transit route dict when OneMap omitted it.
+
+    Mutates `route` in place. No-op for non-transit modes, or when a positive fare is
+    already present (OneMap-first). Uses the route's total distance_km as the band input.
+    """
+    if mode_key not in _TRANSIT_FARE_MODES:
+        return
+    if route.get("fare_sgd", 0) > 0:      # OneMap-first: keep any real fare
+        return
+    dist = route.get("distance_km")
+    if dist:
+        route["fare_sgd"] = estimate_transit_fare(dist)
+
+
 def _to_alternative(route_dict: dict) -> AlternativeRoute:
     """Convert a raw OneMap route dict into an AlternativeRoute model."""
     return AlternativeRoute(
@@ -468,6 +556,52 @@ def _grab_fare(
         "sub_legs":         [],
         "legs":             [],
     }
+
+
+# Walk/Cycle/Grab are point-to-point and always estimable → guaranteed switchable.
+# Bus/Metro are NOT here: they require a real OneMap line (never fabricate transit).
+_WALK_SPEED_KM_H  = 5.0
+_CYCLE_SPEED_KM_H = 15.0
+
+
+def _estimated_active_route(dist_km: float, mode: str) -> dict:
+    """Haversine estimate for WALK or CYCLE as a raw route dict (is_estimated=True)."""
+    speed = _WALK_SPEED_KM_H if mode == "WALK" else _CYCLE_SPEED_KM_H
+    dur = max(1, round(dist_km / speed * 60))
+    return {
+        "duration_minutes": dur, "fare_sgd": 0.0, "is_estimated": True,
+        "geometry": None, "geometries": [], "instructions": [],
+        "legs": [{"mode": mode, "duration_minutes": dur}],
+        "distance_km": round(dist_km, 2), "sub_legs": [],
+    }
+
+
+def _ensure_always_modes(alts: dict[str, dict], from_p: dict, to_p: dict, dist_km: float) -> dict[str, dict]:
+    """Return a copy of `alts` with WALK, CYCLE, GRAB guaranteed present.
+
+    Real OneMap routes already in `alts` are kept as-is; only missing modes are filled
+    with haversine estimates. Bus/Metro are never added here (never fabricate transit).
+
+    MENU enrichment only — produces a NEW dict and never mutates `alts`, so the raw dict
+    that score_alternatives / route_cache read from is untouched (see dev22 Impact §A).
+    """
+    out = dict(alts)
+    if "WALK" not in out:
+        out["WALK"] = _estimated_active_route(dist_km, "WALK")
+    if "CYCLE" not in out:
+        out["CYCLE"] = _estimated_active_route(dist_km, "CYCLE")
+    if "GRAB" not in out:
+        out["GRAB"] = _estimate_grab(dist_km, from_place_name=from_p.get("name", ""))
+    return out
+
+
+def estimated_alternatives_models(
+    from_lat: float, from_lng: float, to_lat: float, to_lng: float, from_name: str = "",
+) -> dict[str, AlternativeRoute]:
+    """WALK/CYCLE/GRAB estimates as AlternativeRoute models (for DB-reload fallback, Phase 2)."""
+    dist_km = _haversine_km(from_lat, from_lng, to_lat, to_lng)
+    raw = _ensure_always_modes({}, {"name": from_name}, {}, dist_km)
+    return {m: _to_alternative(r) for m, r in raw.items()}
 
 
 async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
@@ -538,7 +672,40 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
         dist_km = _haversine_km(from_p["lat"], from_p["lng"], to_p["lat"], to_p["lng"])
         result["GRAB"] = _estimate_grab(dist_km, from_place_name=from_p.get("name", ""))
 
+    # Backfill BUS/METRO fares (PTC distance bands) when OneMap omitted them — single funnel
+    # for every real transit alternative the user can see or switch to (dev23).
+    for mode_key, route in result.items():
+        _fill_transit_fare(mode_key, route)
+
     return result
+
+
+def _apply_mode_safety_guard(best_key: str, alternatives: dict[str, dict], dist_km: float) -> str:
+    """Single source of truth for downgrading impractical active-travel recommendations.
+
+    Keeps CYCLE/WALK available in `alternatives` (so the UI can still show them) but
+    avoids recommending them by default when they are impractical:
+      - CYCLE recommended for > _MAX_RECOMMENDED_CYCLE_MINUTES → switch away
+      - WALK recommended for a leg >= 1.5 km                   → switch away
+    Replacement = fastest available transit (METRO/BUS by duration); else Grab when
+    dist_km >= 2.0. Returns best_key unchanged when no safer practical mode exists.
+    """
+    def _fastest_practical() -> str | None:
+        transit = [m for m in ("METRO", "BUS") if m in alternatives]
+        if transit:
+            return min(transit, key=lambda m: alternatives[m].get("duration_minutes", float("inf")))
+        if dist_km >= 2.0 and "GRAB" in alternatives:
+            return "GRAB"
+        return None
+
+    impractical = (
+        (best_key == "CYCLE"
+         and alternatives["CYCLE"].get("duration_minutes", 0) > _MAX_RECOMMENDED_CYCLE_MINUTES)
+        or (best_key == "WALK" and dist_km >= 1.5)
+    )
+    if impractical:
+        return _fastest_practical() or best_key
+    return best_key
 
 
 async def _resolve_via_gemini(name: str) -> str | None:
@@ -567,11 +734,13 @@ async def plan_trip(
     preferences: dict | None,
     profile: UserPreferenceProfile | None = None,
     context: ContextSnapshot | None = None,
+    start_date: date | None = None,
     hotel_name: str | None = None,
     hotel_lat: float | None = None,
     hotel_lng: float | None = None,
     force_real_routes: bool = False,
     existing_real_legs: list[dict] | None = None,
+    day_assignments: list[list[str]] | None = None,
 ) -> TripPlan:
     prefs = preferences or {}
     effective_profile = profile or UserPreferenceProfile()
@@ -619,6 +788,9 @@ async def plan_trip(
     # Phương án A: pre-populate caches from caller-supplied real legs so OneMap is not
     # re-called for pairs whose routes are already known.  Pairs present in alt_cache are
     # automatically skipped in the all_pairs build below (key not in alt_cache guard).
+    _place_by_id = {p["id"]: p for p in places}
+    if hotel_place:
+        _place_by_id["hotel"] = hotel_place
     for leg in (existing_real_legs or []):
         from_id = leg.get("from_place_id")
         to_id   = leg.get("to_place_id")
@@ -637,11 +809,41 @@ async def plan_trip(
             "distance_km":      leg.get("distance_km"),
             "sub_legs":         leg.get("sub_legs") or [],
         }
-        alt_cache[(from_id, to_id)]      = {mode: route}
+        # Menu enrichment: keep WALK/CYCLE/GRAB switchable on caller-supplied real legs too
+        # (recommendation = the supplied mode; route_cache/best_key unchanged). Only possible
+        # when both endpoints resolve to coordinates for the haversine estimate.
+        _fp = _place_by_id.get(from_id)
+        _tp = _place_by_id.get(to_id)
+        _e_dist = leg.get("distance_km")
+        if _fp and _tp and (_e_dist is None or _e_dist <= 0):
+            _e_dist = _haversine_km(_fp["lat"], _fp["lng"], _tp["lat"], _tp["lng"])
+        if _fp and _e_dist:
+            alt_cache[(from_id, to_id)] = _ensure_always_modes({mode: route}, _fp, _tp or {}, _e_dist)
+        else:
+            alt_cache[(from_id, to_id)] = {mode: route}
         route_cache[(from_id, to_id)]    = route
         best_key_cache[(from_id, to_id)] = mode
 
-    if optimize_order:
+    if day_assignments is not None:
+        # dev26: caller supplied an explicit per-day grouping (add/remove place, reorder,
+        # remove_day on the non-optimize path). Honour it verbatim instead of re-bucketing —
+        # this is what keeps a place the user put on day 2 from migrating to day 1, and keeps
+        # untouched days untouched. Empty groups are preserved so the user's day count holds.
+        _place_lookup = {p["id"]: p for p in places}
+        day_groups = [
+            [_place_lookup[pid] for pid in group if pid in _place_lookup and pid != "hotel"]
+            for group in day_assignments
+        ]
+        # Safety net: any resolved place not named in any group is appended to the last group
+        # so it is never silently dropped (callers build groups to cover every id, so this is
+        # a no-op in practice).
+        _assigned = {p["id"] for group in day_groups for p in group}
+        _orphans = [p for p in places if p["id"] not in _assigned and p["id"] != "hotel"]
+        if _orphans:
+            if not day_groups:
+                day_groups = [[]]
+            day_groups[-1].extend(_orphans)
+    elif optimize_order:
         classified  = {p["id"]: _classify_place(p) for p in places}
         day_overlap = [p for p in places if classified[p["id"]] != "evening"]
         evening     = [p for p in places if classified[p["id"]] == "evening"]
@@ -653,6 +855,11 @@ async def plan_trip(
         # User can freely add/remove places without waiting for API round-trips.
         # Real routes are fetched only when the user explicitly clicks Optimize Route.
         day_groups = _distribute_days(places, num_days, hotel=hotel_place)
+
+    # [CODE] dev21 P1: relocate any place that landed on a day it is closed (close_days) to an
+    # open day — applies to both paths, before routes are built. No-op when start_date unknown.
+    closeday_warnings: list[str] = []
+    _relocate_closed_day_places(day_groups, _weekdays_for_days(start_date, len(day_groups)), closeday_warnings)
 
     # [CODE] 3. Build route data for all unique consecutive pairs + hotel→first pairs.
     # optimize_order=True  → parallel OneMap fetch (real transit routes).
@@ -702,8 +909,9 @@ async def plan_trip(
                     }
                     transit_only = {m: r for m, r in alts.items() if m != "GRAB"}
                 elif "GRAB" in alts:
-                    # ≥ 2km no transit → GRAB is the only viable option
-                    alt_cache[(a["id"], b["id"])]    = alts
+                    # ≥ 2km no transit → GRAB is the recommended option, but WALK/CYCLE stay
+                    # switchable in the menu (estimated; recommendation/route_cache unchanged).
+                    alt_cache[(a["id"], b["id"])]    = _ensure_always_modes(alts, a, b, dist_km)
                     route_cache[(a["id"], b["id"])]  = alts["GRAB"]
                     best_key_cache[(a["id"], b["id"])] = "GRAB"
                     continue
@@ -712,18 +920,15 @@ async def plan_trip(
                         f"No route available from '{a['id']}' to '{b['id']}' — "
                         "all routing modes unavailable"
                     )
-            alt_cache[(a["id"], b["id"])] = alts
+            # Menu enrichment: cache always-switchable WALK/CYCLE/GRAB (new dict; never the
+            # `alts`/`transit_only` that scoring reads from — see dev22 Impact §A).
+            alt_cache[(a["id"], b["id"])] = _ensure_always_modes(alts, a, b, dist_km)
             # GRAB excluded from scoring — it is only selected via the 2km guard below
             alt_models = {m: _to_alternative(r) for m, r in transit_only.items()}
-            scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx)
+            scoring    = score_alternatives(alt_models, profile=effective_profile, context=effective_ctx, dist_km=dist_km)
             best_key   = scoring.recommended_mode
-            # Safety guard: prefer PT over WALK for routes ≥ 1.5km; fall back to GRAB at ≥ 2km
-            if dist_km >= 1.5 and best_key == "WALK":
-                pt_key = next((m for m in ("METRO", "BUS") if m in alts), None)
-                if pt_key:
-                    best_key = pt_key
-                elif dist_km >= 2.0 and "GRAB" in alts:
-                    best_key = "GRAB"  # no viable transit → recommend Grab
+            # Safety guard: downgrade impractical WALK/CYCLE → fastest transit (else Grab ≥ 2km)
+            best_key   = _apply_mode_safety_guard(best_key, alts, dist_km)
             route_cache[(a["id"], b["id"])]    = alts[best_key]
             best_key_cache[(a["id"], b["id"])] = best_key
     else:
@@ -747,8 +952,11 @@ async def plan_trip(
                 "distance_km": round(dist_km, 2),
                 "sub_legs": [],
             }
+            _fill_transit_fare(mode_key, est_route)   # PTC fare on the METRO placeholder (dev23)
             route_cache[(a["id"], b["id"])]    = est_route
-            alt_cache[(a["id"], b["id"])]      = {mode_key: est_route}
+            # Estimate path stores a single synthetic mode; enrich the menu so WALK/CYCLE/GRAB
+            # are always switchable after non-optimize plans/edits (route_cache default unchanged).
+            alt_cache[(a["id"], b["id"])]      = _ensure_always_modes({mode_key: est_route}, a, b, dist_km)
             best_key_cache[(a["id"], b["id"])] = mode_key
 
     route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
@@ -766,7 +974,7 @@ async def plan_trip(
     # [CODE] 6. Build legs from pre-fetched routes + track estimated timing + opening-hours warnings
     days: list[DayPlan] = []
     total_cost = 0.0
-    warnings: list[str] = list(greedy_warnings)
+    warnings: list[str] = list(greedy_warnings) + closeday_warnings
     if schedule_warning:
         warnings.append(schedule_warning)
 
@@ -795,15 +1003,11 @@ async def plan_trip(
                                        "legs": [{"mode": "WALK"}], "distance_km": round(h_dist, 2), "sub_legs": []}
                     h_transit = {m: r for m, r in h_fresh.items() if m != "GRAB"}
                 h_models   = {m: _to_alternative(r) for m, r in h_transit.items()}
-                h_scoring  = score_alternatives(h_models, profile=effective_profile, context=effective_ctx)
+                h_scoring  = score_alternatives(h_models, profile=effective_profile, context=effective_ctx, dist_km=h_dist)
                 h_best_key = h_scoring.recommended_mode
-                if h_dist >= 1.5 and h_best_key == "WALK":
-                    pt_fb = next((m for m in ("METRO", "BUS") if m in h_fresh), None)
-                    if pt_fb:
-                        h_best_key = pt_fb
-                    elif h_dist >= 2.0 and "GRAB" in h_fresh:
-                        h_best_key = "GRAB"  # no viable transit → recommend Grab
+                h_best_key = _apply_mode_safety_guard(h_best_key, h_fresh, h_dist)
                 h_route = h_fresh[h_best_key]
+                h_fresh = _ensure_always_modes(h_fresh, hotel_place, day_places[0], h_dist)
                 h_alts  = h_fresh
                 alt_cache[h_route_key]      = h_fresh
                 route_cache[h_route_key]    = h_route
@@ -898,17 +1102,12 @@ async def plan_trip(
                             )
                     if best_key_used is None:
                         fresh_models  = {m: _to_alternative(r) for m, r in fresh_transit.items()}
-                        fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx)
+                        fresh_scoring = score_alternatives(fresh_models, profile=effective_profile, context=effective_ctx, dist_km=dist_km)
                         best_key_used = fresh_scoring.recommended_mode
-                        # Safety guard: prefer PT over WALK for routes ≥ 1.5km; fall back to GRAB at ≥ 2km
-                        if dist_km >= 1.5 and best_key_used == "WALK":
-                            pt_fallback = next((m for m in ("METRO", "BUS") if m in fresh_alts), None)
-                            if pt_fallback:
-                                best_key_used = pt_fallback
-                            elif dist_km >= 2.0 and "GRAB" in fresh_alts:
-                                best_key_used = "GRAB"  # no viable transit → recommend Grab
-                    alt_cache[route_key]      = fresh_alts
+                    best_key_used = _apply_mode_safety_guard(best_key_used, fresh_alts, dist_km)
                     route = fresh_alts[best_key_used]
+                    fresh_alts = _ensure_always_modes(fresh_alts, from_p, to_p, dist_km)
+                    alt_cache[route_key]      = fresh_alts
                     route_cache[route_key]    = route
                     best_key_cache[route_key] = best_key_used
                     alts_for_leg = fresh_alts
@@ -983,7 +1182,8 @@ async def plan_trip(
                     "legs": [{"mode": ret_best, "duration_minutes": dur}],
                     "distance_km": round(dist_km, 2), "sub_legs": [],
                 }
-                ret_alts = {ret_best: ret_route}
+                _fill_transit_fare(ret_best, ret_route)   # PTC fare on METRO return-leg (dev23)
+                ret_alts = _ensure_always_modes({ret_best: ret_route}, last_p, hotel_place, dist_km)
             if ret_best == "WALK":
                 ret_transport = "WALK"
             elif ret_best == "GRAB":
@@ -1130,6 +1330,29 @@ async def switch_leg_mode(
             f"'{target_leg.from_place_id}' and '{target_leg.to_place_id}'. "
             "Try a different transport mode."
         )
+
+    # ── 1b. Lazy real geometry (dev22 §F) ────────────────────────────────────
+    # Persisted alternatives carry no polyline (the compact DB summary drops geometry),
+    # and the estimate path stores transit placeholders with geometry=None. For a
+    # transit/Grab mode with no polyline, re-fetch the real route so the map can draw a
+    # line. WALK/CYCLE are point-to-point estimates → no polyline needed. Best-effort:
+    # never raise → never turn a switch into a click-then-fail.
+    if new_mode not in ("WALK", "CYCLE") and alt.geometry is None:
+        try:
+            from_p = {"id": from_place.id, "lat": from_place.lat,
+                      "lng": from_place.lng, "name": from_place.name}
+            to_p   = {"id": to_place.id, "lat": to_place.lat, "lng": to_place.lng}
+            fresh_alts = await _fetch_all_alternatives(from_p, to_p)
+            real = fresh_alts.get(new_mode)
+            if real and real.get("geometry"):
+                real_alt = _to_alternative(real)
+                target_leg = target_leg.model_copy(update={
+                    "alternatives": {**target_leg.alternatives, new_mode: real_alt},
+                })
+                alt = real_alt
+        except Exception as exc:
+            log.debug("lazy geometry re-fetch failed for %s (%s→%s): %s",
+                      new_mode, target_leg.from_place_id, target_leg.to_place_id, exc)
 
     # ── 2. Build updated leg (alternatives preserved for future switches) ─────
     updated_leg = target_leg.model_copy(update={

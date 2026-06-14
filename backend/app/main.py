@@ -14,7 +14,7 @@ _scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _scheduler.add_job(adaptation_agent.poll_lta_alerts, "interval", minutes=2, id="lta_poll", max_instances=1)
-    _scheduler.add_job(adaptation_agent.poll_weather_alerts, "interval", minutes=30, id="weather_poll", max_instances=1)
+    _scheduler.add_job(adaptation_agent.poll_weather_alerts, "interval", minutes=settings.weather_poll_minutes, id="weather_poll", max_instances=1)
     _scheduler.start()
     yield
     _scheduler.shutdown(wait=False)

@@ -35,16 +35,27 @@ class UserPreferenceProfile(BaseModel):
         return self
 
     def renormalized(self) -> "UserPreferenceProfile":
-        """Trả về bản copy với weights re-normalize về sum = 1.0 chính xác."""
+        """Trả về bản copy với weights re-normalize về sum = 1.0 chính xác.
+
+        Rounding each weight to 4 dp independently can leave the sum at e.g.
+        0.9999 (thirds), which fails the DB CHECK ROUND(sum, 4) = 1.0000.
+        Absorb the residual into the largest weight so the four always total
+        exactly 1.0000.
+        """
         total = self.duration_w + self.cost_w + self.walking_w + self.transfers_w
         if total == 0:
             return UserPreferenceProfile()
-        return self.model_copy(update={
+        rounded = {
             "duration_w":  round(self.duration_w  / total, 4),
             "cost_w":      round(self.cost_w      / total, 4),
             "walking_w":   round(self.walking_w   / total, 4),
             "transfers_w": round(self.transfers_w / total, 4),
-        })
+        }
+        residual = round(1.0 - sum(rounded.values()), 4)
+        if residual:
+            top = max(rounded, key=rounded.get)
+            rounded[top] = round(rounded[top] + residual, 4)
+        return self.model_copy(update=rounded)
 
 
 _SGT = zoneinfo.ZoneInfo("Asia/Singapore")
