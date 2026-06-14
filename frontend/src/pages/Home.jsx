@@ -11,8 +11,6 @@ import {
   Plus,
   RadioTower,
   Route,
-  Search,
-  Sparkles,
   Trash2,
 } from 'lucide-react'
 import { api } from '../services/api'
@@ -20,6 +18,10 @@ import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDateRange } from '../lib/tripUtils'
 import { cn } from '../lib/utils'
+import { ImageCarouselHero } from '../components/ui/ai-image-generator-hero'
+import { WaveLightShader } from '../components/ui/wave-light-shader'
+import { AnimatedGlowingSearchBar } from '../components/ui/animated-glowing-search-bar'
+import { CinematicFooter } from '../components/ui/motion-footer'
 
 const FILTERS = [
   { id: 'all', label: 'All' },
@@ -35,6 +37,23 @@ const STATUS = {
   draft: { label: 'Draft', tone: 'border-slate-200 bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
   past: { label: 'Past', tone: 'border-slate-200 bg-white text-slate-500', dot: 'bg-slate-300' },
 }
+
+const HERO_IMAGES = [
+  { id: 'temple', src: '/imove-hero/buddha-tooth-temple.png', alt: 'Buddha Tooth Relic Temple in Chinatown', rotation: -8 },
+  { id: 'jewel', src: '/imove-hero/jewel-changi.png', alt: 'Rain Vortex at Jewel Changi Airport', rotation: 5 },
+  { id: 'sentosa', src: '/imove-hero/sentosa-beach.png', alt: 'Friends enjoying Sentosa beach', rotation: -5 },
+  { id: 'merlion', src: '/imove-hero/merlion.png', alt: 'Merlion and Marina Bay Sands', rotation: 7 },
+  { id: 'hawker', src: '/imove-hero/hawker-centre.png', alt: 'Family dining at a Singapore hawker centre', rotation: -7 },
+  { id: 'helix', src: '/imove-hero/helix-bridge.png', alt: 'Helix Bridge and Singapore skyline at night', rotation: 5 },
+  { id: 'supertree', src: '/imove-hero/supertree-grove.png', alt: 'Supertree Grove at Gardens by the Bay', rotation: -4 },
+  { id: 'haji', src: '/imove-hero/haji-lane.png', alt: 'Visitors exploring colorful Haji Lane', rotation: 6 },
+]
+
+const HERO_FEATURES = [
+  { title: 'Plan around you', description: 'Balance time, cost, walking, and transfers.' },
+  { title: 'Build every day', description: 'Turn Singapore places into a practical route.' },
+  { title: 'Adapt while moving', description: 'Stay ready for live transport and weather changes.' },
+]
 
 function isTodayOrTomorrow(trip) {
   if (!trip?.startDate) return false
@@ -192,55 +211,41 @@ export default function Home() {
 
   return (
     <main className="min-h-[calc(100vh-56px)] bg-slate-50">
-      <section className="border-b border-slate-200 bg-white">
-        <div className="mx-auto grid max-w-7xl grid-cols-[1fr_360px] gap-8 px-6 py-8">
-          <div>
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide text-blue-700">
-              <Navigation2 size={13} /> IMOVE dashboard
+      <ImageCarouselHero
+        title="Move through Singapore with a plan that keeps up."
+        description="Build thoughtful itineraries, compare transport choices, and adapt your route as Singapore moves around you."
+        ctaText="Plan a new trip"
+        secondaryCtaText="Set preferences"
+        onCtaClick={() => navigate('/plan')}
+        onSecondaryCtaClick={() => navigate('/settings')}
+        images={HERO_IMAGES}
+        features={HERO_FEATURES}
+      />
+
+      <section className="relative isolate overflow-hidden border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/70 to-white">
+        <WaveLightShader className="absolute -inset-x-[8%] -inset-y-20 h-[calc(100%+10rem)] w-[116%] opacity-50 mix-blend-multiply" />
+        <div className="pointer-events-none absolute inset-0 bg-white/20" />
+        <div className="relative mx-auto max-w-7xl px-6 py-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md">
+              <CalendarDays className="stats-floating-icon h-5 w-5 text-blue-600" />
+              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
+              <p className="text-[12px] font-semibold text-slate-500">Today</p>
             </div>
-            <h1 className="font-display text-[44px] font-extrabold leading-tight text-slate-950">
-              Plan, monitor, and adapt Singapore transport trips.
-            </h1>
-            <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-500">
-              Manage saved itineraries, start live trips, and prime LTA/weather checks before the route begins.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => navigate('/plan')}
-                className="flex h-11 items-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white shadow-card hover:bg-blue-500"
-              >
-                <Plus size={16} /> New Trip
-              </button>
-              <button
-                onClick={() => navigate('/settings')}
-                className="flex h-11 items-center gap-2 rounded-md border border-slate-200 bg-white px-5 text-[14px] font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700"
-              >
-                <Sparkles size={16} /> Preferences
-              </button>
+            <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md">
+              <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-5 w-5 text-emerald-600" />
+              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
+              <p className="text-[12px] font-semibold text-slate-500">Upcoming</p>
             </div>
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-md bg-white p-4 shadow-card">
-                <CalendarDays className="h-5 w-5 text-blue-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
-                <p className="text-[12px] font-semibold text-slate-400">Today</p>
-              </div>
-              <div className="rounded-md bg-white p-4 shadow-card">
-                <Clock className="h-5 w-5 text-emerald-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
-                <p className="text-[12px] font-semibold text-slate-400">Upcoming</p>
-              </div>
-              <div className="rounded-md bg-white p-4 shadow-card">
-                <RadioTower className="h-5 w-5 text-amber-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">Live</p>
-                <p className="text-[12px] font-semibold text-slate-400">LTA/weather</p>
-              </div>
-              <div className="rounded-md bg-white p-4 shadow-card">
-                <AlertTriangle className="h-5 w-5 text-red-500" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
-                <p className="text-[12px] font-semibold text-slate-400">Open alerts</p>
-              </div>
+            <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md">
+              <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-5 w-5 text-amber-600" />
+              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">Live</p>
+              <p className="text-[12px] font-semibold text-slate-500">LTA/weather</p>
+            </div>
+            <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md">
+              <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-5 w-5 text-red-500" />
+              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
+              <p className="text-[12px] font-semibold text-slate-500">Open alerts</p>
             </div>
           </div>
         </div>
@@ -284,15 +289,12 @@ export default function Home() {
               </button>
             ))}
           </div>
-          <div className="relative w-[320px]">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search saved trips"
-              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[13px] outline-none focus:border-blue-400"
-            />
-          </div>
+          <AnimatedGlowingSearchBar
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search saved trips"
+            className="w-[320px]"
+          />
         </div>
 
         {filteredTrips.length ? (
@@ -329,6 +331,7 @@ export default function Home() {
           </div>
         )}
       </section>
+      <CinematicFooter />
     </main>
   )
 }

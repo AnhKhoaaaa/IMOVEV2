@@ -1,0 +1,68 @@
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{vietnamese}
+\setmainfont{TeX Gyre Termes}
+\setsansfont{TeX Gyre Heros}
+\setmonofont{TeX Gyre Cursor}
+
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\graphicspath{{images/}{diagrams/}}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds}
+\usepackage[most]{tcolorbox}
+\usepackage[backend=biber,style=ieee,sorting=none]{biblatex}
+\addbibresource{references.bib}
+\usepackage{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=green!40!black,
+  urlcolor=blue!60!black,
+  pdftitle={IMOVEV2 Final Project Report}
+}
+
+\definecolor{imoveblue}{HTML}{2563EB}
+\definecolor{imovegreen}{HTML}{059669}
+\definecolor{imovegray}{HTML}{475569}
+\definecolor{codebg}{HTML}{F8FAFC}
+
+\lstdefinestyle{imove}{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{black!20},
+  keywordstyle=\color{imoveblue}\bfseries,
+  commentstyle=\color{imovegreen},
+  showstringspaces=false,
+  tabsize=2
+}
+\lstset{style=imove}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{IMOVEV2}
+\fancyhead[R]{Báo cáo đồ án}
+\fancyfoot[C]{\thepage}
+\setlength{\headheight}{15pt}
+
+\setlength{\parindent}{1.2cm}
+\setlength{\parskip}{0.35em}
+\setlist{nosep}

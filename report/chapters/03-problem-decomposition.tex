@@ -1,0 +1,59 @@
+\chapter{Problem Analysis and Decomposition}
+
+\section{Phân rã bài toán}
+\defaultauthor
+
+Bài toán tổng thể được phân rã thành các subproblem có input, xử lý và output rõ ràng.
+
+\begin{longtable}{p{3cm}p{3cm}p{4.5cm}p{3cm}p{3cm}}
+\toprule
+\textbf{Subproblem} & \textbf{Input} & \textbf{Processing} & \textbf{Output} & \textbf{Module} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Subproblem} & \textbf{Input} & \textbf{Processing} & \textbf{Output} & \textbf{Module} \\
+\midrule
+\endhead
+Itinerary setup & Ngày, ngân sách, địa điểm, khách sạn & Kiểm tra form và tạo request & Trip request & React Planner \\
+Place validation & Place IDs hoặc tên tự do & Curated lookup, Gemini resolve, startup validation & Place records hợp lệ & Planning Agent \\
+Multi-day scheduling & Places và số ngày & Day-bucketed greedy hoặc giữ thứ tự & Day groups & Planning Agent \\
+Multimodal routing & Các cặp địa điểm & Gọi OneMap song song và chuẩn hóa mode & Alternatives & OneMap Service \\
+Route ranking & Alternatives, profile, context & Normalize và weighted sum & Recommended mode & Scoring Service \\
+Live adaptation & Alert và TripPlan & Phát hiện ảnh hưởng, reroute/swap, tính delta & Proposal & Adaptation Agent \\
+Preference learning & Feedback lặp lại & Rule-based pattern counting & Preference update & Memory Agent \\
+Persistence & Trip, alert, feedback & Auth, RLS, insert/update & Dữ liệu lưu trữ & Supabase \\
+Natural language & Text hoặc chat message & Gemini generation/function calling & Structured IDs hoặc answer & Gemini/Chat Agent \\
+\bottomrule
+\end{longtable}
+
+\section{Luồng xử lý tổng quát}
+\defaultauthor
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.3cm and 1.5cm]
+  \node[imovenode] (input) {User input};
+  \node[imoveagent,right=of input] (validate) {Validate places\\and preferences};
+  \node[imoveagent,right=of validate] (schedule) {Schedule\\across days};
+  \node[imoveagent,below=of schedule] (route) {Fetch route\\alternatives};
+  \node[imoveagent,left=of route] (score) {Context-aware\\scoring};
+  \node[imovenode,left=of score] (plan) {TripPlan};
+  \draw[imovearrow] (input) -- (validate);
+  \draw[imovearrow] (validate) -- (schedule);
+  \draw[imovearrow] (schedule) -- (route);
+  \draw[imovearrow] (route) -- (score);
+  \draw[imovearrow] (score) -- (plan);
+\end{tikzpicture}
+\caption{Phân rã luồng tạo kế hoạch thành các bước độc lập.}
+\label{fig:decomposition}
+\end{figure}
+
+\section{Áp dụng Computational Thinking}
+\defaultauthor
+
+\begin{itemize}
+  \item \textbf{Decomposition:} chia hệ thống thành frontend, routers, agents, services, models và persistence.
+  \item \textbf{Pattern Recognition:} nhận diện cấu trúc trip/day/leg, mẫu nearest-neighbor, mẫu context và hành vi đổi mode.
+  \item \textbf{Abstraction:} đóng gói route, context và preference thành model/service có contract rõ ràng.
+  \item \textbf{Algorithm Design:} xây dựng greedy scheduling, weighted scoring, adaptation và fallback.
+\end{itemize}

@@ -1,0 +1,180 @@
+\chapter{System / Algorithm Design}
+
+\section{Technical Stack}
+\defaultauthor
+
+\begin{longtable}{p{3.6cm}p{10.5cm}}
+\toprule
+\textbf{Layer} & \textbf{Technology} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Layer} & \textbf{Technology} \\
+\midrule
+\endhead
+Frontend & React 18, Vite, React Router, Tailwind CSS, Radix UI, React Leaflet \cite{react,vite} \\
+Backend & Python, FastAPI, Pydantic, APScheduler \cite{fastapi} \\
+Database/Auth & Supabase PostgreSQL, Auth, RLS, Realtime \cite{supabase} \\
+Routing & OneMap geocoding và multimodal routing \cite{onemap} \\
+Transit & LTA DataMall \cite{lta} \\
+Weather & OpenWeather \cite{openweather} \\
+AI & Google Gemini 2.5 Flash \cite{gemini} \\
+Testing & Pytest, Vitest, Testing Library \\
+\bottomrule
+\end{longtable}
+
+\section{C4 Level 1: System Context}
+\defaultauthor
+
+Sơ đồ C4 giúp mô tả hệ thống theo nhiều mức trừu tượng \cite{c4model}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1cm and 1.2cm]
+  \node[imovenode,fill=blue!15] (user) {Traveller};
+  \node[imoveagent,right=of user,minimum width=4cm,minimum height=1.4cm] (imove) {IMOVEV2\\Route Planning System};
+  \node[imoveexternal,above right=0.1cm and 1.4cm of imove] (onemap) {OneMap};
+  \node[imoveexternal,right=of imove] (lta) {LTA / Weather};
+  \node[imoveexternal,below right=0.1cm and 1.4cm of imove] (ai) {Gemini / Supabase / OSM};
+  \draw[imovearrow] (user) -- (imove);
+  \draw[imovearrow] (imove) -- (onemap);
+  \draw[imovearrow] (imove) -- (lta);
+  \draw[imovearrow] (imove) -- (ai);
+\end{tikzpicture}
+\caption{C4 Level 1: System Context.}
+\label{fig:c4-context}
+\end{figure}
+
+\section{C4 Level 2: Container Diagram}
+\defaultauthor
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1cm and 1.1cm]
+  \node[imovenode] (web) {React + Vite\\Web Frontend};
+  \node[imovenode,right=of web] (api) {FastAPI Backend};
+  \node[imoveagent,above right=of api] (agents) {Agents};
+  \node[imoveagent,below right=of api] (services) {Services};
+  \node[imovedata,right=of agents] (places) {Curated Places};
+  \node[imovedata,right=of services] (db) {Supabase};
+  \node[imoveexternal,below=of services] (ext) {External APIs};
+  \draw[imovearrow] (web) -- (api);
+  \draw[imovearrow] (api) -- (agents);
+  \draw[imovearrow] (api) -- (services);
+  \draw[imovearrow] (agents) -- (places);
+  \draw[imovearrow] (api) -- (db);
+  \draw[imovearrow] (services) -- (ext);
+\end{tikzpicture}
+\caption{C4 Level 2: các container chính của IMOVEV2.}
+\label{fig:c4-container}
+\end{figure}
+
+\section{State and Data Flow}
+\defaultauthor
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{p{3.2cm}p{4cm}X}
+\toprule
+\textbf{Scope} & \textbf{Mechanism} & \textbf{Examples} \\
+\midrule
+UI & React state/hooks & Selected places, active tab, modal state \\
+Frontend cache & localStorage/sessionStorage & Trip metadata và pending state \\
+Backend session & In-memory dictionaries & Active trip, pending swap, chat state \\
+Persistent & Supabase & Trips, route legs, preferences, alerts, feedback \\
+Temporary context & \code{ContextSnapshot} & Rain và current time \\
+\bottomrule
+\end{tabularx}
+\caption{Phân chia trạng thái theo phạm vi.}
+\end{table}
+
+\section{Planning Agent Algorithm}
+\defaultauthor
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.8cm]
+  \node[imovenode] (a) {Trip request};
+  \node[imovenode,below=of a] (b) {Validate/resolve places};
+  \node[imovenode,below=of b] (c) {Schedule across days};
+  \node[imovenode,below=of c] (d) {Fetch alternatives in parallel};
+  \node[imovenode,below=of d] (e) {Normalize and score};
+  \node[imovenode,below=of e] (f) {Apply fallback guards};
+  \node[imovenode,below=of f] (g) {Build TripPlan};
+  \draw[imovearrow] (a) -- (b);
+  \draw[imovearrow] (b) -- (c);
+  \draw[imovearrow] (c) -- (d);
+  \draw[imovearrow] (d) -- (e);
+  \draw[imovearrow] (e) -- (f);
+  \draw[imovearrow] (f) -- (g);
+\end{tikzpicture}
+\caption{Planning Agent pipeline.}
+\label{fig:planning-pipeline}
+\end{figure}
+
+Optimize path dùng \code{_day_bucketed_greedy()}; non-optimize path dùng \code{_distribute_days()} để giữ thứ tự và phản hồi nhanh. \code{_fetch_all_alternatives()} gọi song song public transit, bus-only, walk, cycle và drive; kết quả được chuẩn hóa thành METRO, BUS, WALK, CYCLE và GRAB.
+
+\section{Weighted Scoring Algorithm}
+\defaultauthor
+
+\[
+\operatorname{score}(m) =
+w_d N_d(m) +
+w_c N_c(m) +
+w_w N_w(m) +
+w_t N_t(m)
+\]
+
+Trong đó \(m\) là transport mode; \(N_d,N_c,N_w,N_t\) lần lượt là duration, cost, walking và transfers đã chuẩn hóa. Trước khi tính tổng, \code{_effective_weights()} điều chỉnh weight theo mưa, giờ cao điểm và constraints.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1cm and 0.8cm]
+  \node[imovenode] (a) {Alternatives};
+  \node[imovenode,right=of a] (b) {Filter constraints};
+  \node[imovenode,right=of b] (c) {Extract dimensions};
+  \node[imovenode,below=of c] (d) {Normalize};
+  \node[imovenode,left=of d] (e) {Adjust weights};
+  \node[imovenode,left=of e] (f) {Weighted sum\\and rank};
+  \draw[imovearrow] (a) -- (b);
+  \draw[imovearrow] (b) -- (c);
+  \draw[imovearrow] (c) -- (d);
+  \draw[imovearrow] (d) -- (e);
+  \draw[imovearrow] (e) -- (f);
+\end{tikzpicture}
+\caption{Weighted scoring pipeline.}
+\label{fig:scoring-pipeline}
+\end{figure}
+
+\section{Adaptation Algorithm}
+\defaultauthor
+
+APScheduler chạy \code{poll_lta_alerts()} mỗi hai phút và \code{poll_weather_alerts()} mỗi ba mươi phút. Khi cảnh báo ảnh hưởng trip, Adaptation Agent tạo proposal đổi indoor place hoặc reroute leg, tính delta chi phí/thời gian/walking và chờ người dùng chấp nhận trước khi persist.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1cm and 1cm]
+  \node[imoveexternal] (alert) {LTA/Weather alert};
+  \node[imoveagent,right=of alert] (detect) {Find affected\\trip elements};
+  \node[imoveagent,right=of detect] (proposal) {Generate proposal};
+  \node[imovenode,below=of proposal] (user) {User decision};
+  \node[imovedata,left=of user] (persist) {Persist if accepted};
+  \draw[imovearrow] (alert) -- (detect);
+  \draw[imovearrow] (detect) -- (proposal);
+  \draw[imovearrow] (proposal) -- (user);
+  \draw[imovearrow] (user) -- (persist);
+\end{tikzpicture}
+\caption{Adaptation flow có human-in-the-loop.}
+\label{fig:adaptation-flow}
+\end{figure}
+
+\section{Failure Handling and Limitations}
+\defaultauthor
+
+\begin{itemize}
+  \item Một OneMap mode thất bại: bỏ mode đó và giữ các mode còn lại.
+  \item Drive thất bại: tạo Grab estimate; quãng ngắn không có transit có thể dùng walking estimate.
+  \item Gemini warning thất bại: trả deterministic fallback warning.
+  \item Supabase không khả dụng ở một số flow: sử dụng in-memory fallback hoặc bỏ qua persistence không bắt buộc.
+  \item Hệ thống chưa có full TSP solver, multi-city, realtime crowding hoặc provider abstraction đa AI.
+\end{itemize}

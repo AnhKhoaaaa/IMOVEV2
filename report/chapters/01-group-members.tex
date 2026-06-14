@@ -1,0 +1,27 @@
+\chapter{Group Members}
+
+\section{Thành viên và vai trò}
+\defaultauthor
+
+\begin{longtable}{p{2.5cm}p{3.5cm}p{4cm}p{5cm}}
+\toprule
+\textbf{Student ID} & \textbf{Full Name} & \textbf{Email} & \textbf{Roles / Responsibilities} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Student ID} & \textbf{Full Name} & \textbf{Email} & \textbf{Roles / Responsibilities} \\
+\midrule
+\endhead
+\MemberOneID & \MemberOneName & \MemberOneEmail & Backend infrastructure và external APIs; cần nhóm xác nhận. \\
+\MemberTwoID & \MemberTwoName & \MemberTwoEmail & Planning, Adaptation và Memory Agent; cần nhóm xác nhận. \\
+\MemberThreeID & \MemberThreeName & \MemberThreeEmail & Frontend core flow, authentication và planner; cần nhóm xác nhận. \\
+\MemberFourID & \MemberFourName & \MemberFourEmail & Map, realtime alerts và frontend integration; cần nhóm xác nhận. \\
+\bottomrule
+\end{longtable}
+
+\requiredtodo{CONFIRM\_MEMBER\_ROLES\_AND\_CONTACTS}
+
+\section{Nguyên tắc phân công}
+\defaultauthor
+
+Nhóm phân chia công việc theo ranh giới kỹ thuật: infrastructure và external API, agent/business logic, frontend core, map và realtime. Cách chia này giảm xung đột mã nguồn, nhưng các thay đổi liên tầng vẫn cần review chéo do contract giữa Pydantic model, FastAPI router và React component có liên hệ trực tiếp.
