@@ -1,0 +1,376 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+.canvas {
+  min-height: 320px;
+  background: #09090b;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  border-radius: 12px;
+  padding: 2.5rem 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root {
+  --hue: 210deg;
+  --hl: hsl(var(--hue), 100%, 70%);
+  --hl30: hsla(var(--hue), 100%, 70%, 0.3);
+  --hl50: hsla(var(--hue), 100%, 70%, 0.5);
+  --hl80: hsla(var(--hue), 100%, 70%, 0.8);
+  --t: 0.4s;
+  --radius: 24px;
+  --padding: 4px;
+}
+
+.btn-wrap { position: relative; display: inline-block; }
+
+.ui-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 24px;
+  padding: 9px 20px;
+  background: hsl(240 10% 3.9%);
+  color: rgba(255,255,255,0.88);
+  font-size: 15px;
+  font-family: inherit;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    inset 0px 1px 1px rgba(255,255,255,0.20),
+    inset 0px 2px 2px rgba(255,255,255,0.15),
+    inset 0px 4px 4px rgba(255,255,255,0.10),
+    inset 0px 8px 8px rgba(255,255,255,0.05),
+    inset 0px 16px 16px rgba(255,255,255,0.05),
+    0 -1px 1px rgba(0,0,0,0.02),
+    0 -2px 2px rgba(0,0,0,0.03),
+    0 -4px 4px rgba(0,0,0,0.05),
+    0 -8px 8px rgba(0,0,0,0.06),
+    0 -16px 16px rgba(0,0,0,0.08);
+  transition: box-shadow var(--t), border var(--t), background-color var(--t);
+  outline: none;
+  overflow: visible;
+}
+.ui-btn::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--padding));
+  left: calc(-1 * var(--padding));
+  width: calc(100% + var(--padding)*2);
+  height: calc(100% + var(--padding)*2);
+  border-radius: calc(var(--radius) + var(--padding));
+  pointer-events: none;
+  background-image: linear-gradient(0deg, #0004, #000a);
+  z-index: -1;
+  transition: box-shadow var(--t);
+  box-shadow: 0 -8px 8px -6px #0000 inset, 0 -16px 16px -8px transparent inset, 1px 1px 1px #fff2, 2px 2px 2px #fff1, -1px -1px 1px #0002, -2px -2px 2px #0001;
+}
+.ui-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: linear-gradient(0deg, #fff, var(--hl), var(--hl50) 8%, transparent);
+  opacity: 0;
+  transition: opacity var(--t), filter var(--t);
+}
+.ui-btn:hover { border-color: hsla(var(--hue), 100%, 80%, 0.4); }
+.ui-btn:hover::before {
+  box-shadow: 0 -8px 8px -6px #fffa inset, 0 -16px 16px -8px var(--hl30) inset, 1px 1px 1px #fff2, 2px 2px 2px #fff1, -1px -1px 1px #0002, -2px -2px 2px #0001;
+}
+.ui-btn:hover::after {
+  opacity: 1;
+  -webkit-mask-image: linear-gradient(0deg, #fff, transparent);
+  mask-image: linear-gradient(0deg, #fff, transparent);
+}
+.ui-btn:hover .svg-icon { fill: #fff; filter: drop-shadow(0 0 3px var(--hl)) drop-shadow(0 -4px 6px #0009); animation: none; }
+.ui-btn:active { border-color: hsla(var(--hue), 100%, 80%, 0.7); background-color: hsla(var(--hue), 50%, 20%, 0.5); }
+.ui-btn:active::after { opacity: 1; -webkit-mask-image: linear-gradient(0deg,#fff,transparent); mask-image: linear-gradient(0deg,#fff,transparent); filter: brightness(200%); }
+
+.svg-icon {
+  fill: #e8e8e8;
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  margin-right: 8px;
+  filter: drop-shadow(0 0 2px rgba(255,255,255,0.6));
+  animation: flicker 2s linear infinite;
+  animation-delay: 0.5s;
+  transition: fill var(--t), filter var(--t), opacity 0.3s;
+}
+@keyframes flicker { 50% { opacity: 0.3; } }
+.ui-btn.generating .svg-icon { animation: spin 1.2s linear infinite; fill: hsl(var(--hue),100%,70%); filter: drop-shadow(0 0 4px hsl(var(--hue),100%,70%)); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.txt-wrap {
+  position: relative;
+  min-width: 6.4em;
+  height: 1.35em;
+  display: flex;
+  align-items: center;
+}
+
+.letter-container {
+  position: absolute;
+  display: flex;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.letter {
+  display: inline-block;
+  color: rgba(255,255,255,0.55);
+  animation: letter-glow 2s ease-in-out infinite;
+  position: relative;
+}
+@keyframes letter-glow {
+  50% { text-shadow: 0 0 4px rgba(255,255,255,0.5); color: #fff; }
+}
+.letter:nth-child(1)  { animation-delay: 0.00s; }
+.letter:nth-child(2)  { animation-delay: 0.08s; }
+.letter:nth-child(3)  { animation-delay: 0.16s; }
+.letter:nth-child(4)  { animation-delay: 0.24s; }
+.letter:nth-child(5)  { animation-delay: 0.32s; }
+.letter:nth-child(6)  { animation-delay: 0.40s; }
+.letter:nth-child(7)  { animation-delay: 0.48s; }
+.letter:nth-child(8)  { animation-delay: 0.56s; }
+.letter:nth-child(9)  { animation-delay: 0.64s; }
+.letter:nth-child(10) { animation-delay: 0.72s; }
+
+.letter.dissolving {
+  animation: none !important;
+  transition: none;
+}
+
+.particle {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+}
+.ctrl-label { font-size: 12px; color: #52525b; display: flex; align-items: center; gap: 6px; }
+.ctrl-label input[type=range] { width: 100px; accent-color: #a1a1aa; }
+.hue-dots { display: flex; gap: 6px; }
+.hue-dot { width: 18px; height: 18px; border-radius: 50%; border: none; cursor: pointer; transition: transform 0.15s; }
+.hue-dot:hover { transform: scale(1.25); }
+.hint { font-size: 12px; color: #3f3f46; }
+</style>
+
+<h2 class="sr-only">Animated Generate Button with particle dissolve effect</h2>
+
+<div class="canvas">
+  <div class="btn-wrap">
+    <button id="btn" class="ui-btn" type="button">
+      <svg id="btnSvg" class="svg-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/>
+      </svg>
+      <div class="txt-wrap" id="txtWrap">
+        <div class="letter-container" id="idleLetters"></div>
+        <div class="letter-container" id="activeLetters" style="opacity:0"></div>
+      </div>
+    </button>
+  </div>
+
+  <div class="controls">
+    <div class="ctrl-label">
+      hue <span id="hueNum">210</span>°
+      <input type="range" min="0" max="360" value="210" id="hueSlider" step="1">
+    </div>
+    <div class="hue-dots">
+      <button class="hue-dot" style="background:hsl(210,100%,65%)" onclick="setHue(210)"></button>
+      <button class="hue-dot" style="background:hsl(280,100%,68%)" onclick="setHue(280)"></button>
+      <button class="hue-dot" style="background:hsl(150,100%,55%)" onclick="setHue(150)"></button>
+      <button class="hue-dot" style="background:hsl(35,100%,65%)" onclick="setHue(35)"></button>
+      <button class="hue-dot" style="background:hsl(5,100%,65%)" onclick="setHue(5)"></button>
+      <button class="hue-dot" style="background:hsl(340,100%,68%)" onclick="setHue(340)"></button>
+    </div>
+  </div>
+  <div class="hint">click button để xem hiệu ứng</div>
+</div>
+
+<script>
+const btn = document.getElementById('btn');
+const idleLetters = document.getElementById('idleLetters');
+const activeLetters = document.getElementById('activeLetters');
+const hueSlider = document.getElementById('hueSlider');
+const hueNum = document.getElementById('hueNum');
+
+let generating = false;
+let animating = false;
+
+function makeLetters(text, el) {
+  el.innerHTML = '';
+  Array.from(text).forEach((ch, i) => {
+    const s = document.createElement('span');
+    s.className = 'letter';
+    s.textContent = ch === ' ' ? '\u00a0' : ch;
+    el.appendChild(s);
+  });
+}
+
+makeLetters('Generate', idleLetters);
+makeLetters('Building', activeLetters);
+
+function getHslColor() {
+  const h = parseInt(hueSlider.value);
+  return `hsl(${h}, 100%, 70%)`;
+}
+
+function spawnParticles(letterEl, count, color) {
+  const rect = letterEl.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const size = 1.5 + Math.random() * 2.5;
+    p.style.cssText = `
+      width:${size}px; height:${size}px;
+      left:${cx}px; top:${cy}px;
+      background:${color};
+      opacity:1;
+      transform:translate(-50%,-50%);
+      box-shadow:0 0 ${size*2}px ${color};
+    `;
+    document.body.appendChild(p);
+
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 30 + Math.random() * 90;
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed - 20;
+    const gravity = 40 + Math.random() * 40;
+    const duration = 500 + Math.random() * 400;
+    const startTime = performance.now();
+
+    function tick(now) {
+      const t = (now - startTime) / duration;
+      if (t >= 1) { p.remove(); return; }
+      const x = cx + vx * t;
+      const y = cy + vy * t + 0.5 * gravity * t * t;
+      const opacity = Math.max(0, 1 - t * 1.4);
+      const s = Math.max(0.1, 1 - t * 0.6);
+      p.style.left = x + 'px';
+      p.style.top = y + 'px';
+      p.style.opacity = opacity;
+      p.style.transform = `translate(-50%,-50%) scale(${s})`;
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+}
+
+function dissolveOut(container, color, onDone) {
+  const letters = Array.from(container.querySelectorAll('.letter'));
+  const total = letters.length;
+  if (total === 0) { onDone && onDone(); return; }
+
+  letters.forEach((el, i) => {
+    const delay = i * 38;
+    setTimeout(() => {
+      spawnParticles(el, 8, color);
+      el.style.transition = 'opacity 0.18s, transform 0.22s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-6px) scale(0.6)';
+      if (i === total - 1) {
+        setTimeout(() => onDone && onDone(), 250);
+      }
+    }, delay);
+  });
+}
+
+function appearIn(container, color) {
+  const letters = Array.from(container.querySelectorAll('.letter'));
+  container.style.opacity = '1';
+  letters.forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(8px) scale(0.7)';
+    el.style.transition = 'none';
+  });
+  letters.forEach((el, i) => {
+    setTimeout(() => {
+      el.style.transition = 'opacity 0.25s ease, transform 0.28s cubic-bezier(0.34,1.56,0.64,1)';
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0) scale(1)';
+      el.style.color = color;
+      el.style.textShadow = `0 0 6px ${color}`;
+      setTimeout(() => {
+        el.style.transition = 'color 0.5s, text-shadow 0.5s';
+        el.style.color = '';
+        el.style.textShadow = '';
+      }, 350);
+    }, i * 45);
+  });
+}
+
+function dissolveIn_reverse(container, color, onDone) {
+  const letters = Array.from(container.querySelectorAll('.letter'));
+  const total = letters.length;
+  letters.forEach((el, i) => {
+    const delay = i * 38;
+    setTimeout(() => {
+      spawnParticles(el, 6, color);
+      el.style.transition = 'opacity 0.18s, transform 0.22s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(6px) scale(0.6)';
+      if (i === total - 1) {
+        setTimeout(() => onDone && onDone(), 220);
+      }
+    }, delay);
+  });
+}
+
+btn.addEventListener('click', () => {
+  if (animating) return;
+  animating = true;
+  const color = getHslColor();
+
+  if (!generating) {
+    dissolveOut(idleLetters, color, () => {
+      idleLetters.style.opacity = '0';
+      btn.classList.add('generating');
+      appearIn(activeLetters, color);
+      generating = true;
+      animating = false;
+    });
+  } else {
+    dissolveIn_reverse(activeLetters, color, () => {
+      activeLetters.style.opacity = '0';
+      const aLetters = activeLetters.querySelectorAll('.letter');
+      aLetters.forEach(el => { el.style.opacity = ''; el.style.transform = ''; });
+      btn.classList.remove('generating');
+      idleLetters.style.opacity = '1';
+      const iLetters = idleLetters.querySelectorAll('.letter');
+      iLetters.forEach(el => { el.style.opacity = ''; el.style.transform = ''; });
+      appearIn(idleLetters, 'rgba(255,255,255,0.7)');
+      generating = false;
+      animating = false;
+    });
+  }
+});
+
+function setHue(h) {
+  hueSlider.value = h;
+  hueNum.textContent = h;
+  document.documentElement.style.setProperty('--hue', h + 'deg');
+}
+hueSlider.addEventListener('input', () => {
+  const h = parseInt(hueSlider.value);
+  hueNum.textContent = h;
+  document.documentElement.style.setProperty('--hue', h + 'deg');
+});
+</script>

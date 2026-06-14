@@ -70,7 +70,7 @@ describe('Planner', () => {
     // Click Next to go to Step 2
     fireEvent.click(screen.getByText('Next'))
     
-    expect(screen.getByText('Hotel Accommodation')).toBeInTheDocument()
+    expect(await screen.findByText('Hotel Accommodation')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/e.g. Marina Bay Sands/i)).toBeInTheDocument()
 
     // Test searching
@@ -86,12 +86,14 @@ describe('Planner', () => {
     expect(screen.getAllByText('Marina Bay')[0]).toBeInTheDocument()
   })
 
-  it('can navigate to Step 3 (Travel Style) and select presets', () => {
+  it('can navigate to Step 3 (Travel Style) and select presets', async () => {
     wrap()
     
     // Go to Step 3
     fireEvent.click(screen.getByText('Next')) // Step 2
+    await screen.findByText('Hotel Accommodation')
     fireEvent.click(screen.getByText('Next')) // Step 3
+    await screen.findByText('Transit weights')
     
     expect(screen.getByText('Transit weights')).toBeInTheDocument()
     // "Fastest" appears twice: the preset button + the Trip Config Summary value
@@ -111,8 +113,11 @@ describe('Planner', () => {
     
     // Go to Step 4
     fireEvent.click(screen.getByText('Next')) // Step 2
+    await screen.findByText('Hotel Accommodation')
     fireEvent.click(screen.getByText('Next')) // Step 3
+    await screen.findByText('Transit weights')
     fireEvent.click(screen.getByText('Next')) // Step 4
+    await screen.findByText('Singapore attractions')
     
     expect(screen.getByText('Singapore attractions')).toBeInTheDocument()
     
@@ -132,15 +137,18 @@ describe('Planner', () => {
     
     // Go to Step 4
     fireEvent.click(screen.getByText('Next'))
+    await screen.findByText('Hotel Accommodation')
     fireEvent.click(screen.getByText('Next'))
+    await screen.findByText('Transit weights')
     fireEvent.click(screen.getByText('Next'))
+    await screen.findByText('Singapore attractions')
     
     // Select 2 places
     fireEvent.click(screen.getByText('Select Gardens'))
     fireEvent.click(screen.getByText('Select Sentosa'))
     
     // Click Generate Plan
-    fireEvent.click(screen.getAllByText(/Generate plan/i)[0])
+    fireEvent.click(screen.getAllByText(/^Generate$/i)[0])
     
     await waitFor(() => expect(api.createTrip).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
