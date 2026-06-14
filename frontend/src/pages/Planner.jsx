@@ -10,7 +10,6 @@ import {
   Clock,
   Loader2,
   MapPin,
-  Navigation2,
   Plus,
   Search,
   Sparkles,
@@ -22,7 +21,6 @@ import {
   Shuffle,
   User,
   ArrowLeft,
-  ArrowRight,
   ArrowUp,
   HelpCircle,
 } from 'lucide-react'
@@ -31,6 +29,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import PlaceBrowser from '../components/planner/PlaceBrowser'
+import AuroraBackground from '../components/planner/AuroraBackground'
+import AnimatedGenerateButton from '../components/ui/animated-generate-button-shadcn-tailwind'
 import DateRangePicker, { isoToDate, dateToIso, daysBetweenInclusive } from '../components/ui/DateRangePicker'
 import TimePicker from '../components/ui/TimePicker'
 
@@ -372,7 +372,8 @@ const user = auth?.user
   }, [selectedIds, optimizeOrder, hotel, budget, selectedPreset, dayStartTimes])
 
   return (
-    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 py-8 px-6">
+    <AuroraBackground>
+      <div className="py-8 px-6">
       <div className="mx-auto max-w-7xl">
         
         {/* Header section */}
@@ -499,7 +500,9 @@ const user = auth?.user
                             onClick={() => setFlexible(true)}
                             className={cn(
                               'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
-                              flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
+                              flexible
+                                ? 'bg-slate-950 text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.85)]'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
                             )}
                           >
                             <Clock size={12} /> {t('plnFlexible')}
@@ -509,7 +512,9 @@ const user = auth?.user
                             onClick={() => setFlexible(false)}
                             className={cn(
                               'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
-                              !flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
+                              !flexible
+                                ? 'bg-slate-950 text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.85)]'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
                             )}
                           >
                             <Calendar size={12} /> {t('plnCalendar')}
@@ -522,6 +527,7 @@ const user = auth?.user
                       <div className="animate-fade-in">
                         <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnStartDate')}</label>
                         <DateRangePicker
+                          appearance="scheduler"
                           from={isoToDate(startDate)}
                           to={isoToDate(endDate(startDate, numDays))}
                           onSelect={(range) => {
@@ -542,6 +548,7 @@ const user = auth?.user
                           <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2">
                             <span className="text-[11px] font-bold text-slate-400 w-9 shrink-0">{t('tripDay', i + 1)}</span>
                             <TimePicker
+                              appearance="scheduler"
                               value={dayStartTimes[i] ?? '09:00'}
                               onChange={(val) => {
                                 const next = [...dayStartTimes]
@@ -844,22 +851,16 @@ const user = auth?.user
                           <SelectedList places={selected} onRemove={removePlace} />
                         </div>
                         <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
-                          <button
-                            type="button"
+                          <AnimatedGenerateButton
                             onClick={createPlan}
                             disabled={creating || selected.length < 2}
-                            className="h-10 w-full rounded-lg bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-500 transition shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {creating ? (
-                              <>
-                                <Loader2 size={14} className="animate-spin" /> {t('plnGenerating')}
-                              </>
-                            ) : (
-                              <>
-                                {t('plnGeneratePlan')} <Navigation2 size={13} />
-                              </>
-                            )}
-                          </button>
+                            generating={creating}
+                            labelIdle={t('plnGeneratePlan')}
+                            labelActive={t('plnGenerating')}
+                            ariaLabel={creating ? t('plnGenerating') : t('plnGeneratePlan')}
+                            className="w-full"
+                            highlightHueDeg={215}
+                          />
                           <button
                             type="button"
                             onClick={handlePrev}
@@ -887,14 +888,15 @@ const user = auth?.user
                 >
                   <ArrowLeft size={14} /> {t('tripBack')}
                 </button>
-                <button
-                  type="button"
+                <AnimatedGenerateButton
+                  key={currentStep}
                   onClick={handleNext}
                   disabled={creating}
-                  className="h-10 px-5 rounded-lg bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-500 transition shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {t('plnNext')} <ArrowRight size={14} />
-                </button>
+                  labelIdle={t('plnNextIdle')}
+                  labelActive={t('plnNext')}
+                  ariaLabel={t('plnNextIdle')}
+                  highlightHueDeg={215}
+                />
               </div>
             )}
 
@@ -993,6 +995,7 @@ const user = auth?.user
           <ArrowUp size={18} />
         </button>
       )}
-    </main>
+      </div>
+    </AuroraBackground>
   )
 }
