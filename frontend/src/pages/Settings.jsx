@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle2, Loader2, LogIn, RotateCcw, Save, SlidersHorizontal } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import AuthModal from '../components/auth/AuthModal'
 
@@ -13,17 +14,17 @@ const DEFAULT_PROFILE = {
 }
 
 const WEIGHTS = [
-  { key: 'duration_w', label: 'Faster routes', desc: 'Prefer shorter travel time' },
-  { key: 'cost_w', label: 'Lower fare', desc: 'Prefer cheaper transit options' },
-  { key: 'walking_w', label: 'Less walking', desc: 'Reduce walking distance' },
-  { key: 'transfers_w', label: 'Fewer transfers', desc: 'Avoid complicated routes' },
+  { key: 'duration_w', labelKey: 'setWFasterLabel', descKey: 'setWFasterDesc' },
+  { key: 'cost_w', labelKey: 'setWCostLabel', descKey: 'setWCostDesc' },
+  { key: 'walking_w', labelKey: 'setWWalkLabel', descKey: 'setWWalkDesc' },
+  { key: 'transfers_w', labelKey: 'setWTransferLabel', descKey: 'setWTransferDesc' },
 ]
 
 // 3-level priority model replaces raw percentages. Coefficients are normalized on save.
 const LEVELS = [
-  { key: 'low', label: 'Low', coeff: 1 },
-  { key: 'med', label: 'Medium', coeff: 2 },
-  { key: 'high', label: 'High', coeff: 3 },
+  { key: 'low', labelKey: 'lvlLow', coeff: 1 },
+  { key: 'med', labelKey: 'lvlMed', coeff: 2 },
+  { key: 'high', labelKey: 'lvlHigh', coeff: 3 },
 ]
 const LEVEL_COEFF = { low: 1, med: 2, high: 3 }
 
@@ -53,6 +54,7 @@ function weightsFromLevels(levels) {
 
 export default function Settings() {
   const { user } = useAuth()
+  const { t } = useT()
   const [levels, setLevels] = useState(() => levelsFromProfile(DEFAULT_PROFILE))
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -82,7 +84,7 @@ export default function Settings() {
     try {
       const saved = await api.updateUserPreferences(weightsFromLevels(levels))
       setLevels(levelsFromProfile({ ...DEFAULT_PROFILE, ...saved }))
-      setMessage('Preferences saved.')
+      setMessage(t('setSaved'))
     } catch (err) {
       setError(err.message)
     } finally {
@@ -100,10 +102,10 @@ export default function Settings() {
     <main className="min-h-[calc(100vh-56px)] bg-slate-50 px-6 py-8">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6">
-          <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">Settings</p>
-          <h1 className="mt-1 font-display text-[32px] font-extrabold text-slate-950">Transport preferences</h1>
+          <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{t('setEyebrow')}</p>
+          <h1 className="mt-1 font-display text-[32px] font-extrabold text-slate-950">{t('setTitle')}</h1>
           <p className="mt-2 max-w-2xl text-[14px] leading-6 text-slate-500">
-            IMOVE uses these priorities when choosing between MRT, bus, walking, and cycling alternatives.
+            {t('setDesc')}
           </p>
         </div>
 
@@ -111,19 +113,19 @@ export default function Settings() {
           <section className="rounded-lg border border-blue-200 bg-white p-6 shadow-card">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="font-display text-[18px] font-extrabold text-slate-950">Sign in to curate your journey</h2>
+                <h2 className="font-display text-[18px] font-extrabold text-slate-950">{t('setSignInTitle')}</h2>
                 <ul className="mt-3 space-y-1.5 text-[13.5px] text-slate-600">
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> Carry your travel plans seamlessly, across every device.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> Discover routes sculpted around your unique pace and profile.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> Chat with a smart assistant that plans and adapts your trip with ease.</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> Let “My Preferences” become your personal compass in the planner.</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet1')}</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet2')}</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet3')}</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet4')}</li>
                 </ul>
               </div>
               <button
                 onClick={() => setShowAuth(true)}
                 className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white shadow-card hover:bg-blue-500"
               >
-                <LogIn size={16} /> Sign in
+                <LogIn size={16} /> {t('signIn')}
               </button>
             </div>
           </section>
@@ -133,7 +135,7 @@ export default function Settings() {
               <div className="mb-5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <SlidersHorizontal className="h-5 w-5 text-blue-600" />
-                  <h2 className="font-display text-[18px] font-extrabold text-slate-950">Routing priorities</h2>
+                  <h2 className="font-display text-[18px] font-extrabold text-slate-950">{t('setRoutingPriorities')}</h2>
                 </div>
                 {loading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
               </div>
@@ -142,12 +144,12 @@ export default function Settings() {
                 {WEIGHTS.map((item) => (
                   <div key={item.key} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-[14px] font-bold text-slate-800">{item.label}</p>
-                      <p className="text-[12px] text-slate-400">{item.desc}</p>
+                      <p className="text-[14px] font-bold text-slate-800">{t(item.labelKey)}</p>
+                      <p className="text-[12px] text-slate-400">{t(item.descKey)}</p>
                     </div>
                     <div
                       role="radiogroup"
-                      aria-label={item.label}
+                      aria-label={t(item.labelKey)}
                       className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5"
                     >
                       {LEVELS.map((lvl) => (
@@ -164,7 +166,7 @@ export default function Settings() {
                               : 'text-slate-500 hover:text-slate-700'
                           )}
                         >
-                          {lvl.label}
+                          {t(lvl.labelKey)}
                         </button>
                       ))}
                     </div>
@@ -175,15 +177,15 @@ export default function Settings() {
 
             <aside className="space-y-4">
               <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
-                <p className="text-[12px] font-bold uppercase tracking-wide text-slate-400">How it works</p>
+                <p className="text-[12px] font-bold uppercase tracking-wide text-slate-400">{t('setHowItWorks')}</p>
                 <p className="mt-2 text-[12.5px] leading-5 text-slate-500">
-                  A higher level gives that factor stronger priority. Levels are balanced automatically when you save.
+                  {t('setHowItWorksDesc')}
                 </p>
                 <div className="mt-4 flex gap-2">
                   <button
                     onClick={reset}
                     className="grid h-10 w-10 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
-                    title="Reset"
+                    title={t('setReset')}
                   >
                     <RotateCcw size={15} />
                   </button>
@@ -193,7 +195,7 @@ export default function Settings() {
                     className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500 disabled:opacity-60"
                   >
                     {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                    Save
+                    {t('setSave')}
                   </button>
                 </div>
               </section>

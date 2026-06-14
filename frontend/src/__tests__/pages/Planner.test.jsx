@@ -94,7 +94,9 @@ describe('Planner', () => {
     fireEvent.click(screen.getByText('Next')) // Step 3
     
     expect(screen.getByText('Transit weights')).toBeInTheDocument()
-    expect(screen.getByText('Fastest')).toBeInTheDocument()
+    // "Fastest" appears twice: the preset button + the Trip Config Summary value
+    // (default preset = fastest), so scope to the first match.
+    expect(screen.getAllByText('Fastest')[0]).toBeInTheDocument()
     expect(screen.getByText('Cheapest')).toBeInTheDocument()
     expect(screen.getByText('Least Walking')).toBeInTheDocument()
     expect(screen.getByText('Least Transfers')).toBeInTheDocument()
