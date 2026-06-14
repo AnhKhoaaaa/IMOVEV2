@@ -518,6 +518,82 @@ def test_add_place_to_day_excludes_hotel_from_replan_ids():
         _cleanup(trip_id)
 
 
+# ── dev26: edits preserve the user's per-day grouping ─────────────────────────
+
+def _place(pid: str) -> Place:
+    return Place(
+        id=pid, name=pid, lat=1.28, lng=103.85,
+        dwell_minutes=60, best_time_start="09:00", best_time_end="17:00",
+        category="x", is_outdoor=False, in_curated_dataset=True,
+    )
+
+
+def _make_multiday_plan(trip_id: str, day_place_ids: dict[int, list[str]]) -> TripPlan:
+    """Build a plan from {day_number: [place_id, …]} using DayPlan.place_ids directly."""
+    all_pids = {pid for ids in day_place_ids.values() for pid in ids}
+    days = [DayPlan(day=d, legs=[], place_ids=list(ids)) for d, ids in sorted(day_place_ids.items())]
+    return TripPlan(id=trip_id, days=days, places=[_place(p) for p in sorted(all_pids)], warnings=[])
+
+
+def test_add_place_to_empty_day_stays_on_that_day():
+    """dev26 Bug 2: adding a place to empty day 2 must keep it on day 2 — day 1 untouched."""
+    trip_id = "trip-dev26-add"
+    plan = _make_multiday_plan(trip_id, {1: ["place-a", "place-b"], 2: []})
+    _seed_trip(trip_id, plan)  # num_days=2
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip, patch(
+            "app.routers.trips.planning_agent.get_curated_place", return_value={"id": "place-c"}
+        ):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-c", "day": 2})
+        assert resp.status_code == 200
+        da = mock_plan_trip.call_args.kwargs["day_assignments"]
+        assert da == [["place-a", "place-b"], ["place-c"]]
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_empty_day_leaves_other_days_intact():
+    """dev26 Bug 1: removing an empty day must not disturb any other day."""
+    trip_id = "trip-dev26-rmempty"
+    plan = _make_multiday_plan(trip_id, {1: ["place-a"], 2: ["place-b"], 3: []})
+    _seed_trip(trip_id, plan)  # num_days=3
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip:
+            resp = client.delete(f"/trips/{trip_id}/days/3")
+        assert resp.status_code == 200
+        kwargs = mock_plan_trip.call_args.kwargs
+        assert kwargs["num_days"] == 2
+        assert kwargs["day_assignments"] == [["place-a"], ["place-b"]]
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_middle_day_merges_into_previous_day():
+    """dev26: removing a non-empty middle day moves its places to the previous day,
+    keeping all others where they were."""
+    trip_id = "trip-dev26-rmmid"
+    plan = _make_multiday_plan(trip_id, {1: ["place-a"], 2: ["place-b"], 3: ["place-c"]})
+    _seed_trip(trip_id, plan)  # num_days=3
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip:
+            resp = client.delete(f"/trips/{trip_id}/days/2")
+        assert resp.status_code == 200
+        kwargs = mock_plan_trip.call_args.kwargs
+        assert kwargs["num_days"] == 2
+        assert kwargs["day_assignments"] == [["place-a", "place-b"], ["place-c"]]
+    finally:
+        _cleanup(trip_id)
+
+
 # ── P5-BUG-4: reorder validates place_ids match current day exactly ───────────
 
 def test_reorder_subset_ids_returns_422():
