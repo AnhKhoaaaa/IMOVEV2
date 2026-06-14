@@ -23,6 +23,7 @@ import { ImageCarouselHero } from '../components/ui/ai-image-generator-hero'
 import { WaveLightShader } from '../components/ui/wave-light-shader'
 import { AnimatedGlowingSearchBar } from '../components/ui/animated-glowing-search-bar'
 import { CinematicFooter } from '../components/ui/motion-footer'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 const FILTERS = [
   { id: 'all', labelKey: 'filter_All' },
@@ -179,6 +180,7 @@ export default function Home() {
   const [hydrated, setHydrated] = useState({})
   const [loadingIds, setLoadingIds] = useState(new Set())
   const [openingId, setOpeningId] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const inFlightRef = useRef(new Set())
 
   const heroFeatures = useMemo(() => [
@@ -237,14 +239,16 @@ export default function Home() {
     navigate(`/trip/${trip.id}`, { state: autoStart ? { autoStart: true } : undefined })
   }
 
-  const deleteTrip = async (trip) => {
-    if (!window.confirm(t('homeDeleteConfirm', trip.name ?? t('tripDefaultName')))) return
+  const confirmDelete = async () => {
+    const trip = pendingDelete
+    setPendingDelete(null)
+    if (!trip) return
     await api.deleteTrip(trip.id).catch(() => {})
     remove(trip.id)
   }
 
   return (
-    <main className="min-h-[calc(100vh-56px)] bg-slate-50">
+    <main className="min-h-[calc(100dvh-56px)] bg-slate-50">
       <ImageCarouselHero
         title={t('homeHeroCarouselTitle')}
         description={t('homeHeroCarouselDesc')}
@@ -353,7 +357,7 @@ export default function Home() {
                     loading={loadingIds.has(trip.id)}
                     onOpen={(item) => openTrip(item)}
                     onStart={(item) => openTrip(item, true)}
-                    onDelete={deleteTrip}
+                    onDelete={(item) => setPendingDelete(item)}
                   />
                 </div>
               </ScrollReveal>
@@ -376,6 +380,16 @@ export default function Home() {
         )}
       </section>
       <CinematicFooter />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title={t('confirmDeleteTitle')}
+        message={pendingDelete ? t('homeDeleteConfirm', pendingDelete.name ?? t('tripDefaultName')) : ''}
+        confirmLabel={t('confirmDeleteBtn')}
+        cancelLabel={t('cancelBtn')}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </main>
   )
 }
