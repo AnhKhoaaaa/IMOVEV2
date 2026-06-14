@@ -99,7 +99,7 @@ export default function Settings() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-56px)] bg-slate-50 px-6 py-8">
+    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 px-6 py-8">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6">
           <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{t('setEyebrow')}</p>
