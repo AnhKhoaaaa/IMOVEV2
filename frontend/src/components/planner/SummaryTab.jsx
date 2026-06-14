@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap, Navigation2, Save, Trash2 } from 'lucide-react'
+import { useT } from '../../contexts/LanguageContext'
 
 function StatCard({ label, value, Icon }) {
   return (
@@ -45,6 +46,7 @@ function LogBadge({ entry }) {
 }
 
 export default function SummaryTab({ trip, optimizationLog = [], pendingSave = null, onSave, onDelete }) {
+  const { t } = useT()
   const [tripName, setTripName] = useState(pendingSave?.name ?? '')
   const days = trip?.days ?? []
   const allLegs = useMemo(() => days.flatMap((d) => d.legs ?? []), [days])
@@ -62,10 +64,10 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
   const totalPlaces = trip?.places?.length ?? 0
 
   const cards = [
-    { label: 'Active time',       value: fmtMin(totalMin),     Icon: Clock },
-    { label: 'Transit cost',      value: `S$${totalCost.toFixed(2)}`, Icon: Wallet },
-    { label: 'Walking distance',  value: walkM >= 1000 ? `${(walkM/1000).toFixed(2)} km` : `${walkM} m`, Icon: Footprints },
-    { label: 'Transfers',         value: transfers,             Icon: ArrowLeftRight },
+    { label: t('sumActiveTime'),  value: fmtMin(totalMin),     Icon: Clock },
+    { label: t('sumTransitCost'), value: `S$${totalCost.toFixed(2)}`, Icon: Wallet },
+    { label: t('sumWalkDist'),    value: walkM >= 1000 ? `${(walkM/1000).toFixed(2)} km` : `${walkM} m`, Icon: Footprints },
+    { label: t('sumTransfers'),   value: transfers,             Icon: ArrowLeftRight },
   ]
 
   const handleShare = () => {
@@ -80,13 +82,13 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
           <div className="flex items-center gap-2">
             <Navigation2 size={16} className="text-emerald-600 shrink-0" />
-            <p className="font-display font-bold text-[15px] text-emerald-900">Save your itinerary</p>
+            <p className="font-display font-bold text-[15px] text-emerald-900">{t('sumSaveTitle')}</p>
           </div>
           <p className="text-[12.5px] text-emerald-700 leading-relaxed">
-            Review your days and transport modes above, then save when ready.
+            {t('sumSaveDesc')}
           </p>
           <div className="space-y-2">
-            <label className="text-[11.5px] font-semibold text-emerald-800 block">Trip name</label>
+            <label className="text-[11.5px] font-semibold text-emerald-800 block">{t('sumTripName')}</label>
             <input
               type="text"
               value={tripName}
@@ -98,14 +100,14 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
             onClick={() => onSave?.(tripName || pendingSave.name)}
             className="w-full h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
           >
-            <Save size={15} /> Save Itinerary
+            <Save size={15} /> {t('sumSaveBtn')}
           </button>
         </div>
       )}
       <div>
-        <h2 className="font-display font-extrabold text-[22px] text-slate-900">Trip summary</h2>
+        <h2 className="font-display font-extrabold text-[22px] text-slate-900">{t('sumTitle')}</h2>
         <p className="text-[13px] text-slate-500 mt-1">
-          Estimates derived from your current itinerary. Will recalculate when you change transit modes.
+          {t('sumDesc')}
         </p>
       </div>
 
@@ -119,7 +121,7 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
       {/* By day */}
       {days.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
-          <div className="font-display font-bold text-[14px] text-slate-900 mb-3">By day</div>
+          <div className="font-display font-bold text-[14px] text-slate-900 mb-3">{t('sumByDay')}</div>
           <div className="space-y-3">
             {days.map((d) => {
               const m = (d.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
@@ -130,8 +132,8 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
                     <span className="grid h-6 w-6 place-items-center rounded-md bg-indigo-50 text-indigo-700 font-display font-bold text-[11px]">
                       D{d.day}
                     </span>
-                    <span className="font-medium text-slate-900">Day {d.day}</span>
-                    <span className="text-slate-400">· {stops} stop{stops !== 1 ? 's' : ''}</span>
+                    <span className="font-medium text-slate-900">{t('tripDay', d.day)}</span>
+                    <span className="text-slate-400">· {t('tripStopsCount', stops)}</span>
                   </span>
                   <span className="tabular-nums text-slate-600">{fmtMin(m)}</span>
                 </div>
@@ -146,17 +148,10 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
         <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles size={13} className="text-fuchsia-600" />
-            <div className="font-display font-bold text-[14px] text-slate-900">Pace check</div>
+            <div className="font-display font-bold text-[14px] text-slate-900">{t('sumPaceCheck')}</div>
           </div>
           <div className="text-[13px] text-slate-600 leading-relaxed">
-            Your trip has{' '}
-            <span className="font-semibold text-slate-900">{totalPlaces} stops</span>{' '}
-            across{' '}
-            <span className="font-semibold text-slate-900">{days.length} days</span>{' '}
-            — averaging{' '}
-            <span className="font-semibold text-slate-900">
-              {(totalPlaces / days.length).toFixed(1)} stops/day
-            </span>. Looks comfortable.
+            {t('sumPaceText', totalPlaces, days.length, (totalPlaces / days.length).toFixed(1))}
           </div>
         </div>
       )}
@@ -165,7 +160,7 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
       <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
         <div className="flex items-center gap-2 mb-3">
           <Zap size={13} className="text-indigo-600" />
-          <div className="font-display font-bold text-[14px] text-slate-900">Agent activity</div>
+          <div className="font-display font-bold text-[14px] text-slate-900">{t('sumAgentActivity')}</div>
           {optimizationLog.length > 0 && (
             <span className="grid h-5 w-5 place-items-center rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold ml-auto">
               {optimizationLog.length}
@@ -173,7 +168,7 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
           )}
         </div>
         {optimizationLog.length === 0 ? (
-          <p className="text-[12.5px] text-slate-400 italic">No agent interventions recorded yet.</p>
+          <p className="text-[12.5px] text-slate-400 italic">{t('sumNoAgent')}</p>
         ) : (
           <div className="space-y-2">
             {optimizationLog.map((entry, i) => (
@@ -185,19 +180,19 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
 
       {/* Share / Export */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
-        <div className="font-display font-bold text-[14px] text-slate-900 mb-3">Share &amp; Export</div>
+        <div className="font-display font-bold text-[14px] text-slate-900 mb-3">{t('sumShareExport')}</div>
         <div className="flex gap-2">
           <button
             onClick={handleShare}
             className="flex-1 h-9 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 hover:bg-slate-50 transition inline-flex items-center justify-center gap-1.5"
           >
-            <Share2 size={13} /> Share Link
+            <Share2 size={13} /> {t('sumShareLink')}
           </button>
           <button
             onClick={handlePrint}
             className="flex-1 h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-100 transition inline-flex items-center justify-center gap-1.5"
           >
-            <FileDown size={13} /> Save as PDF
+            <FileDown size={13} /> {t('sumSavePdf')}
           </button>
         </div>
       </div>
@@ -205,13 +200,13 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
       {/* Delete trip */}
       {onDelete && (
         <div className="rounded-2xl border border-red-100 bg-red-50 p-4">
-          <div className="font-display font-bold text-[14px] text-red-900 mb-1">Danger zone</div>
-          <p className="text-[12px] text-red-700 mb-3">Permanently removes this trip from the database.</p>
+          <div className="font-display font-bold text-[14px] text-red-900 mb-1">{t('sumDanger')}</div>
+          <p className="text-[12px] text-red-700 mb-3">{t('sumDangerDesc')}</p>
           <button
             onClick={onDelete}
             className="h-9 px-4 rounded-lg border border-red-300 bg-white text-[13px] font-semibold text-red-600 hover:bg-red-100 transition inline-flex items-center gap-1.5"
           >
-            <Trash2 size={13} /> Delete trip
+            <Trash2 size={13} /> {t('sumDeleteTrip')}
           </button>
         </div>
       )}

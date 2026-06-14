@@ -126,6 +126,38 @@ describe('AlertBanner', () => {
     await waitFor(() => expect(onDismiss).toHaveBeenCalledWith('alert-1'))
   })
 
+  it('returns to Preview when the pending transit adaptation expired', async () => {
+    api.adaptTrip.mockResolvedValue({ changes: ['Change A'] })
+    api.acceptSwap.mockRejectedValue(new Error('No pending adaptation found for this trip'))
+    render(<AlertBanner alert={makeAlert()} tripId="trip-1" onDismiss={onDismiss} />)
+
+    fireEvent.click(screen.getByText('Cập nhật kế hoạch'))
+    fireEvent.click(await screen.findByText('Chấp nhận'))
+
+    expect(await screen.findByText(/Bản xem trước đã hết hiệu lực/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cập nhật kế hoạch' })).toBeInTheDocument()
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('returns to Preview when the pending weather adaptation expired', async () => {
+    api.adaptTrip.mockResolvedValue({ changes: ['Swap outdoor stop'] })
+    api.acceptSwap.mockRejectedValue(new Error('No pending adaptation found for this trip'))
+    render(
+      <AlertBanner
+        alert={makeAlert({ alert_type: 'weather_warning' })}
+        tripId="trip-1"
+        onDismiss={onDismiss}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cập nhật kế hoạch' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cập nhật kế hoạch' }))
+
+    expect(await screen.findByText(/Bản xem trước đã hết hiệu lực/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cập nhật kế hoạch' })).toBeInTheDocument()
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
   it('shows loading text while adapting', async () => {
     let resolve
     api.adaptTrip.mockReturnValue(new Promise((r) => { resolve = r }))
@@ -176,5 +208,154 @@ describe('AlertBanner', () => {
 
     rerender(<AlertBanner alert={makeAlert({ id: 'a2' })} tripId="trip-1" onDismiss={onDismiss} />)
     expect(screen.queryByText('Timeout')).not.toBeInTheDocument()
+  })
+})
+
+// --- dev20: closing_risk banner ---
+
+const makeClosingRisk = (resolutionOverrides = {}, alertOverrides = {}) => ({
+  id: 'cr-1',
+  alert_type: 'closing_risk',
+  trip_id: 'trip-1',
+  day_number: 1,
+  message: 'fallback message',
+  metadata: {
+    place_id: 'p3',
+    place_name: 'Tràng An',
+    projected_arrival: '18:25',
+    close_time: '18:00',
+    deficit_min: 25,
+    resolutions: {
+      leave_earlier: { feasible: true, current_place_name: 'P2', target_leave_time: '17:40', save_minutes: 20 },
+      skip: { feasible: true },
+      push: {
+        feasible: true,
+        day_capacity: [
+          { day: 2, date: '2026-06-12', weekday: 'Friday', remaining_minutes: 120, status: 'room' },
+          { day: 3, date: '2026-06-13', weekday: 'Saturday', remaining_minutes: 0, status: 'full' },
+          { day: 4, date: '2026-06-14', weekday: 'Sunday', remaining_minutes: 0, status: 'closed' },
+        ],
+      },
+      ...resolutionOverrides,
+    },
+    ...alertOverrides,
+  },
+})
+
+describe('AlertBanner closing_risk', () => {
+  const onDismiss = vi.fn()
+  const onAdapted = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((key) => (key === 'imove_lang' ? 'vi' : 'sess-test-12345678')),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    })
+  })
+
+  it('renders the header and only the feasible actions (leave_earlier recommended)', () => {
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} />)
+    expect(screen.getByText(/Tràng An đóng cửa lúc 18:00/)).toBeInTheDocument()
+    expect(screen.getByText('Nên dùng')).toBeInTheDocument()
+    expect(screen.getByText(/Rời P2 trước 17:40/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Bỏ điểm này/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Đẩy sang ngày khác/ })).toBeInTheDocument()
+  })
+
+  it('leave_earlier action calls adaptTrip with resolution leave_earlier', async () => {
+    api.adaptTrip.mockResolvedValue({ adapted: true, changes: ['Rời P2 trước 17:40'] })
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} />)
+    fireEvent.click(screen.getByRole('button', { name: /Rời sớm hơn/ }))
+    await waitFor(() =>
+      expect(api.adaptTrip).toHaveBeenCalledWith('trip-1', {
+        alert_id: 'cr-1', session_id: 'sess-test-12345678',
+        resolution: 'leave_earlier', target_day: null,
+      })
+    )
+  })
+
+  it('push expands the day picker with status badges; closed day is disabled', () => {
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} />)
+    fireEvent.click(screen.getByRole('button', { name: /Đẩy sang ngày khác/ }))
+    expect(screen.getByText('còn ~2h')).toBeInTheDocument()
+    expect(screen.getByText('Đã đầy')).toBeInTheDocument()
+    expect(screen.getByText('Đóng cửa Sunday')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Ngày 4/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Ngày 2/ })).not.toBeDisabled()
+  })
+
+  it('selecting a day calls adaptTrip with resolution push + target_day', async () => {
+    api.adaptTrip.mockResolvedValue({ adapted: true, changes: ['Moved'] })
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} />)
+    fireEvent.click(screen.getByRole('button', { name: /Đẩy sang ngày khác/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Ngày 2/ }))
+    await waitFor(() =>
+      expect(api.adaptTrip).toHaveBeenCalledWith('trip-1', {
+        alert_id: 'cr-1', session_id: 'sess-test-12345678',
+        resolution: 'push', target_day: 2,
+      })
+    )
+  })
+
+  it('shows the reason text when push is infeasible (closed_all) and hides the push button', () => {
+    const alert = makeClosingRisk({ push: { feasible: false, reason: 'closed_all', day_capacity: [] } })
+    render(<AlertBanner alert={alert} tripId="trip-1" onDismiss={onDismiss} />)
+    expect(screen.queryByRole('button', { name: /Đẩy sang ngày khác/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/đóng cửa vào tất cả các ngày còn lại/)).toBeInTheDocument()
+  })
+
+  it('shows no_other_day reason when there is no other day', () => {
+    const alert = makeClosingRisk({ push: { feasible: false, reason: 'no_other_day', day_capacity: [] } })
+    render(<AlertBanner alert={alert} tripId="trip-1" onDismiss={onDismiss} />)
+    expect(screen.getByText(/đây là ngày cuối/)).toBeInTheDocument()
+  })
+
+  it('hides leave_earlier card when infeasible but keeps skip', () => {
+    const alert = makeClosingRisk({ leave_earlier: { feasible: false } })
+    render(<AlertBanner alert={alert} tripId="trip-1" onDismiss={onDismiss} />)
+    expect(screen.queryByText('Nên dùng')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Bỏ điểm này/ })).toBeInTheDocument()
+  })
+
+  it('skip → preview → confirm calls acceptSwap', async () => {
+    api.adaptTrip.mockResolvedValue({ adapted: true, changes: ['Skipped Tràng An'], delta_active_time: -30 })
+    api.acceptSwap.mockResolvedValue({})
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} onAdapted={onAdapted} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Bỏ điểm này/ }))
+    await waitFor(() =>
+      expect(api.adaptTrip).toHaveBeenCalledWith('trip-1', {
+        alert_id: 'cr-1', session_id: 'sess-test-12345678', resolution: 'skip', target_day: null,
+      })
+    )
+    fireEvent.click(await screen.findByText('Xác nhận'))
+    await waitFor(() =>
+      expect(api.acceptSwap).toHaveBeenCalledWith('trip-1', {
+        alert_id: 'cr-1', session_id: 'sess-test-12345678',
+      })
+    )
+    await waitFor(() => expect(onDismiss).toHaveBeenCalledWith('cr-1'))
+  })
+
+  it('returns to resolution choices when the pending closing-risk adaptation expired', async () => {
+    api.adaptTrip.mockResolvedValue({ adapted: true, changes: ['Skipped Tràng An'] })
+    api.acceptSwap.mockRejectedValue(new Error('No pending adaptation found for this trip'))
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Bỏ điểm này/ }))
+    fireEvent.click(await screen.findByText('Xác nhận'))
+
+    expect(await screen.findByText(/Bản xem trước đã hết hiệu lực/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Bỏ điểm này/ })).toBeInTheDocument()
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the backend reason when an action is rejected (adapted=false)', async () => {
+    api.adaptTrip.mockResolvedValue({ adapted: false, changes: ['Cannot move — closed on Sunday'] })
+    render(<AlertBanner alert={makeClosingRisk()} tripId="trip-1" onDismiss={onDismiss} />)
+    fireEvent.click(screen.getByRole('button', { name: /Bỏ điểm này/ }))
+    await waitFor(() => expect(screen.getByText('Cannot move — closed on Sunday')).toBeInTheDocument())
   })
 })

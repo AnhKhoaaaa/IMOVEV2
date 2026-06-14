@@ -1,6 +1,7 @@
 import { MapPin, ChevronDown, Clock, Sun } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { Label } from '../ui/label'
+import { useT } from '../../contexts/LanguageContext'
 
 const CATEGORY_COLORS = {
   food:          'bg-orange-50 text-orange-700 border-orange-200',
@@ -17,14 +18,15 @@ const CATEGORY_COLORS = {
   beach:         'bg-teal-50 text-teal-700 border-teal-200',
 }
 
-function formatOpenHours(openingHours) {
+function formatOpenHours(openingHours, t) {
   if (!openingHours) return null
-  if (openingHours === '24h') return 'Open 24h'
-  return 'Open ' + openingHours.split(' ').map(s => s.replace('-', '–')).join(', ')
+  if (openingHours === '24h') return t('pcOpen24h')
+  return t('pcOpenHours', openingHours.split(' ').map(s => s.replace('-', '–')).join(', '))
 }
 
 export default function PlaceCard({ place, index, expanded, onToggle, notes, onNotesChange }) {
-  const openLabel = formatOpenHours(place.opening_hours)
+  const { t } = useT()
+  const openLabel = formatOpenHours(place.opening_hours, t)
 
   const bestTimeLabel = place.best_time_start
     ? `${place.best_time_start}–${place.best_time_end}`
@@ -95,7 +97,7 @@ export default function PlaceCard({ place, index, expanded, onToggle, notes, onN
                   )}
                   {place.is_outdoor && (
                     <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 border border-emerald-200 px-2 h-5 text-[10.5px] font-semibold text-emerald-700">
-                      <Sun size={9} className="text-emerald-500" /> Outdoor
+                      <Sun size={9} className="text-emerald-500" /> {t('pcOutdoor')}
                     </span>
                   )}
                 </div>
@@ -123,14 +125,14 @@ export default function PlaceCard({ place, index, expanded, onToggle, notes, onN
             {bestTimeLabel && (
               <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11.5px] font-medium text-amber-700">
                 <Sun size={11} className="text-amber-500" />
-                Best time to visit: {bestTimeLabel}
+                {t('pcBestTime', bestTimeLabel)}
               </div>
             )}
-            <Label className="flex items-center gap-1.5 text-slate-600">Notes</Label>
+            <Label className="flex items-center gap-1.5 text-slate-600">{t('pcNotes')}</Label>
             <textarea
               value={notes || ''}
               onChange={(e) => onNotesChange && onNotesChange(e.target.value)}
-              placeholder="Add notes — book tickets in advance, bring jacket, etc."
+              placeholder={t('pcNotesPlaceholder')}
               rows={2}
               className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] placeholder:text-slate-400 focus-ring focus:border-indigo-400 resize-none"
             />

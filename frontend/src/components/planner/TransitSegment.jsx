@@ -2,19 +2,20 @@ import { useState } from 'react'
 import { Train, Bus, Footprints, Car, Bike, ChevronDown, CheckCircle2, Loader2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { api } from '../../services/api'
+import { useT } from '../../contexts/LanguageContext'
 
 const MODE_MAP = {
-  MRT:   { id: 'transit', label: 'Transit',  Icon: Train,      distFactor: 100 },
-  LRT:   { id: 'transit', label: 'Transit',  Icon: Train,      distFactor: 100 },
-  BUS:   { id: 'transit', label: 'Transit',  Icon: Bus,        distFactor: 100 },
-  WALK:  { id: 'walk',    label: 'Walking',  Icon: Footprints, distFactor: 80  },
-  CYCLE: { id: 'cycle',   label: 'Cycling',  Icon: Bike,       distFactor: 100 },
+  MRT:   { id: 'transit', labelKey: 'tsTransit',  Icon: Train,      distFactor: 100 },
+  LRT:   { id: 'transit', labelKey: 'tsTransit',  Icon: Train,      distFactor: 100 },
+  BUS:   { id: 'transit', labelKey: 'tsTransit',  Icon: Bus,        distFactor: 100 },
+  WALK:  { id: 'walk',    labelKey: 'tsWalking',  Icon: Footprints, distFactor: 80  },
+  CYCLE: { id: 'cycle',   labelKey: 'tsCycling',  Icon: Bike,       distFactor: 100 },
 }
 
 const OPTS = [
-  { id: 'transit', label: 'Transit',  Icon: Bus,        apiMode: 'MRT',  compareKey: 'pt'    },
-  { id: 'walk',    label: 'Walking',  Icon: Footprints, apiMode: 'WALK', compareKey: 'walk'  },
-  { id: 'cycle',   label: 'Cycling',  Icon: Bike,        apiMode: null,   compareKey: 'cycle' },
+  { id: 'transit', labelKey: 'tsTransit',  Icon: Bus,        apiMode: 'MRT',  compareKey: 'pt'    },
+  { id: 'walk',    labelKey: 'tsWalking',  Icon: Footprints, apiMode: 'WALK', compareKey: 'walk'  },
+  { id: 'cycle',   labelKey: 'tsCycling',  Icon: Bike,        apiMode: null,   compareKey: 'cycle' },
 ]
 
 function getMeta(transportMode) {
@@ -37,13 +38,14 @@ function buildGrabDeepLink(from, to) {
 }
 
 export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpdated }) {
+  const { t } = useT()
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [comparison, setComparison] = useState(null)
   const [loadingComparison, setLoadingComparison] = useState(false)
 
   const meta = getMeta(leg.transport_mode)
-  const { Icon, label } = meta
+  const { Icon } = meta
   const distM = leg.distance_km != null
     ? Math.round(leg.distance_km * 1000)
     : Math.round((leg.duration_minutes ?? 10) * meta.distFactor)
@@ -66,15 +68,14 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
   const getDetail = (opt) => {
     if (comparison) {
       const m = comparison[opt.compareKey]
-      if (!m?.available) return 'Unavailable'
+      if (!m?.available) return t('tripUnavailable')
       const cost = m.fare_sgd > 0 ? ` · S$${m.fare_sgd.toFixed(2)}` : ''
       const dist = m.distance_km > 0 ? ` · ${(m.distance_km).toFixed(1)} km` : ''
       const summary = m.summary ? ` · ${m.summary}` : ''
-      return `${m.duration_minutes} min${dist}${cost}${summary}`
+      return `${t('tripMinShort', m.duration_minutes)}${dist}${cost}${summary}`
     }
     // Fallback estimates while comparison is loading or unavailable
-    if (opt.id === 'walk') return `${leg.duration_minutes} min · ${formatDist(distM)}`
-    return `${leg.duration_minutes} min · ${formatDist(distM)}`
+    return `${t('tripMinShort', leg.duration_minutes)} · ${formatDist(distM)}`
   }
 
   const handleSelect = async (opt) => {
@@ -109,7 +110,7 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
           )}
         >
           <Icon size={12} className={open ? 'text-indigo-500' : 'text-slate-400'} />
-          <span className="tabular-nums font-semibold">{leg.duration_minutes} min</span>
+          <span className="tabular-nums font-semibold">{t('tripMinShort', leg.duration_minutes)}</span>
           {leg.is_estimated && <span className="text-[9.5px] font-bold text-amber-500 uppercase">~</span>}
           <ChevronDown size={11} className={cn('text-slate-400 transition', open && 'rotate-180')} />
         </button>
@@ -117,7 +118,7 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
         {open && (
           <div className="absolute left-1/2 -translate-x-1/2 top-8 z-20 w-[340px] rounded-xl border border-slate-200 bg-white shadow-pop animate-slide-up overflow-hidden">
             <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">Choose mode of transport</span>
+              <span className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">{t('tsChooseMode')}</span>
               {loadingComparison && <Loader2 size={11} className="animate-spin text-slate-400" />}
             </div>
 
@@ -135,7 +136,7 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
                   )}
                 >
                   <span className={cn('inline-flex items-center gap-2 text-[13.5px] font-semibold', selected ? 'text-indigo-700' : 'text-slate-800')}>
-                    <opt.Icon size={15} /> {opt.label}
+                    <opt.Icon size={15} /> {t(opt.labelKey)}
                   </span>
                   <span className="inline-flex items-center gap-2">
                     <span className={cn('text-[12.5px] tabular-nums', selected ? 'text-indigo-700 font-semibold' : 'text-slate-500')}>
@@ -148,7 +149,7 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
             })}
             {comparison && OPTS.every((o) => !comparison[o.compareKey]?.available) && (
               <div className="px-3 py-2.5 text-[12.5px] text-slate-400 italic">
-                No transit route available for this segment.
+                {t('tsNoRoute')}
               </div>
             )}
 
@@ -162,14 +163,14 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
                 className="w-full flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-amber-50 transition"
               >
                 <span className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-slate-800">
-                  <Car size={15} /> Taxi · Grab
+                  <Car size={15} /> {t('tsTaxiGrab')}
                 </span>
-                <span className="text-[12px] text-amber-700 font-semibold">Open Grab app ↗</span>
+                <span className="text-[12px] text-amber-700 font-semibold">{t('tsOpenGrab')}</span>
               </a>
             </div>
 
             <div className="border-t border-slate-100 px-3 py-2.5 flex items-center justify-between text-[12.5px] text-slate-600 bg-slate-50/60">
-              <span>Straight-line distance</span>
+              <span>{t('tsStraightLine')}</span>
               <span className="font-mono-code tabular-nums">{formatDist(distM + 310)}</span>
             </div>
           </div>

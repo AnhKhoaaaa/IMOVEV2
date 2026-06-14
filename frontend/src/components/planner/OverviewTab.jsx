@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { MapPin, ChevronRight, Clock, Wallet, Footprints, ArrowLeftRight, RotateCcw, Loader2 } from 'lucide-react'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
+import { useT } from '../../contexts/LanguageContext'
 
 const MODE_COLORS = {
   MRT: 'bg-indigo-500',
@@ -28,6 +29,7 @@ function MetricChip({ icon, label, value }) {
 }
 
 export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) {
+  const { t } = useT()
   const [optimizing, setOptimizing] = useState(false)
   const days = trip?.days ?? []
   const allPlaces = trip?.places ?? []
@@ -68,18 +70,18 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
           className="w-full h-10 rounded-xl border border-indigo-200 bg-indigo-50 text-[13.5px] font-semibold text-indigo-700 hover:bg-indigo-100 transition inline-flex items-center justify-center gap-2 disabled:opacity-60"
         >
           {optimizing
-            ? <><Loader2 size={14} className="animate-spin" /> Optimizing…</>
-            : <><RotateCcw size={14} /> Optimize Route</>}
+            ? <><Loader2 size={14} className="animate-spin" /> {t('ovOptimizing')}</>
+            : <><RotateCcw size={14} /> {t('ovOptimizeRoute')}</>}
         </button>
       )}
 
       {/* Metrics strip */}
       {allPlaces.length > 0 && (
         <div className="grid grid-cols-4 gap-2">
-          <MetricChip icon={<Clock size={13} />} label="Active" value={metrics.time} />
-          <MetricChip icon={<Wallet size={13} />} label="Transit" value={metrics.cost} />
-          <MetricChip icon={<Footprints size={13} />} label="Walk" value={metrics.walk} />
-          <MetricChip icon={<ArrowLeftRight size={13} />} label="Stops" value={metrics.stops} />
+          <MetricChip icon={<Clock size={13} />} label={t('ovActive')} value={metrics.time} />
+          <MetricChip icon={<Wallet size={13} />} label={t('ovTransit')} value={metrics.cost} />
+          <MetricChip icon={<Footprints size={13} />} label={t('ovWalk')} value={metrics.walk} />
+          <MetricChip icon={<ArrowLeftRight size={13} />} label={t('ovStops')} value={metrics.stops} />
         </div>
       )}
 
@@ -89,7 +91,7 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
           <MiniMapSvg days={days} allPlaces={allPlaces} />
           <div className="absolute bottom-3 right-3">
             <button className="inline-flex items-center gap-1.5 rounded-full bg-white border border-slate-200 px-3 h-8 text-[12.5px] font-semibold text-slate-700 shadow-card hover:bg-slate-50">
-              <MapPin size={12} className="text-indigo-600" /> View on map
+              <MapPin size={12} className="text-indigo-600" /> {t('ovViewMap')}
             </button>
           </div>
         </div>
@@ -100,7 +102,7 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
         <div className="rounded-2xl border border-slate-200 bg-white shadow-card">
           <div className="px-4 py-3 flex items-center justify-between">
             <div className="inline-flex items-center gap-2">
-              <div className="font-display font-bold text-[15px] text-slate-900">Notices</div>
+              <div className="font-display font-bold text-[15px] text-slate-900">{t('ovNotices')}</div>
               <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold">
                 {warnings.length}
               </span>
@@ -137,10 +139,10 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
                     D{d.day}
                   </span>
                   <span className="font-display font-bold text-[15px] text-slate-900">
-                    Day {d.day}
+                    {t('tripDay', d.day)}
                     {ordered.length > 0 && (
                       <span className="text-slate-400 font-normal ml-1.5">
-                        · {ordered.length} stop{ordered.length !== 1 ? 's' : ''}
+                        · {t('tripStopsCount', ordered.length)}
                       </span>
                     )}
                   </span>
@@ -168,7 +170,7 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
               </div>
 
               {ordered.length === 0 ? (
-                <div className="text-[12.5px] text-slate-400 italic">Empty — tap to plan</div>
+                <div className="text-[12.5px] text-slate-400 italic">{t('ovEmptyTap')}</div>
               ) : (
                 <div className="text-[13px] text-slate-600 leading-relaxed">
                   {ordered.map((p, i) => (
