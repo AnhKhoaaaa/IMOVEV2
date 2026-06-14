@@ -532,3 +532,143 @@
     transition: none;
   }
 }
+
+@keyframes preview-hero-copy-in {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.home-scroll-reveal {
+  opacity: 0;
+  transform: translateY(38px);
+  transition:
+    opacity 800ms cubic-bezier(.2, .7, .2, 1) var(--home-reveal-delay, 0ms),
+    transform 800ms cubic-bezier(.2, .7, .2, 1) var(--home-reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+.home-scroll-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+@keyframes preview-photo-stage-in {
+  from { opacity: 0; transform: translateX(36px) scale(0.96); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes preview-photo-float {
+  0%, 100% { transform: translateY(0) rotate(-7deg); }
+  50% { transform: translateY(-12px) rotate(-4deg); }
+}
+@keyframes preview-photo-float-reverse {
+  0%, 100% { transform: translateY(0) rotate(6deg); }
+  50% { transform: translateY(12px) rotate(3deg); }
+}
+@keyframes preview-route-draw {
+  from { stroke-dashoffset: 1200; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes preview-signal {
+  0%, 100% { transform: scaleY(0.45); opacity: 0.45; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
+.preview-hero-word {
+  font-size: clamp(90px, 17vw, 270px);
+  font-weight: 900;
+  letter-spacing: -0.07em;
+  color: transparent;
+  -webkit-text-stroke: 1px rgb(15 23 42 / 0.045);
+}
+.preview-hero-copy {
+  animation: preview-hero-copy-in 900ms cubic-bezier(.2,.7,.2,1) both;
+}
+.preview-photo-stage {
+  animation: preview-photo-stage-in 1100ms 180ms cubic-bezier(.2,.7,.2,1) both;
+}
+.preview-float-photo {
+  animation: preview-photo-float 5.5s ease-in-out infinite;
+}
+.preview-float-photo-delay {
+  animation-name: preview-photo-float-reverse;
+  animation-delay: -2.4s;
+}
+.preview-route-line path {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: preview-route-draw 2.8s 700ms cubic-bezier(.2,.7,.2,1) forwards;
+}
+.preview-reveal {
+  opacity: 0;
+  transform: translateY(38px);
+  transition: opacity 800ms cubic-bezier(.2,.7,.2,1), transform 800ms cubic-bezier(.2,.7,.2,1);
+}
+.preview-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.preview-delay-1 { transition-delay: 80ms; }
+.preview-delay-2 { transition-delay: 180ms; }
+.preview-delay-3 { transition-delay: 280ms; }
+.preview-bento-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  box-shadow: 0 24px 60px -38px rgb(15 23 42 / 0.45);
+  transition: transform 450ms cubic-bezier(.2,.7,.2,1), box-shadow 450ms ease;
+}
+.preview-bento-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 80% 10%, rgb(255 255 255 / 0.28), transparent 32%);
+}
+.preview-bento-card:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 34px 70px -38px rgb(15 23 42 / 0.55);
+}
+.preview-signal i {
+  display: block;
+  width: 14px;
+  height: 52px;
+  border-radius: 999px;
+  background: linear-gradient(to top, #10b981, #67e8f9);
+  transform-origin: bottom;
+  animation: preview-signal 1.6s ease-in-out infinite;
+}
+.preview-signal i:nth-child(2) { height: 76px; animation-delay: -0.4s; }
+.preview-signal i:nth-child(3) { height: 42px; animation-delay: -0.8s; }
+.preview-signal i:nth-child(4) { height: 64px; animation-delay: -1.2s; }
+.preview-glass-toolbar {
+  border: 1px solid rgb(255 255 255 / 0.75);
+  background: rgb(255 255 255 / 0.72);
+  box-shadow: 0 16px 40px -28px rgb(15 23 42 / 0.32);
+  backdrop-filter: blur(18px);
+}
+.preview-journey-card {
+  transition: transform 500ms cubic-bezier(.2,.7,.2,1), box-shadow 500ms ease;
+}
+.preview-journey-card:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 35px 70px -38px rgb(15 23 42 / 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-hero-copy,
+  .preview-photo-stage,
+  .preview-float-photo,
+  .preview-route-line path,
+  .preview-signal i {
+    animation: none;
+  }
+  .preview-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .home-scroll-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

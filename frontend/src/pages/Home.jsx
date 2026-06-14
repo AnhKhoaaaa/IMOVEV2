@@ -142,6 +142,37 @@ function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
   )
 }
 
+function ScrollReveal({ children, className = '', delay = 0 }) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return undefined
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        node.classList.add('is-visible')
+        observer.unobserve(node)
+      },
+      { threshold: 0.12, rootMargin: '0px 0px -48px' }
+    )
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      className={cn('home-scroll-reveal', className)}
+      style={{ '--home-reveal-delay': `${delay}ms` }}
+    >
+      {children}
+    </div>
+  )
+}
+
 export default function Home() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -226,28 +257,30 @@ export default function Home() {
         <WaveLightShader className="absolute -inset-x-[8%] -inset-y-20 h-[calc(100%+10rem)] w-[116%] opacity-50 mix-blend-multiply" />
         <div className="pointer-events-none absolute inset-0 bg-white/20" />
         <div className="relative mx-auto max-w-7xl px-6 py-6">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md">
-              <CalendarDays className="stats-floating-icon h-5 w-5 text-blue-600" />
-              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
-              <p className="text-[12px] font-semibold text-slate-500">Today</p>
+          <ScrollReveal>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md">
+                <CalendarDays className="stats-floating-icon h-5 w-5 text-blue-600" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
+                <p className="text-[12px] font-semibold text-slate-500">Today</p>
+              </div>
+              <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md">
+                <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-5 w-5 text-emerald-600" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
+                <p className="text-[12px] font-semibold text-slate-500">Upcoming</p>
+              </div>
+              <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md">
+                <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-5 w-5 text-amber-600" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">Live</p>
+                <p className="text-[12px] font-semibold text-slate-500">LTA/weather</p>
+              </div>
+              <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md">
+                <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-5 w-5 text-red-500" />
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
+                <p className="text-[12px] font-semibold text-slate-500">Open alerts</p>
+              </div>
             </div>
-            <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md">
-              <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-5 w-5 text-emerald-600" />
-              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
-              <p className="text-[12px] font-semibold text-slate-500">Upcoming</p>
-            </div>
-            <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md">
-              <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-5 w-5 text-amber-600" />
-              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">Live</p>
-              <p className="text-[12px] font-semibold text-slate-500">LTA/weather</p>
-            </div>
-            <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md">
-              <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-5 w-5 text-red-500" />
-              <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
-              <p className="text-[12px] font-semibold text-slate-500">Open alerts</p>
-            </div>
-          </div>
+          </ScrollReveal>
         </div>
       </section>
 
@@ -255,80 +288,88 @@ export default function Home() {
         const todayTrip = trips.find((t) => t.status === 'today')
         if (!todayTrip) return null
         return (
-          <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-3">
-            <div className="mx-auto flex max-w-7xl items-center gap-3">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-              <p className="text-[13px] font-semibold text-emerald-800">
-                <span className="font-bold">{todayTrip.name ?? 'Singapore Trip'}</span> starts today
-              </p>
-              <button
-                onClick={() => openTrip(todayTrip, true)}
-                className="ml-auto flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-bold text-white hover:bg-emerald-500"
-              >
-                <Navigation2 size={13} /> Start
-              </button>
+          <ScrollReveal>
+            <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-3">
+              <div className="mx-auto flex max-w-7xl items-center gap-3">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                <p className="text-[13px] font-semibold text-emerald-800">
+                  <span className="font-bold">{todayTrip.name ?? 'Singapore Trip'}</span> starts today
+                </p>
+                <button
+                  onClick={() => openTrip(todayTrip, true)}
+                  className="ml-auto flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-bold text-white hover:bg-emerald-500"
+                >
+                  <Navigation2 size={13} /> Start
+                </button>
+              </div>
             </div>
-          </div>
+          </ScrollReveal>
         )
       })()}
 
       <section className="mx-auto max-w-7xl px-6 py-6">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-card">
-            {FILTERS.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setFilter(item.id)}
-                className={cn(
-                  'h-9 rounded-md px-3 text-[13px] font-bold transition',
-                  filter === item.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                )}
-              >
-                {item.label}
-                <span className="ml-1.5 text-[11px] opacity-70">{stats[item.id] ?? stats.all}</span>
-              </button>
-            ))}
+        <ScrollReveal>
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-card">
+              {FILTERS.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setFilter(item.id)}
+                  className={cn(
+                    'h-9 rounded-md px-3 text-[13px] font-bold transition',
+                    filter === item.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                  )}
+                >
+                  {item.label}
+                  <span className="ml-1.5 text-[11px] opacity-70">{stats[item.id] ?? stats.all}</span>
+                </button>
+              ))}
+            </div>
+            <AnimatedGlowingSearchBar
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search saved trips"
+              className="w-[320px]"
+            />
           </div>
-          <AnimatedGlowingSearchBar
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search saved trips"
-            className="w-[320px]"
-          />
-        </div>
+        </ScrollReveal>
 
         {filteredTrips.length ? (
           <div className="grid grid-cols-3 gap-4">
-            {filteredTrips.map((trip) => (
-              <div key={trip.id} className="relative">
-                {openingId === trip.id && (
-                  <div className="absolute inset-0 z-10 grid place-items-center rounded-lg bg-white/70 backdrop-blur-sm">
-                    <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                  </div>
-                )}
-                <TripCard
-                  trip={trip}
-                  hydrated={hydrated[trip.id]}
-                  loading={loadingIds.has(trip.id)}
-                  onOpen={(item) => openTrip(item)}
-                  onStart={(item) => openTrip(item, true)}
-                  onDelete={deleteTrip}
-                />
-              </div>
+            {filteredTrips.map((trip, index) => (
+              <ScrollReveal key={trip.id} delay={Math.min(index, 5) * 90}>
+                <div className="relative">
+                  {openingId === trip.id && (
+                    <div className="absolute inset-0 z-10 grid place-items-center rounded-lg bg-white/70 backdrop-blur-sm">
+                      <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                    </div>
+                  )}
+                  <TripCard
+                    trip={trip}
+                    hydrated={hydrated[trip.id]}
+                    loading={loadingIds.has(trip.id)}
+                    onOpen={(item) => openTrip(item)}
+                    onStart={(item) => openTrip(item, true)}
+                    onDelete={deleteTrip}
+                  />
+                </div>
+              </ScrollReveal>
             ))}
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
-            <MapPin className="mx-auto h-8 w-8 text-slate-300" />
-            <h2 className="mt-3 font-display text-[22px] font-extrabold text-slate-950">No trips here</h2>
-            <p className="mt-2 text-[14px] text-slate-500">Create a new itinerary or change the filter.</p>
-            <button
-              onClick={() => navigate('/plan')}
-              className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500"
-            >
-              <Plus size={15} /> New Trip
-            </button>
-          </div>
+          <ScrollReveal delay={100}>
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
+              <MapPin className="mx-auto h-8 w-8 text-slate-300" />
+              <h2 className="mt-3 font-display text-[22px] font-extrabold text-slate-950">No trips here</h2>
+              <p className="mt-2 text-[14px] text-slate-500">Create a new itinerary or change the filter.</p>
+              <button
+                onClick={() => navigate('/plan')}
+                className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500"
+              >
+                <Plus size={15} /> New Trip
+              </button>
+            </div>
+          </ScrollReveal>
         )}
       </section>
       <CinematicFooter />
