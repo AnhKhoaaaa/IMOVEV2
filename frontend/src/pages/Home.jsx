@@ -16,26 +16,28 @@ import {
 import { api } from '../services/api'
 import { useSavedTrips } from '../hooks/useSavedTrips'
 import { useAuth } from '../contexts/AuthContext'
+import { useT } from '../contexts/LanguageContext'
 import { formatDateRange } from '../lib/tripUtils'
 import { cn } from '../lib/utils'
 import { ImageCarouselHero } from '../components/ui/ai-image-generator-hero'
 import { WaveLightShader } from '../components/ui/wave-light-shader'
 import { AnimatedGlowingSearchBar } from '../components/ui/animated-glowing-search-bar'
 import { CinematicFooter } from '../components/ui/motion-footer'
+import ConfirmDialog from '../components/ui/ConfirmDialog'
 
 const FILTERS = [
-  { id: 'all', label: 'All' },
-  { id: 'today', label: 'Today' },
-  { id: 'upcoming', label: 'Upcoming' },
-  { id: 'draft', label: 'Drafts' },
-  { id: 'past', label: 'Past' },
+  { id: 'all', labelKey: 'filter_All' },
+  { id: 'today', labelKey: 'filter_Today' },
+  { id: 'upcoming', labelKey: 'filter_Upcoming' },
+  { id: 'draft', labelKey: 'filter_Drafts' },
+  { id: 'past', labelKey: 'filter_Past' },
 ]
 
 const STATUS = {
-  today: { label: 'Today', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500 animate-pulse' },
-  upcoming: { label: 'Upcoming', tone: 'border-blue-200 bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
-  draft: { label: 'Draft', tone: 'border-slate-200 bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
-  past: { label: 'Past', tone: 'border-slate-200 bg-white text-slate-500', dot: 'bg-slate-300' },
+  today: { labelKey: 'homeStatusToday', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500 animate-pulse' },
+  upcoming: { labelKey: 'homeStatusUpcoming', tone: 'border-blue-200 bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
+  draft: { labelKey: 'homeStatusDraft', tone: 'border-slate-200 bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
+  past: { labelKey: 'homeStatusPast', tone: 'border-slate-200 bg-white text-slate-500', dot: 'bg-slate-300' },
 }
 
 const HERO_IMAGES = [
@@ -47,12 +49,6 @@ const HERO_IMAGES = [
   { id: 'helix', src: '/imove-hero/helix-bridge.png', alt: 'Helix Bridge and Singapore skyline at night', rotation: 5 },
   { id: 'supertree', src: '/imove-hero/supertree-grove.png', alt: 'Supertree Grove at Gardens by the Bay', rotation: -4 },
   { id: 'haji', src: '/imove-hero/haji-lane.png', alt: 'Visitors exploring colorful Haji Lane', rotation: 6 },
-]
-
-const HERO_FEATURES = [
-  { title: 'Plan around you', description: 'Balance time, cost, walking, and transfers.' },
-  { title: 'Build every day', description: 'Turn Singapore places into a practical route.' },
-  { title: 'Adapt while moving', description: 'Stay ready for live transport and weather changes.' },
 ]
 
 function isTodayOrTomorrow(trip) {
@@ -71,6 +67,7 @@ function sessionBody() {
 }
 
 function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
+  const { t } = useT()
   const meta = STATUS[trip.status] ?? STATUS.draft
   const days = hydrated?.days?.length ?? trip.numDays ?? 1
   const stops = hydrated?.places?.length
@@ -82,13 +79,13 @@ function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
         <div className="min-w-0">
           <span className={cn('inline-flex h-6 items-center gap-1.5 rounded-full border px-2 text-[11px] font-bold', meta.tone)}>
             <span className={cn('h-1.5 w-1.5 rounded-full', meta.dot)} />
-            {meta.label}
+            {t(meta.labelKey)}
           </span>
           <h2 className="mt-3 truncate font-display text-[20px] font-extrabold text-slate-950">
-            {trip.name ?? 'Singapore Trip'}
+            {trip.name ?? t('tripDefaultName')}
           </h2>
           <p className="mt-1 text-[12px] text-slate-500">
-            {trip.startDate ? formatDateRange(trip.startDate, trip.numDays ?? 1) : 'Flexible dates'}
+            {trip.startDate ? formatDateRange(trip.startDate, trip.numDays ?? 1) : t('flexibleDates')}
           </p>
         </div>
         <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600">
@@ -98,17 +95,17 @@ function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
 
       <div className="mb-4 grid grid-cols-3 gap-2">
         <div className="rounded-md bg-slate-50 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Days</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('homeDays')}</p>
           <p className="mt-1 font-display text-[18px] font-extrabold text-slate-900">{days}</p>
         </div>
         <div className="rounded-md bg-slate-50 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Stops</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('homeStops')}</p>
           <p className="mt-1 font-display text-[18px] font-extrabold text-slate-900">
             {loading ? <Loader2 size={16} className="animate-spin" /> : stops ?? '-'}
           </p>
         </div>
         <div className="rounded-md bg-slate-50 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Alerts</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('homeAlerts')}</p>
           <p className={cn('mt-1 font-display text-[18px] font-extrabold', warnings ? 'text-amber-600' : 'text-slate-900')}>
             {warnings}
           </p>
@@ -120,20 +117,20 @@ function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
           onClick={() => onOpen(trip)}
           className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
         >
-          Open <ArrowRight size={14} />
+          {t('openBtn')} <ArrowRight size={14} />
         </button>
         {trip.status === 'today' && (
           <button
             onClick={() => onStart(trip)}
             className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-3 text-[13px] font-bold text-emerald-700 hover:bg-emerald-100"
           >
-            Start
+            {t('homeStart')}
           </button>
         )}
         <button
           onClick={() => onDelete(trip)}
           className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 text-slate-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500"
-          title="Delete trip"
+          title={t('homeDeleteTitle')}
         >
           <Trash2 size={14} />
         </button>
@@ -176,13 +173,21 @@ function ScrollReveal({ children, className = '', delay = 0 }) {
 export default function Home() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { t } = useT()
   const { trips, remove } = useSavedTrips(user?.id)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [hydrated, setHydrated] = useState({})
   const [loadingIds, setLoadingIds] = useState(new Set())
   const [openingId, setOpeningId] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const inFlightRef = useRef(new Set())
+
+  const heroFeatures = useMemo(() => [
+    { title: t('homeFeature1Title'), description: t('homeFeature1Desc') },
+    { title: t('homeFeature2Title'), description: t('homeFeature2Desc') },
+    { title: t('homeFeature3Title'), description: t('homeFeature3Desc') },
+  ], [t])
 
   useEffect(() => {
     trips.forEach((trip) => {
@@ -234,23 +239,25 @@ export default function Home() {
     navigate(`/trip/${trip.id}`, { state: autoStart ? { autoStart: true } : undefined })
   }
 
-  const deleteTrip = async (trip) => {
-    if (!window.confirm(`Delete "${trip.name ?? 'Singapore Trip'}"?`)) return
+  const confirmDelete = async () => {
+    const trip = pendingDelete
+    setPendingDelete(null)
+    if (!trip) return
     await api.deleteTrip(trip.id).catch(() => {})
     remove(trip.id)
   }
 
   return (
-    <main className="min-h-[calc(100vh-56px)] bg-slate-50">
+    <main className="min-h-[calc(100dvh-56px)] bg-slate-50">
       <ImageCarouselHero
-        title="Move through Singapore with a plan that keeps up."
-        description="Build thoughtful itineraries, compare transport choices, and adapt your route as Singapore moves around you."
-        ctaText="Plan a new trip"
-        secondaryCtaText="Set preferences"
+        title={t('homeHeroCarouselTitle')}
+        description={t('homeHeroCarouselDesc')}
+        ctaText={t('homeHeroCta')}
+        secondaryCtaText={t('homeHeroSecondaryCta')}
         onCtaClick={() => navigate('/plan')}
         onSecondaryCtaClick={() => navigate('/settings')}
         images={HERO_IMAGES}
-        features={HERO_FEATURES}
+        features={heroFeatures}
       />
 
       <section className="relative isolate overflow-hidden border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/70 to-white">
@@ -262,22 +269,22 @@ export default function Home() {
               <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md">
                 <CalendarDays className="stats-floating-icon h-5 w-5 text-blue-600" />
                 <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
-                <p className="text-[12px] font-semibold text-slate-500">Today</p>
+                <p className="text-[12px] font-semibold text-slate-500">{t('homeStatToday')}</p>
               </div>
               <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md">
                 <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-5 w-5 text-emerald-600" />
                 <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
-                <p className="text-[12px] font-semibold text-slate-500">Upcoming</p>
+                <p className="text-[12px] font-semibold text-slate-500">{t('homeStatUpcoming')}</p>
               </div>
               <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md">
                 <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-5 w-5 text-amber-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">Live</p>
-                <p className="text-[12px] font-semibold text-slate-500">LTA/weather</p>
+                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{t('homeLive')}</p>
+                <p className="text-[12px] font-semibold text-slate-500">{t('homeLtaWeather')}</p>
               </div>
               <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md">
                 <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-5 w-5 text-red-500" />
                 <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
-                <p className="text-[12px] font-semibold text-slate-500">Open alerts</p>
+                <p className="text-[12px] font-semibold text-slate-500">{t('homeOpenAlerts')}</p>
               </div>
             </div>
           </ScrollReveal>
@@ -285,7 +292,7 @@ export default function Home() {
       </section>
 
       {(() => {
-        const todayTrip = trips.find((t) => t.status === 'today')
+        const todayTrip = trips.find((tr) => tr.status === 'today')
         if (!todayTrip) return null
         return (
           <ScrollReveal>
@@ -293,13 +300,13 @@ export default function Home() {
               <div className="mx-auto flex max-w-7xl items-center gap-3">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
                 <p className="text-[13px] font-semibold text-emerald-800">
-                  <span className="font-bold">{todayTrip.name ?? 'Singapore Trip'}</span> starts today
+                  <span className="font-bold">{todayTrip.name ?? t('tripDefaultName')}</span> {t('homeStartsTodaySuffix')}
                 </p>
                 <button
                   onClick={() => openTrip(todayTrip, true)}
                   className="ml-auto flex h-8 items-center gap-1.5 rounded-md bg-emerald-600 px-3 text-[12px] font-bold text-white hover:bg-emerald-500"
                 >
-                  <Navigation2 size={13} /> Start
+                  <Navigation2 size={13} /> {t('homeStart')}
                 </button>
               </div>
             </div>
@@ -320,7 +327,7 @@ export default function Home() {
                     filter === item.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                   )}
                 >
-                  {item.label}
+                  {t(item.labelKey)}
                   <span className="ml-1.5 text-[11px] opacity-70">{stats[item.id] ?? stats.all}</span>
                 </button>
               ))}
@@ -328,7 +335,7 @@ export default function Home() {
             <AnimatedGlowingSearchBar
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search saved trips"
+              placeholder={t('homeSearch')}
               className="w-[320px]"
             />
           </div>
@@ -350,7 +357,7 @@ export default function Home() {
                     loading={loadingIds.has(trip.id)}
                     onOpen={(item) => openTrip(item)}
                     onStart={(item) => openTrip(item, true)}
-                    onDelete={deleteTrip}
+                    onDelete={(item) => setPendingDelete(item)}
                   />
                 </div>
               </ScrollReveal>
@@ -360,19 +367,29 @@ export default function Home() {
           <ScrollReveal delay={100}>
             <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
               <MapPin className="mx-auto h-8 w-8 text-slate-300" />
-              <h2 className="mt-3 font-display text-[22px] font-extrabold text-slate-950">No trips here</h2>
-              <p className="mt-2 text-[14px] text-slate-500">Create a new itinerary or change the filter.</p>
+              <h2 className="mt-3 font-display text-[22px] font-extrabold text-slate-950">{t('homeNoTrips')}</h2>
+              <p className="mt-2 text-[14px] text-slate-500">{t('homeNoTripsDesc')}</p>
               <button
                 onClick={() => navigate('/plan')}
                 className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500"
               >
-                <Plus size={15} /> New Trip
+                <Plus size={15} /> {t('newTrip')}
               </button>
             </div>
           </ScrollReveal>
         )}
       </section>
       <CinematicFooter />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title={t('confirmDeleteTitle')}
+        message={pendingDelete ? t('homeDeleteConfirm', pendingDelete.name ?? t('tripDefaultName')) : ''}
+        confirmLabel={t('confirmDeleteBtn')}
+        cancelLabel={t('cancelBtn')}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </main>
   )
 }

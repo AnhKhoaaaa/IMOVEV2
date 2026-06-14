@@ -1,18 +1,20 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
-// Keep only the most recent alert per alert_type to prevent duplicates
-// when checkAlerts is called multiple times.
+// Keep only the most recent alert per (type, line, day) to prevent duplicates when
+// checkAlerts runs repeatedly — day_number keeps per-day weather warnings distinct so
+// Day 1 and Day 2 rain alerts don't overwrite each other.
 function dedupe(list) {
-  const byType = new Map()
+  const byKey = new Map()
   for (const a of list) {
-    const cur = byType.get(a.alert_type)
-    if (!cur || a.id > cur.id) byType.set(`${a.alert_type}:${a.affected_line ?? 'unknown'}`, a)
+    const key = `${a.alert_type}:${a.affected_line ?? 'unknown'}:${a.day_number ?? 'all'}`
+    const cur = byKey.get(key)
+    if (!cur || a.id > cur.id) byKey.set(key, a)
   }
-  return [...byType.values()]
+  return [...byKey.values()]
 }
 
-export function useAlerts(tripId) {
+export function useAlerts(tripId, channelSuffix = '') {
   const [alerts, setAlerts] = useState([])
 
   useEffect(() => {
@@ -26,8 +28,10 @@ export function useAlerts(tripId) {
         if (data) setAlerts(dedupe(data))
       })
 
+    // Suffix keeps independent subscribers (e.g. Trip page + ChatWidget) on distinct Realtime
+    // topics so they don't collide on the same channel name.
     const channel = supabase
-      .channel(`trip-alerts-${tripId}`)
+      .channel(`trip-alerts-${tripId}${channelSuffix ? `-${channelSuffix}` : ''}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -50,7 +54,7 @@ export function useAlerts(tripId) {
       ignore = true
       supabase.removeChannel(channel)
     }
-  }, [tripId])
+  }, [tripId, channelSuffix])
 
   const dismiss = useCallback(
     (alertId) => setAlerts((prev) => prev.filter((a) => a.id !== alertId)),

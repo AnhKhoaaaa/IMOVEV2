@@ -1,15 +1,13 @@
 import { Lightbulb, ChevronDown } from 'lucide-react'
+import { useT } from '../../contexts/LanguageContext'
 
-const ALWAYS_TIPS = [
-  'Mua thẻ EZ-Link tại Changi Airport hoặc 7-Eleven để đi MRT/bus — tiện hơn trả tiền mặt.',
-  'Hầu hết hawker centre và quán ăn vỉa hè chỉ nhận tiền mặt SGD — mang theo tiền lẻ.',
-]
+const ALWAYS_TIP_KEYS = ['ttAlways1', 'ttAlways2']
 
 const CONDITIONAL_TIPS = [
   {
     key: 'outdoor',
     condition: (places) => places.some((p) => p.is_outdoor),
-    tip: 'Mang kem chống nắng SPF 50+ — Singapore có UV Index cao quanh năm.',
+    tipKey: 'ttOutdoor',
   },
   {
     key: 'religious',
@@ -19,31 +17,33 @@ const CONDITIONAL_TIPS = [
           ['museum', 'heritage'].includes(p.category) ||
           /mosque|temple|church/i.test(p.name),
       ),
-    tip: 'Ăn mặc kín đáo và cởi giày trước khi vào đền chùa hoặc nhà thờ Hồi giáo.',
+    tipKey: 'ttReligious',
   },
   {
     key: 'night',
     condition: (places) => places.some((p) => p.best_time_start >= '19:00'),
-    tip: 'Book vé trước trực tuyến để tránh xếp hàng tại các điểm tham quan về đêm.',
+    tipKey: 'ttNight',
   },
   {
     key: 'nature',
     condition: (places) => places.some((p) => p.category === 'nature'),
-    tip: 'Kiểm tra dự báo thời tiết — mưa chiều thường xuyên từ tháng 11 đến tháng 1.',
+    tipKey: 'ttNature',
   },
 ]
 
-function computeTips(places) {
+function computeTipKeys(places) {
   const conditional = CONDITIONAL_TIPS.filter(({ condition }) => condition(places)).map(
-    ({ tip }) => tip,
+    ({ tipKey }) => tipKey,
   )
-  return [...ALWAYS_TIPS, ...conditional]
+  return [...ALWAYS_TIP_KEYS, ...conditional]
 }
 
 export default function TravelTips({ places = [] }) {
+  const { t } = useT()
   if (places.length === 0) return null
 
-  const tips = computeTips(places)
+  const tipKeys = computeTipKeys(places)
+  const tips = tipKeys.map((k) => t(k))
 
   return (
     <details className="group mt-3 rounded-xl border border-amber-200 bg-amber-50 overflow-hidden">
@@ -51,7 +51,7 @@ export default function TravelTips({ places = [] }) {
         <div className="flex items-center gap-2">
           <Lightbulb className="h-4 w-4 shrink-0 text-amber-500" />
           <span className="text-sm font-semibold text-amber-800">
-            Lưu ý hành trình ({tips.length})
+            {t('ttHeader', tips.length)}
           </span>
         </div>
         <ChevronDown className="h-4 w-4 text-amber-500 transition-transform duration-200 group-open:rotate-180" />

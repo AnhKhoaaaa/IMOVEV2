@@ -4,6 +4,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import CitymapperTransitCard from './CitymapperTransitCard'
+import { useT } from '../../contexts/LanguageContext'
 
 function haversineMeters(a, b) {
   const R = 6371000
@@ -21,6 +22,7 @@ function fmtDist(m) {
 
 /* ── Completed stack ─────────────────────────────────────────────── */
 function CompletedStack({ places }) {
+  const { t } = useT()
   const [expanded, setExpanded] = useState(false)
   if (!places.length) return null
   return (
@@ -30,7 +32,7 @@ function CompletedStack({ places }) {
         className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[12.5px] font-semibold hover:bg-emerald-100 transition"
       >
         <CheckCircle size={13} className="text-emerald-600 shrink-0" />
-        <span>{places.length} stop{places.length !== 1 ? 's' : ''} completed</span>
+        <span>{t('alStopsCompleted', places.length)}</span>
         <ChevronDown size={12} className={cn('ml-auto transition-transform', expanded && 'rotate-180')} />
       </button>
       {expanded && (
@@ -51,6 +53,7 @@ function CompletedStack({ places }) {
 
 /* ── Up-next stack ───────────────────────────────────────────────── */
 function UpNextStack({ places }) {
+  const { t } = useT()
   const [expanded, setExpanded] = useState(false)
   if (!places.length) return null
   return (
@@ -60,7 +63,7 @@ function UpNextStack({ places }) {
         className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-[12.5px] font-semibold hover:bg-slate-100 transition"
       >
         <ArrowRight size={13} className="text-slate-400 shrink-0" />
-        <span>{places.length} stop{places.length !== 1 ? 's' : ''} up next</span>
+        <span>{t('alStopsUpNext', places.length)}</span>
         <ChevronDown size={12} className={cn('ml-auto transition-transform', expanded && 'rotate-180')} />
       </button>
       {expanded && (
@@ -81,6 +84,7 @@ function UpNextStack({ places }) {
 
 /* ── Weather swap banner ─────────────────────────────────────────── */
 function WeatherSwapBanner({ alert, onApprove, onDismiss }) {
+  const { t } = useT()
   if (!alert) return null
   return (
     <div className="rounded-xl border border-sky-300 bg-sky-50 p-3 animate-fade-up">
@@ -88,11 +92,11 @@ function WeatherSwapBanner({ alert, onApprove, onDismiss }) {
         <CloudRain size={14} className="text-sky-600 mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[12.5px] font-semibold text-sky-900">
-            Heavy rain expected at {alert.attractionName}
+            {t('alRainExpected', alert.attractionName)}
           </p>
           {alert.swapName && (
             <p className="text-[12px] text-sky-700 mt-0.5">
-              Swap to <span className="font-semibold">{alert.swapName}</span> (indoor)?
+              {t('alSwapToPre')}<span className="font-semibold">{alert.swapName}</span>{t('alSwapToPost')}
             </p>
           )}
         </div>
@@ -102,13 +106,13 @@ function WeatherSwapBanner({ alert, onApprove, onDismiss }) {
           onClick={onDismiss}
           className="h-7 px-3 rounded-full border border-sky-200 bg-white text-sky-700 text-[12px] font-medium hover:bg-sky-50 transition"
         >
-          Dismiss
+          {t('alertDismiss')}
         </button>
         <button
           onClick={onApprove}
           className="h-7 px-3 rounded-full bg-sky-600 text-white text-[12px] font-semibold hover:bg-sky-700 transition inline-flex items-center gap-1"
         >
-          Approve Swap ▶
+          {t('alApproveSwap')}
         </button>
       </div>
     </div>
@@ -123,6 +127,7 @@ const PHOTO_GRADIENTS = [
 ]
 
 function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
+  const { t } = useT()
   const [arriving, setArriving] = useState(false)
 
   const handleArrive = () => {
@@ -156,7 +161,7 @@ function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
             </div>
             {place.best_time_start && (
               <p className="text-[12px] text-slate-500 ml-7">
-                Open · {place.best_time_start} – {place.best_time_end}
+                {t('alOpenRange', place.best_time_start, place.best_time_end)}
               </p>
             )}
           </div>
@@ -174,12 +179,12 @@ function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
           )}
           {place.is_outdoor && (
             <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 h-5 text-[11px] font-medium inline-flex items-center">
-              Outdoor
+              {t('alOutdoor')}
             </span>
           )}
           {place.dwell_minutes && (
             <span className="rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 h-5 text-[11px] font-medium inline-flex items-center">
-              ~{place.dwell_minutes} min visit
+              {t('alMinVisit', place.dwell_minutes)}
             </span>
           )}
         </div>
@@ -189,7 +194,7 @@ function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
           rows={2}
           value={note ?? ''}
           onChange={(e) => onNoteChange?.(e.target.value)}
-          placeholder="Add a note for this stop…"
+          placeholder={t('alNotePlaceholder')}
           className="w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-[12.5px] placeholder:text-slate-400 resize-none mb-3 focus:outline-none focus:border-indigo-300"
         />
 
@@ -205,8 +210,8 @@ function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
           )}
         >
           {arriving
-            ? <><CheckCircle size={15} /> Arrived!</>
-            : <><Navigation2 size={15} /> Arrived at Destination</>
+            ? <><CheckCircle size={15} /> {t('alArrivedExcl')}</>
+            : <><Navigation2 size={15} /> {t('alArrivedDest')}</>
           }
         </button>
       </div>
@@ -231,6 +236,7 @@ export default function ActiveLegFocus({
   virtualStartLeg = null,
   onVirtualArrive,
 }) {
+  const { t } = useT()
   const [placeNotes, setPlaceNotes] = useState({})
 
   if (!legs || legs.length === 0) {
@@ -239,7 +245,7 @@ export default function ActiveLegFocus({
         <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-slate-100 text-slate-400 mb-2">
           <MapPin size={20} />
         </div>
-        <div className="font-display font-bold text-[15px] text-slate-700">No route yet</div>
+        <div className="font-display font-bold text-[15px] text-slate-700">{t('alNoRoute')}</div>
       </div>
     )
   }
@@ -297,7 +303,7 @@ export default function ActiveLegFocus({
       {virtualStartLeg && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3 animate-fade-up">
           <div className="flex items-center gap-2">
-            <span className="font-display font-bold text-[13px] text-amber-900">GET TO START</span>
+            <span className="font-display font-bold text-[13px] text-amber-900">{t('alGetToStart')}</span>
             <span className="text-[12px] text-amber-700">→ {virtualStartLeg.toPlace.name}</span>
           </div>
           {virtualStartLeg.routeComparison && (() => {
@@ -306,7 +312,7 @@ export default function ActiveLegFocus({
               : virtualStartLeg.routeComparison.walk
             return best ? (
               <p className="text-[12.5px] text-amber-800 ml-1">
-                {best.duration_minutes} min · {best.summary || 'to first stop'}
+                {t('tripMinShort', best.duration_minutes)} · {best.summary || t('alToFirstStop')}
                 {best.fare_sgd > 0 && ` · S$${best.fare_sgd.toFixed(2)}`}
               </p>
             ) : null
@@ -315,7 +321,7 @@ export default function ActiveLegFocus({
             onClick={onVirtualArrive}
             className="w-full h-10 rounded-xl bg-amber-500 text-white font-display font-bold text-[13.5px] hover:bg-amber-600 transition inline-flex items-center justify-center gap-2"
           >
-            <Navigation2 size={14} /> Arrived at {virtualStartLeg.toPlace.name}
+            <Navigation2 size={14} /> {t('alArrivedAt', virtualStartLeg.toPlace.name)}
           </button>
         </div>
       )}
@@ -327,10 +333,10 @@ export default function ActiveLegFocus({
             <span className="absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-40 animate-ping" />
             <span className="relative h-2.5 w-2.5 rounded-full bg-indigo-600" />
           </span>
-          <span className="font-display font-bold text-[13px] text-indigo-900">YOU ARE HERE</span>
+          <span className="font-display font-bold text-[13px] text-indigo-900">{t('alYouAreHere')}</span>
           {originPlace && (
             <span className="text-[12px] text-indigo-600 opacity-75 truncate">
-              · near {originPlace.name}
+              {t('alNear', originPlace.name)}
             </span>
           )}
         </div>
@@ -339,11 +345,11 @@ export default function ActiveLegFocus({
             {position.lat.toFixed(4)}°N · {position.lng.toFixed(4)}°E
           </p>
         ) : (
-          <p className="text-[12px] text-indigo-400 italic ml-7">Acquiring GPS location…</p>
+          <p className="text-[12px] text-indigo-400 italic ml-7">{t('alAcquiringGps')}</p>
         )}
         {distToTarget != null && (
           <p className="text-[12px] font-semibold text-indigo-800 ml-7 mt-1">
-            {fmtDist(distToTarget)} to {targetPlace?.name}
+            {t('alDistTo', fmtDist(distToTarget), targetPlace?.name)}
           </p>
         )}
       </div>
