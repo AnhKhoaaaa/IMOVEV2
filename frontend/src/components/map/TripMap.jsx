@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
 import { normalizeTransportMode, transportMeta } from '../../lib/transport'
+import { useT } from '../../contexts/LanguageContext'
 
 const MODE_STYLE = {
   METRO: { color: '#1d4ed8', halo: '#eff6ff', outline: '#172554', dashArray: null },
@@ -58,10 +59,10 @@ function userIcon() {
   })
 }
 
-function legTooltip(leg) {
+function legTooltip(leg, t) {
   const parts = [leg.transport_mode, `${leg.duration_minutes} min`]
   if (leg.cost_sgd != null) parts.push(`S$${leg.cost_sgd.toFixed(2)}`)
-  if (leg.is_estimated) parts.push('(estimated)')
+  if (leg.is_estimated) parts.push(t('tmEstimated'))
   return parts.join(' · ')
 }
 
@@ -145,6 +146,7 @@ function routeStyleFor(leg) {
 }
 
 export default function TripMap({ places, legs, userPosition, activeLegId = null, trimActiveRoute = false, placeSequences = {}, activeDayPlaceIds = null, trackingPath = [], placeDays = {}, legDays = {}, colorByDay = false }) {
+  const { t } = useT()
   const { ordered, byId } = useMemo(
     () => places?.length ? buildOrderedPlaces(places, legs ?? []) : { ordered: [], byId: {} },
     [places, legs]
@@ -198,7 +200,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
                 className="inline-block h-2.5 w-7 rounded-full border border-white"
                 style={{ background: dayColorFor(day), boxShadow: '0 0 0 1px rgba(15,23,42,.15)' }}
               />
-              <span className="font-semibold text-slate-800">Day {day}</span>
+              <span className="font-semibold text-slate-800">{t('tripDay', day)}</span>
             </div>
           ))}
         </div>
@@ -267,10 +269,10 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
                   </p>
                 )}
                 {place.dwell_minutes > 0 && (
-                  <p style={{ fontSize: 12, color: '#475569', margin: '0 0 2px' }}>⏱ {place.dwell_minutes} min visit</p>
+                  <p style={{ fontSize: 12, color: '#475569', margin: '0 0 2px' }}>⏱ {t('tripMinVisit', place.dwell_minutes)}</p>
                 )}
                 {place.best_time_start && (
-                  <p style={{ fontSize: 12, color: '#92400e', margin: 0 }}>☀ Best: {place.best_time_start}–{place.best_time_end}</p>
+                  <p style={{ fontSize: 12, color: '#92400e', margin: 0 }}>☀ {t('tripBestTime', place.best_time_start, place.best_time_end)}</p>
                 )}
               </div>
             </Popup>
@@ -328,7 +330,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
               lineCap="round"
               lineJoin="round"
             >
-              <Tooltip sticky direction="top" opacity={0.96}>{legTooltip(leg)}</Tooltip>
+              <Tooltip sticky direction="top" opacity={0.96}>{legTooltip(leg, t)}</Tooltip>
             </Polyline>
           )
         })}
@@ -338,7 +340,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
             position={[userPosition.lat, userPosition.lng]}
             icon={userIcon()}
           >
-            <Popup>Your current location</Popup>
+            <Popup>{t('tmCurrentLocation')}</Popup>
           </Marker>
         )}
 
