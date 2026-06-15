@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   AlertCircle,
   Building2,
@@ -78,37 +79,35 @@ function endDate(startDate, numDays) {
 function PlaceMiniCard({ place, onRemove }) {
   const { t } = useT()
   return (
-    <div className="group flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="h-14 w-16 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+    <div className="group flex items-center gap-2.5 rounded-xl border border-slate-100 bg-white p-2 shadow-[0_4px_16px_-14px_rgba(15,23,42,0.35)] transition-shadow hover:shadow-md">
+      <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+        <div className="absolute inset-0 grid place-items-center text-blue-500">
+          <MapPin size={15} />
+        </div>
         {place.image_url ? (
           <img
             src={place.image_url}
             alt=""
-            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+            className="relative h-full w-full object-cover"
             onError={(event) => { event.currentTarget.style.display = 'none' }}
           />
-        ) : (
-          <div className="grid h-full w-full place-items-center text-blue-500">
-            <MapPin size={18} />
-          </div>
-        )}
+        ) : null}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] font-bold text-slate-900">{place.name}</p>
-        <p className="mt-0.5 truncate text-[11px] font-semibold capitalize text-slate-400">
+        <p className="truncate text-[11px] font-extrabold text-slate-900">{place.name}</p>
+        <p className="mt-0.5 truncate text-[9px] font-semibold capitalize text-slate-400">
           {place.category || t('tripCategoryFallback')} · {t('tripMinShort', place.dwell_minutes ?? place.suggested_duration_minutes ?? 60)}
         </p>
-        {place.formatted_address && (
-          <p className="mt-1 truncate text-[11px] text-slate-500">{place.formatted_address}</p>
-        )}
       </div>
       <button
         type="button"
         onClick={onRemove}
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
         title={t('tripRemove')}
       >
-        <Trash2 size={13} />
+        <Trash2 size={11} />
       </button>
     </div>
   )
@@ -127,7 +126,7 @@ function SelectedList({ places, onRemove }) {
   }
 
   return (
-    <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+    <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-330px)]">
       {places.map((place) => (
         <PlaceMiniCard key={place.id} place={place} onRemove={() => onRemove(place.id)} />
       ))}
@@ -229,6 +228,7 @@ const user = auth?.user
   }, [hotelQuery, hotel])
 
   const selectedIds = useMemo(() => selected.map((place) => place.id), [selected])
+  const curatedPlaces = useMemo(() => Object.values(placesById), [placesById])
 
   const addPlace = (place) => {
     if (!place?.id || selectedIds.includes(place.id)) return
@@ -337,7 +337,7 @@ const user = auth?.user
   // Wizard Step triggers
   const goToStep = (step) => {
     if (step >= 1 && step <= 4) {
-      setCurrentStep(step)
+      startTransition(() => setCurrentStep(step))
     }
   }
 
@@ -669,11 +669,12 @@ const user = auth?.user
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('fastest')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'fastest'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -683,13 +684,14 @@ const user = auth?.user
                           <Zap size={14} className="text-amber-500" /> {t('plnFastest')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnFastestDesc')}</p>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('cheapest')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'cheapest'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -699,13 +701,14 @@ const user = auth?.user
                           <Banknote size={14} className="text-emerald-500" /> {t('plnCheapest')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnCheapestDesc')}</p>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('leisure')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'leisure'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -715,13 +718,14 @@ const user = auth?.user
                           <Footprints size={14} className="text-indigo-500" /> {t('plnLeastWalking')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastWalkingDesc')}</p>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('direct')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'direct'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -731,15 +735,16 @@ const user = auth?.user
                           <Shuffle size={14} className="text-purple-500" /> {t('plnLeastTransfers')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastTransfersDesc')}</p>
-                      </button>
+                      </motion.button>
 
                       {user && (
-                        <button
+                        <motion.button
                           type="button"
                           onClick={() => setSelectedPreset('user')}
+                          whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                           style={{ gridColumn: '1 / -1' }}
                           className={cn(
-                            'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                            'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                             selectedPreset === 'user'
                               ? 'border-emerald-400 bg-emerald-50/30 ring-1 ring-emerald-300 shadow-sm'
                               : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
@@ -749,7 +754,7 @@ const user = auth?.user
                             <User size={14} className="text-emerald-600" /> {t('plnUseProfile')}
                           </div>
                           <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnUseProfileDesc')}</p>
-                        </button>
+                        </motion.button>
                       )}
                     </div>
 
@@ -810,9 +815,9 @@ const user = auth?.user
                       <p className="text-[12.5px] text-slate-500">{t('plnPickSights')}</p>
                     </div>
 
-                    <div className="grid grid-cols-[1fr_260px] gap-6">
+                    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_230px]">
                       {/* Left: Place Browser */}
-                      <div className="border-r border-slate-100 pr-6">
+                      <div className="min-w-0 xl:border-r xl:border-slate-100 xl:pr-5">
                         <div className="flex justify-between items-center mb-2">
                           <span className="text-[12px] font-bold text-slate-500">{t('plnCuratedSearch')}</span>
                           <button
@@ -841,11 +846,16 @@ const user = auth?.user
                           </div>
                         )}
 
-                        <PlaceBrowser selectedIds={selectedIds} onToggle={togglePlace} />
+                        <PlaceBrowser
+                          selectedIds={selectedIds}
+                          onToggle={togglePlace}
+                          places={curatedPlaces}
+                          loading={placesLoading}
+                        />
                       </div>
 
                       {/* Right: Selected List */}
-                      <div className="flex flex-col">
+                      <div className="flex flex-col self-start xl:sticky xl:top-4">
                         <div>
                           <span className="text-[12px] font-bold text-slate-500 block mb-2">{t('plnSelectedShortlist', selected.length)}</span>
                           <SelectedList places={selected} onRemove={removePlace} />

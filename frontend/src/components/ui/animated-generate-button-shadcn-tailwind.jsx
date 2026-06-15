@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 
+const ACTION_DELAY_AFTER_APPEAR_MS = 520
+
 function LetterRow({ label, rowRef, hidden = false }) {
   return (
     <span
@@ -184,7 +186,7 @@ export default function AnimatedGenerateButton({
       schedule(() => {
         setAnimating(false)
         onClick?.(event)
-      }, 320)
+      }, ACTION_DELAY_AFTER_APPEAR_MS)
     })
   }
 
