@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Search, Check, Leaf, Landmark, MapPin,
   Sparkles, Utensils, ShoppingBag, LayoutGrid,
-  Star, Award
+  Star, Clock3
 } from 'lucide-react'
 import { api } from '../../services/api'
 import { Input } from '../ui/input'
@@ -96,27 +96,32 @@ function getExtendedCategory(place) {
   return 'attraction'
 }
 
-export default function PlaceBrowser({ selectedIds = [], onToggle }) {
+export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppliedPlaces, loading: suppliedLoading }) {
   const { lang } = useT()
-  const [places, setPlaces] = useState([])
-  const [loading, setLoading] = useState(true)
+  const usesSuppliedPlaces = Array.isArray(suppliedPlaces)
+  const [fetchedPlaces, setFetchedPlaces] = useState([])
+  const [fetchLoading, setFetchLoading] = useState(!usesSuppliedPlaces)
   const [activeGroup, setActiveGroup] = useState('all')
   const [search, setSearch] = useState('')
   const [visibleCount, setVisibleCount] = useState(20)
+  const places = usesSuppliedPlaces ? suppliedPlaces : fetchedPlaces
+  const loading = usesSuppliedPlaces ? Boolean(suppliedLoading) : fetchLoading
 
   useEffect(() => {
+    if (usesSuppliedPlaces) return undefined
     api.getCuratedPlaces()
-      .then(setPlaces)
-      .catch(() => setPlaces([]))
-      .finally(() => setLoading(false))
-  }, [])
+      .then(setFetchedPlaces)
+      .catch(() => setFetchedPlaces([]))
+      .finally(() => setFetchLoading(false))
+    return undefined
+  }, [usesSuppliedPlaces])
 
   // Reset limit when search or group changes
   useEffect(() => {
     setVisibleCount(20)
   }, [activeGroup, search])
 
-  const filtered = places.filter((p) => {
+  const filtered = useMemo(() => places.filter((p) => {
     const group = CATEGORY_GROUPS.find((g) => g.id === activeGroup)
     if (!group?.categories) return !search.trim() || p.name.toLowerCase().includes(search.trim().toLowerCase())
     const extCat = getExtendedCategory(p)
@@ -124,7 +129,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle }) {
     const matchesSearch =
       !search.trim() || p.name.toLowerCase().includes(search.trim().toLowerCase())
     return matchesGroup && matchesSearch
-  })
+  }), [activeGroup, places, search])
 
   const visiblePlaces = filtered.slice(0, visibleCount)
 
@@ -134,6 +139,14 @@ export default function PlaceBrowser({ selectedIds = [], onToggle }) {
   const getLoadingAriaLabel = () => (lang === 'vi' ? 'Đang tải địa điểm' : 'Loading places')
   const getEmptyMessage = () => (lang === 'vi' ? 'Không có địa điểm nào' : 'No places found')
   const getDwellTimeLabel = (mins) => (lang === 'vi' ? `~${mins} phút` : `~${mins} mins`)
+  const getSelectedCountLabel = () => (
+    lang === 'vi' ? `${selectedIds.length} địa điểm đã chọn` : `${selectedIds.length} places selected`
+  )
+  const getCategoryLabel = (place) => {
+    const category = getExtendedCategory(place)
+    const group = CATEGORY_GROUPS.find((item) => item.categories?.includes(category))
+    return group ? getGroupLabel(group) : place.category
+  }
   const getGroupLabel = (group) => {
     if (lang === 'vi') return group.label
     switch (group.id) {
@@ -148,21 +161,26 @@ export default function PlaceBrowser({ selectedIds = [], onToggle }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={getPlaceholder()}
-          className="pl-9"
-          aria-label={getSearchAriaLabel()}
-        />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative min-w-0 flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={getPlaceholder()}
+            className="h-11 rounded-xl border-slate-200 bg-white pl-9 focus-visible:ring-slate-300"
+            aria-label={getSearchAriaLabel()}
+          />
+        </div>
+        <span className="w-fit shrink-0 rounded-full bg-slate-950 px-3 py-2 text-[10px] font-extrabold text-white">
+          {getSelectedCountLabel()}
+        </span>
       </div>
 
       {/* Category filter chips */}
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label={getFilterAriaLabel()}>
+      <div className="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label={getFilterAriaLabel()}>
         {CATEGORY_GROUPS.map((group) => {
           const { id, icon: Icon } = group
           return (
@@ -170,10 +188,10 @@ export default function PlaceBrowser({ selectedIds = [], onToggle }) {
               key={id}
               onClick={() => setActiveGroup(id)}
               aria-pressed={activeGroup === id}
-              className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-extrabold transition-colors ${
                 activeGroup === id
-                  ? 'bg-sky-500 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  ? 'border-slate-950 bg-slate-950 text-white'
+                  : 'border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-900'
               }`}
             >
               <Icon className="h-3 w-3" />
@@ -185,65 +203,89 @@ export default function PlaceBrowser({ selectedIds = [], onToggle }) {
 
       {/* Cards */}
       {loading ? (
-        <div className="grid grid-cols-2 gap-2" aria-label={getLoadingAriaLabel()}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label={getLoadingAriaLabel()}>
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-xl" />
+            <Skeleton key={i} className="h-64 rounded-2xl" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
         <p className="py-4 text-center text-sm text-slate-400">{getEmptyMessage()}</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {visiblePlaces.map((place) => {
               const isSelected = selectedIds.includes(place.id)
               const Icon = ICON_BY_CATEGORY[getExtendedCategory(place)] ?? MapPin
               const specialBadges = getSpecialBadges(place.name)
+              const primaryBadge = specialBadges[0]
               return (
                 <button
                   key={place.id}
                   onClick={() => onToggle(place)}
                   aria-pressed={isSelected}
                   aria-label={place.name}
-                  className={`relative flex flex-col items-start gap-1 rounded-xl border p-3 text-left transition-all ${
+                  className={`group relative min-w-0 overflow-hidden rounded-2xl border bg-white text-left shadow-[0_5px_18px_-15px_rgba(15,23,42,0.3)] transition-[transform,box-shadow,border-color] duration-200 will-change-transform hover:z-10 hover:scale-[1.025] hover:border-slate-400 hover:shadow-[0_20px_38px_-27px_rgba(15,23,42,0.58)] ${
                     isSelected
-                      ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-300'
-                      : 'border-slate-200 bg-white hover:border-sky-200 hover:bg-slate-50'
+                      ? 'border-slate-950 ring-1 ring-slate-950'
+                      : 'border-slate-200'
                   }`}
                 >
-                  {isSelected && (
-                    <span className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-sky-500">
-                      <Check className="h-2.5 w-2.5 text-white" />
-                    </span>
-                  )}
-                  <Icon
-                    className={`h-4 w-4 shrink-0 ${isSelected ? 'text-sky-500' : 'text-slate-400'}`}
-                  />
-                  <span
-                    className={`text-xs font-semibold leading-tight mt-1 ${
-                      isSelected ? 'text-sky-700' : 'text-slate-700'
-                    }`}
-                  >
-                    {place.name}
-                  </span>
-                  <span className="text-[11px] text-slate-400 mt-0.5">{getDwellTimeLabel(place.dwell_minutes)}</span>
-
-                  {specialBadges.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {specialBadges.map((badge) => (
-                        <span
-                          key={badge}
-                          className="inline-flex items-center gap-0.5 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700"
-                        >
-                          {badge.includes("Pick") || badge.includes("Best") || badge.includes("Top") || badge.includes("100")
-                            ? <Star size={7} className="shrink-0" />
-                            : <Award size={7} className="shrink-0" />
-                          }
-                          {badge}
-                        </span>
-                      ))}
+                  <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-blue-100 via-violet-50 to-emerald-100">
+                    <div className="absolute inset-0 grid place-items-center text-slate-400">
+                      <Icon className="h-7 w-7" />
                     </div>
-                  )}
+                    {place.image_url && (
+                      <img
+                        src={place.image_url}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="relative h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.055]"
+                        onError={(event) => { event.currentTarget.style.display = 'none' }}
+                      />
+                    )}
+                    <span className={`absolute right-2.5 top-2.5 z-10 grid h-7 w-7 place-items-center rounded-lg border border-white/80 shadow-sm transition ${
+                      isSelected ? 'bg-slate-950 text-white' : 'bg-white/90 text-slate-400'
+                    }`}>
+                      {isSelected ? <Check className="h-3.5 w-3.5" /> : <span className="text-base font-medium leading-none">+</span>}
+                    </span>
+                  </div>
+
+                  <div className="p-3">
+                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-[0.08em] text-slate-500">
+                      <Icon className="h-3 w-3" />
+                      {getCategoryLabel(place)}
+                    </span>
+                    <span className="mt-1.5 line-clamp-2 min-h-9 text-[13px] font-extrabold leading-[1.35] text-slate-900">
+                      {place.name}
+                    </span>
+
+                    {place.rating != null && (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-slate-600">
+                        <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                        {Number(place.rating).toFixed(1)}
+                      </span>
+                    )}
+
+                    <p className="mt-1.5 line-clamp-2 min-h-8 text-[10px] leading-[1.55] text-slate-500">
+                      {place.description || place.formatted_address || (lang === 'vi' ? 'Khám phá địa điểm nổi bật tại Singapore.' : 'Discover a standout place in Singapore.')}
+                    </p>
+
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-bold text-slate-600">
+                        <Clock3 className="h-3.5 w-3.5" />
+                        {getDwellTimeLabel(place.dwell_minutes ?? place.suggested_duration_minutes ?? 60)}
+                      </span>
+                      {primaryBadge && (
+                        <span
+                          className="max-w-[145px] truncate rounded-full bg-amber-50 px-2.5 py-1.5 text-[10px] font-extrabold text-amber-700"
+                          title={primaryBadge}
+                        >
+                          {primaryBadge}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </button>
               )
             })}

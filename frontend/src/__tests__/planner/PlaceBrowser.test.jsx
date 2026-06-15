@@ -11,7 +11,7 @@ vi.mock('../../services/api', () => ({
 }))
 
 const PLACES = [
-  { id: 'gardens', name: 'Gardens by the Bay', category: 'nature',       dwell_minutes: 180, in_curated_dataset: true },
+  { id: 'gardens', name: 'Gardens by the Bay', category: 'nature',       dwell_minutes: 180, in_curated_dataset: true, rating: 4.8, description: 'A waterfront garden.', image_url: 'https://img.test/gardens.jpg' },
   { id: 'museum',  name: 'National Museum',    category: 'museum',       dwell_minutes: 120, in_curated_dataset: true },
   { id: 'marina',  name: 'Marina Bay Sands',   category: 'landmark',     dwell_minutes: 90,  in_curated_dataset: true },
   { id: 'uss',     name: 'Universal Studios',  category: 'entertainment',dwell_minutes: 480, in_curated_dataset: true },
@@ -49,6 +49,18 @@ describe('PlaceBrowser', () => {
     render(<PlaceBrowser selectedIds={[]} onToggle={vi.fn()} />)
     await waitFor(() => expect(screen.getByText('~180 phút')).toBeInTheDocument())
     expect(screen.getByText('~120 phút')).toBeInTheDocument()
+  })
+
+  it('renders available image, rating, and description', async () => {
+    render(<PlaceBrowser selectedIds={[]} onToggle={vi.fn()} />)
+    await waitFor(() => expect(screen.getByAltText('')).toHaveAttribute('src', 'https://img.test/gardens.jpg'))
+    expect(screen.getByText('4.8')).toBeInTheDocument()
+    expect(screen.getByText('A waterfront garden.')).toBeInTheDocument()
+  })
+
+  it('shows selected place count', async () => {
+    render(<PlaceBrowser selectedIds={['gardens']} onToggle={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText('1 địa điểm đã chọn')).toBeInTheDocument())
   })
 
   it('filters by category group', async () => {

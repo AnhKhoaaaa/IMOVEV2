@@ -1,16 +1,7 @@
 export default function AuroraBackground({ children }) {
   return (
-    <main className="planner-aurora-shell relative isolate min-h-[calc(100dvh-56px)] overflow-hidden bg-zinc-50">
+    <main className="planner-aurora-shell relative isolate min-h-[calc(100dvh-56px)] overflow-clip bg-zinc-50">
       <style>{`
-        @keyframes planner-aurora {
-          from {
-            background-position: 50% 50%, 50% 50%;
-          }
-          to {
-            background-position: 350% 50%, 350% 50%;
-          }
-        }
-
         .planner-aurora-layer {
           position: absolute;
           inset: -10px;
@@ -64,13 +55,6 @@ export default function AuroraBackground({ children }) {
           background-size: 200%, 100%;
           background-position: 50% 50%, 50% 50%;
           mix-blend-mode: difference;
-          animation: planner-aurora 60s linear infinite;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .planner-aurora-layer::after {
-            animation: none;
-          }
         }
       `}</style>
       <div className="planner-aurora-layer" aria-hidden="true" />
