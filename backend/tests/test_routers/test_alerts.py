@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.dependencies import get_current_user, require_current_user
+from app.dependencies import require_current_user
+import app.routers.trips as trips
 
 client = TestClient(app)
 
@@ -23,16 +24,16 @@ def clear_overrides():
 
 # ── POST /alerts/feedback ─────────────────────────────────────────────────────
 
-def test_feedback_no_auth_returns_201():
+def test_feedback_no_auth_returns_401():
     with patch("app.agents.memory_agent.save_feedback", new_callable=AsyncMock):
         resp = client.post("/alerts/feedback", json={"trip_id": "trip-abc", "rating": 4})
-    assert resp.status_code == 201
-    assert resp.json() == {"status": "ok"}
+    assert resp.status_code == 401
 
 
 def test_feedback_with_jwt_calls_learn_from_implicit():
     uid = "550e8400-e29b-41d4-a716-446655440000"
-    app.dependency_overrides[get_current_user] = _auth_override(uid)
+    trips._trip_meta["trip-abc"] = {"user_id": uid}
+    app.dependency_overrides[require_current_user] = _auth_override(uid)
     with patch("app.agents.memory_agent.save_feedback", new_callable=AsyncMock), \
          patch("app.agents.memory_agent.learn_from_implicit", new_callable=AsyncMock) as mock_learn:
         resp = client.post("/alerts/feedback", json={"trip_id": "trip-abc", "rating": 5})
@@ -41,6 +42,9 @@ def test_feedback_with_jwt_calls_learn_from_implicit():
 
 
 def test_feedback_save_error_returns_500():
+    uid = "550e8400-e29b-41d4-a716-446655440000"
+    trips._trip_meta["trip-abc"] = {"user_id": uid}
+    app.dependency_overrides[require_current_user] = _auth_override(uid)
     with patch("app.agents.memory_agent.save_feedback", new_callable=AsyncMock,
                side_effect=RuntimeError("DB gone")):
         resp = client.post("/alerts/feedback", json={"trip_id": "trip-abc", "rating": 3})
@@ -48,8 +52,23 @@ def test_feedback_save_error_returns_500():
 
 
 def test_feedback_invalid_rating_returns_422():
+    uid = "550e8400-e29b-41d4-a716-446655440000"
+    app.dependency_overrides[require_current_user] = _auth_override(uid)
     resp = client.post("/alerts/feedback", json={"trip_id": "trip-abc", "rating": 99})
     assert resp.status_code == 422
+
+
+def test_feedback_rejects_a_different_trip_owner():
+    owner = "550e8400-e29b-41d4-a716-446655440000"
+    other_user = "11111111-1111-1111-1111-111111111111"
+    trips._trip_meta["trip-abc"] = {"user_id": owner}
+    app.dependency_overrides[require_current_user] = _auth_override(other_user)
+
+    with patch("app.agents.memory_agent.save_feedback", new_callable=AsyncMock) as mock_save:
+        resp = client.post("/alerts/feedback", json={"trip_id": "trip-abc", "rating": 4})
+
+    assert resp.status_code == 403
+    mock_save.assert_not_called()
 
 
 def test_feedback_body_user_id_field_no_longer_exists():

@@ -1,11 +1,11 @@
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.models.trip import FeedbackRequest, PreferencesResponse
 from app.agents import memory_agent
-from app.dependencies import get_current_user, require_current_user
+from app.dependencies import require_current_user
+from app.routers import trips
 
 log = logging.getLogger(__name__)
 
@@ -15,9 +15,11 @@ router = APIRouter()
 @router.post("/feedback", status_code=201)
 async def submit_feedback(
     body: FeedbackRequest,
-    user_id: Optional[str] = Depends(get_current_user),
+    user_id: str = Depends(require_current_user),
 ):
-    """Save explicit user rating/comment. user_id is extracted from JWT (optional)."""
+    """Save explicit feedback for a trip owned by the authenticated user."""
+    trips._verify_user_ownership(body.trip_id, user_id)
+
     try:
         await memory_agent.save_feedback(
             trip_id=body.trip_id,
@@ -27,8 +29,7 @@ async def submit_feedback(
             comment=body.comment,
             feedback_type="explicit",
         )
-        if user_id:
-            await memory_agent.learn_from_implicit(user_id)
+        await memory_agent.learn_from_implicit(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:

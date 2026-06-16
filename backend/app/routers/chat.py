@@ -141,7 +141,10 @@ async def _dispatch(pending: dict, current_user: Optional[str]) -> None:
         )
     elif tool == "change_leg_mode":
         await trips.update_leg(
-            trip_id, a["leg_id"], LegUpdateRequest(transport_mode=a["transport_mode"])
+            trip_id,
+            a["leg_id"],
+            LegUpdateRequest(transport_mode=a["transport_mode"]),
+            current_user,
         )
     elif tool == "switch_leg_now":
         await trips.switch_leg_now(
@@ -151,6 +154,7 @@ async def _dispatch(pending: dict, current_user: Optional[str]) -> None:
                 current_lat=a["current_lat"],
                 current_lng=a["current_lng"],
             ),
+            current_user,
         )
     elif tool == "add_day":
         await trips.add_day(trip_id, current_user)
