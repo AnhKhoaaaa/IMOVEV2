@@ -1,0 +1,915 @@
+\documentclass[12pt,a4paper]{article}
+
+% ---- Ngôn ngữ & Font ----
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{vietnamese}
+\setmainfont{TeX Gyre Termes}
+\setsansfont{TeX Gyre Heros}
+\setmonofont{TeX Gyre Cursor}[Scale=0.90]
+
+% ---- Trang giấy ----
+\usepackage[margin=2.5cm,top=2.5cm,bottom=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% ---- Toán học ----
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+
+% ---- Bảng biểu ----
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{ragged2e}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}m{#1}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}m{#1}}
+
+% ---- Hình ảnh & Màu ----
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{pifont}
+
+\newcommand{\okmark}{\textcolor{green!55!black}{\ding{51}}}
+\newcommand{\warnmark}{\textcolor{orange!90!black}{\ding{115}}}
+\newcommand{\nokmark}{\textcolor{red!80!black}{\ding{55}}}
+
+% ---- Hyperlink & Mục lục ----
+\usepackage[hidelinks]{hyperref}
+\hypersetup{colorlinks=true, linkcolor=black, urlcolor=blue!70!black, citecolor=blue!70!black}
+
+% ---- Sơ đồ TikZ ----
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+
+% ---- tcolorbox ----
+\usepackage[most]{tcolorbox}
+
+% ---- Danh sách ----
+\usepackage{enumitem}
+
+% ---- Code listing ----
+\usepackage{listings}
+\definecolor{codegreen}{rgb}{0.00,0.55,0.00}
+\definecolor{codegray}{rgb}{0.50,0.50,0.50}
+\definecolor{codepurple}{rgb}{0.58,0.00,0.82}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\definecolor{backcolour}{rgb}{0.97,0.97,0.95}
+
+\lstdefinestyle{codestyle}{
+  backgroundcolor=\color{backcolour},
+  commentstyle=\color{codegreen}\itshape,
+  keywordstyle=\color{codeblue}\bfseries,
+  numberstyle=\tiny\color{codegray},
+  stringstyle=\color{codepurple},
+  basicstyle=\ttfamily\footnotesize,
+  breakatwhitespace=false,
+  breaklines=true,
+  captionpos=b,
+  keepspaces=true,
+  numbers=left,
+  numbersep=6pt,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  tabsize=2,
+  frame=single,
+  framesep=4pt,
+  xleftmargin=10pt
+}
+\lstset{style=codestyle}
+
+% ---- Đầu trang / Chân trang ----
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape IMOVEV2 --- Hệ thống lập kế hoạch giao thông công cộng}
+\fancyhead[R]{\small\itshape Báo cáo đồ án}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\setlength{\headheight}{15pt}
+
+% ---- Tiêu đề mục ----
+\usepackage{titlesec}
+\renewcommand{\thesection}{\Roman{section}}
+\renewcommand{\thesubsection}{\arabic{subsection}}
+\titleformat{\section}{\Large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection.}{0.5em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection.}{0.5em}{}
+
+% ---- Lệnh tiện ích ----
+\newcommand{\dienvao}{\textbf{Điền vào đây}}
+\newcommand{\danhinh}[1]{%
+  \begin{figure}[H]
+    \centering
+    \begin{tcolorbox}[width=0.88\textwidth,height=5cm,valign=center,colback=gray!5,colframe=gray!45]
+      \centering\Large\textbf{Dán hình ảnh vào đây}
+    \end{tcolorbox}
+    \caption{#1}
+  \end{figure}
+}
+\newcommand{\tacgia}{%
+  \begin{tcolorbox}[colback=blue!3,colframe=blue!25,boxrule=0.4pt,arc=1mm]
+    \small\textbf{ID và họ tên tác giả/reviewer: Điền vào đây}
+  \end{tcolorbox}
+}
+
+% ---- TikZ styles ----
+\tikzset{
+  nodebox/.style={draw,rounded corners,align=center,minimum width=2.7cm,minimum height=0.9cm,fill=blue!5},
+  agent/.style={nodebox,fill=green!8,draw=green!55!black},
+  external/.style={nodebox,fill=orange!8,draw=orange!60!black},
+  data/.style={nodebox,cylinder,shape border rotate=90,aspect=0.25,fill=purple!7,draw=purple!55!black},
+  arrow/.style={-{Latex[length=2mm]},thick}
+}
+
+% =========================================================================
+\begin{document}
+
+% =================================================================
+% ===================== TRANG 1: BÌA ==============================
+% =================================================================
+\begin{titlepage}
+    \begin{tikzpicture}[overlay, remember picture]
+        \def\margin{0.8cm} \def\gap{0.2cm}
+        \draw[line width=1.5pt] ($ (current page.north west) + (\margin, -\margin) $) rectangle ($ (current page.south east) + (-\margin, \margin) $);
+        \draw[line width=0.5pt] ($ (current page.north west) + (\margin+\gap, -\margin-\gap) $) rectangle ($ (current page.south east) + (-\margin-\gap, \margin+\gap) $);
+    \end{tikzpicture}
+
+    \begin{center}
+        {\fontsize{13pt}{15pt}\selectfont \textbf{ĐẠI HỌC QUỐC GIA THÀNH PHỐ HỒ CHÍ MINH\\
+        TRƯỜNG ĐẠI HỌC KHOA HỌC TỰ NHIÊN\\
+        KHOA CÔNG NGHỆ THÔNG TIN}}
+
+        \vfill
+        \includegraphics[width=4cm]{logo.png}
+        \vfill
+
+        {\fontsize{20pt}{22pt}\selectfont \textbf{BÁO CÁO ĐỒ ÁN}} \\
+        \vspace{0.5cm}
+        {\fontsize{16pt}{20pt}\selectfont \textbf{IMOVEV2\\
+        HỆ THỐNG LẬP KẾ HOẠCH GIAO THÔNG CÔNG CỘNG\\
+        THÍCH NGHI CHO DU KHÁCH TẠI SINGAPORE}} \\
+
+        \vfill
+        \begin{tabular}{rl}
+            \textbf{Môn học:} & \dienvao \\
+            \textbf{Mã môn:} & \dienvao \\
+            \textbf{Học kỳ:} & \dienvao \\
+            \textbf{Mã lớp:} & \dienvao \\
+        \end{tabular}
+
+        \vspace{1.0cm}
+        \begin{tabular}{rl}
+            \textbf{Giảng viên hướng dẫn:} & \dienvao \\
+            \textbf{Mã nhóm:} & \dienvao \\
+        \end{tabular}
+
+        \vfill
+        \textbf{Thành viên thực hiện:} \\
+        \vspace{0.5cm}
+        \begin{tabular}{|l|l|l|}
+            \hline
+            \textbf{Mã số sinh viên} & \textbf{Họ và tên} & \textbf{Email} \\
+            \hline
+            \dienvao & \dienvao & \dienvao \\
+            \hline
+            \dienvao & \dienvao & \dienvao \\
+            \hline
+            \dienvao & \dienvao & \dienvao \\
+            \hline
+            \dienvao & \dienvao & \dienvao \\
+            \hline
+        \end{tabular}
+
+        \vfill
+        {\fontsize{14pt}{20pt}\selectfont \textbf{THÀNH PHỐ HỒ CHÍ MINH, 2026}}
+    \end{center}
+\end{titlepage}
+
+% =================================================================
+% ================ PHÂN CÔNG CÔNG VIỆC ============================
+% =================================================================
+\newpage
+\pagestyle{empty}
+\begin{center}
+{\LARGE\bfseries BẢNG PHÂN CÔNG CÔNG VIỆC}
+\end{center}
+\vspace{1.0cm}
+
+\renewcommand{\arraystretch}{2.0}
+\begin{center}
+\begin{tabular}{|C{2.5cm}|C{3.5cm}|C{5.0cm}|C{2.8cm}|}
+    \hline
+    \textbf{Mã số sinh viên} & \textbf{Họ tên} & \textbf{Phân công} & \textbf{Tỷ lệ hoàn thành} \\ \hline
+    \dienvao & \dienvao & Backend infrastructure \& external APIs & \dienvao \\ \hline
+    \dienvao & \dienvao & Planning, Adaptation \& Memory Agent & \dienvao \\ \hline
+    \dienvao & \dienvao & Frontend core flow, authentication \& planner & \dienvao \\ \hline
+    \dienvao & \dienvao & Map, realtime alerts \& frontend integration & \dienvao \\ \hline
+\end{tabular}
+\end{center}
+\renewcommand{\arraystretch}{1.0}
+
+% =================================================================
+% ========================= MỤC LỤC ==============================
+% =================================================================
+\newpage
+\pagestyle{fancy}
+\pagenumbering{roman}
+\setcounter{page}{1}
+\renewcommand{\contentsname}{\centerline{MỤC LỤC}}
+\tableofcontents
+\newpage
+
+\renewcommand{\listfigurename}{\centerline{DANH SÁCH HÌNH ẢNH}}
+\listoffigures
+\newpage
+
+\renewcommand{\listtablename}{\centerline{DANH SÁCH BẢNG BIỂU}}
+\listoftables
+\newpage
+
+% =================================================================
+% =================== NỘI DUNG CHÍNH ==============================
+% =================================================================
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+% -----------------------------------------------------------------
+\section{Thành viên nhóm}
+
+\subsection{Thành viên và vai trò}
+\tacgia
+
+\begin{longtable}{|C{2.5cm}|C{3.5cm}|C{4.0cm}|C{5.0cm}|}
+\hline
+\textbf{Student ID} & \textbf{Full Name} & \textbf{Email} & \textbf{Roles / Responsibilities} \\ \hline
+\endhead
+\dienvao & \dienvao & \dienvao & Backend infrastructure và external APIs; chỉnh sửa nếu cần. \\ \hline
+\dienvao & \dienvao & \dienvao & Planning, Adaptation và Memory Agent; chỉnh sửa nếu cần. \\ \hline
+\dienvao & \dienvao & \dienvao & Frontend core flow, authentication và planner; chỉnh sửa nếu cần. \\ \hline
+\dienvao & \dienvao & \dienvao & Map, realtime alerts và frontend integration; chỉnh sửa nếu cần. \\ \hline
+\end{longtable}
+
+\subsection{Nguyên tắc phân công}
+\tacgia
+
+Nhóm phân chia công việc theo ranh giới kỹ thuật: infrastructure và external API, agent/business logic, frontend core, map và realtime. Các thay đổi liên tầng cần review chéo vì contract giữa Pydantic model, FastAPI router và React component liên hệ trực tiếp.
+
+% -----------------------------------------------------------------
+\section{Ý tưởng}
+
+\subsection{Problem Statement}
+\tacgia
+
+Singapore có mạng lưới MRT, LRT, bus và walking link dày đặc. Du khách lần đầu thường đã có danh sách địa điểm muốn tham quan nhưng chưa biết cách phân bổ chúng vào nhiều ngày, sắp thứ tự hợp lý hoặc chọn phương tiện cân bằng thời gian, chi phí và số lần chuyển tuyến. Các công cụ bản đồ phổ biến giải tốt câu hỏi đi từ A đến B ngay lập tức, nhưng không giải quyết đồng thời bài toán lịch trình nhiều ngày, thích nghi khi điều kiện thay đổi và học từ phản hồi cá nhân.
+
+\subsection{Product Vision}
+\tacgia
+
+IMOVEV2 hướng tới một trợ lý lập kế hoạch giao thông công cộng đồng hành trước và trong chuyến đi. Hệ thống biến danh sách địa điểm thành lịch trình theo ngày, đính kèm route đa phương thức, phản ứng trước mưa hoặc gián đoạn tàu và lưu preference cho người dùng đăng nhập.
+
+\subsection{Target Users}
+\tacgia
+
+Người dùng chính là solo traveler hoặc nhóm nhỏ từ hai đến bốn người, lần đầu hoặc ít kinh nghiệm di chuyển tại Singapore. Họ cần hướng dẫn rõ ràng, muốn biết trước thời gian và chi phí nhưng không muốn tự phân tích toàn bộ mạng lưới giao thông.
+
+\subsection{Project Goals and Scope}
+\tacgia
+
+\begin{itemize}
+    \item Tạo itinerary nhiều ngày từ danh sách địa điểm.
+    \item Cung cấp route Metro, Bus, Walk, Cycle và Grab khi phù hợp.
+    \item Xếp hạng mode theo preference và bối cảnh.
+    \item Tạo proposal thích nghi khi có cảnh báo giao thông hoặc thời tiết.
+    \item Hoạt động ở guest mode; bổ sung persistence và learning khi đăng nhập.
+\end{itemize}
+
+Phiên bản hiện tại tập trung vào Singapore, phụ thuộc OneMap cho routing, không tích hợp thanh toán và chưa hỗ trợ multi-city.
+
+% -----------------------------------------------------------------
+\section{Phân tích và phân rã bài toán}
+
+\subsection{Phân rã bài toán}
+\tacgia
+
+\begin{longtable}{|L{2.8cm}|L{2.8cm}|L{4.2cm}|L{2.5cm}|L{2.5cm}|}
+\hline
+\textbf{Subproblem} & \textbf{Input} & \textbf{Processing} & \textbf{Output} & \textbf{Module} \\ \hline
+\endhead
+Itinerary setup & Ngày, ngân sách, địa điểm, khách sạn & Kiểm tra form và tạo request & Trip request & React Planner \\ \hline
+Place validation & Place IDs hoặc tên tự do & Curated lookup, Gemini resolve, startup validation & Place records & Planning Agent \\ \hline
+Multi-day scheduling & Places và số ngày & Greedy hoặc giữ thứ tự & Day groups & Planning Agent \\ \hline
+Multimodal routing & Các cặp địa điểm & Gọi OneMap song song & Alternatives & OneMap Service \\ \hline
+Route ranking & Alternatives, profile, context & Normalize và weighted sum & Recommended mode & Scoring Service \\ \hline
+Live adaptation & Alert và TripPlan & Reroute/swap và tính delta & Proposal & Adaptation Agent \\ \hline
+Preference learning & Feedback lặp lại & Rule-based pattern counting & Preference update & Memory Agent \\ \hline
+Persistence & Trip, alert, feedback & Auth và insert/update & Dữ liệu lưu trữ & Supabase \\ \hline
+\end{longtable}
+
+\subsection{Áp dụng Computational Thinking}
+\tacgia
+
+\begin{itemize}
+    \item \textbf{Decomposition:} chia hệ thống thành frontend, routers, agents, services, models và persistence.
+    \item \textbf{Pattern Recognition:} nhận diện cấu trúc trip/day/leg, nearest-neighbor, context và hành vi đổi mode.
+    \item \textbf{Abstraction:} đóng gói route, context và preference thành model/service.
+    \item \textbf{Algorithm Design:} xây dựng greedy scheduling, weighted scoring, adaptation và fallback.
+\end{itemize}
+
+% -----------------------------------------------------------------
+\section{Tổng quan hệ thống}
+
+\subsection{Các bên liên quan chính}
+\tacgia
+
+IMOVE là ứng dụng hỗ trợ lập kế hoạch và theo dõi hành trình giao thông công cộng tại Singapore. Các bên liên quan chính gồm:
+
+\begin{itemize}
+    \item \textbf{Du khách và hành khách:} nhập danh sách địa điểm, số ngày, ngân sách, khách sạn và ưu tiên di chuyển để nhận lịch trình phù hợp.
+    \item \textbf{Nhóm phát triển dự án:} xây dựng, kiểm thử và bảo trì thuật toán lập lịch, chấm điểm, thích nghi và giao diện.
+    \item \textbf{Nhà cung cấp dữ liệu và dịch vụ:} OneMap, LTA DataMall, OpenWeather, Google Gemini, Supabase và OpenStreetMap.
+    \item \textbf{Hội đồng đánh giá học thuật:} đánh giá cách dự án áp dụng phân rã bài toán, nhận diện mẫu, trừu tượng hóa và thiết kế thuật toán.
+\end{itemize}
+
+IMOVE sử dụng dữ liệu và API của các nhà cung cấp để hỗ trợ quyết định cho người dùng. Hệ thống không trực tiếp điều phối hoạt động của các đơn vị vận tải.
+
+\subsection{Các tác nhân chính}
+\tacgia
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{|L{3.4cm}|X|X|}
+\hline
+\textbf{Tác nhân} & \textbf{Nhu cầu chính} & \textbf{Hỗ trợ từ IMOVE} \\ \hline
+Du khách lần đầu đến Singapore & Khó chọn thứ tự tham quan và phương tiện & Lập lịch đa điểm, tối ưu thứ tự và hướng dẫn theo từng chặng \\ \hline
+Người dùng có ưu tiên cá nhân & Muốn cân bằng thời gian, chi phí, đi bộ và chuyển tuyến & Hồ sơ trọng số và các ràng buộc phương tiện \\ \hline
+Người đang thực hiện hành trình & Cần phản ứng trước mưa hoặc gián đoạn giao thông & Cảnh báo và đề xuất thích nghi \\ \hline
+Người dùng đã đăng nhập & Muốn lưu lịch trình và sở thích & Supabase Auth, lưu trip, preference và feedback \\ \hline
+\end{tabularx}
+\caption{Các tác nhân chính trong IMOVEV2.}
+\label{tab:main-actors}
+\end{table}
+
+\subsection{Các tính năng cốt lõi}
+\tacgia
+
+\subsubsection{Lập lịch trình du lịch đa điểm}
+\tacgia
+Người dùng chọn các địa điểm tại Singapore, số ngày, ngân sách, nơi lưu trú và nhóm ưu tiên di chuyển. Planning Agent phân bổ các địa điểm vào từng ngày, tạo các chặng di chuyển và trả về \texttt{TripPlan}.
+
+\subsubsection{Tối ưu thứ tự có ràng buộc thời gian}
+\tacgia
+Khi bật tối ưu hóa, hệ thống sử dụng heuristic tham lam có xét khoảng cách Haversine, thời lượng tham quan, giờ mở cửa, khung thời gian trong ngày, địa điểm buổi tối và khách sạn. Đây là heuristic nearest-neighbor có ràng buộc, không phải bộ giải TSP đầy đủ.
+
+\subsubsection{So sánh và lựa chọn phương tiện}
+\tacgia
+Planning Agent lấy các phương án theo từng chặng từ OneMap và chuẩn hóa về các mode \texttt{METRO}, \texttt{BUS}, \texttt{WALK}, \texttt{CYCLE} và \texttt{GRAB}. Mỗi phương án được đánh giá dựa trên thời gian, chi phí, thời gian đi bộ và số lần chuyển tuyến.
+
+\subsubsection{Chấm điểm thích nghi theo bối cảnh}
+\tacgia
+Scoring Service sử dụng trọng số trong \texttt{UserPreferenceProfile} và \texttt{ContextSnapshot}. Mưa làm giảm mức ưu tiên của phương án cần đi bộ nhiều; giờ cao điểm tăng mức quan trọng của việc giảm chuyển tuyến; các ràng buộc như tránh bus, tránh metro, giảm đi bộ và giảm chi phí được áp dụng khi phù hợp.
+
+\subsubsection{Thích nghi với cảnh báo giao thông và thời tiết}
+\tacgia
+Adaptation Agent định kỳ kiểm tra cảnh báo tàu từ LTA DataMall và dữ liệu thời tiết từ OpenWeather. Khi phát hiện vấn đề ảnh hưởng hành trình, hệ thống có thể đề xuất đổi địa điểm ngoài trời sang địa điểm trong nhà hoặc tính lại chặng bị ảnh hưởng. Thay đổi chỉ được lưu khi người dùng chấp nhận.
+
+\subsubsection{Học từ phản hồi và hỗ trợ bằng Gemini}
+\tacgia
+Memory Agent lưu phản hồi trực tiếp và thay đổi phương tiện. Các mẫu đổi \texttt{BUS} sang \texttt{MRT} hoặc đổi sang \texttt{WALK} lặp lại được chuyển thành preference. Gemini được sử dụng cho trích xuất tên địa điểm, đề xuất địa điểm, sinh cảnh báo lịch trình, thông báo khoảng trống và chatbot.
+
+\subsection{Điểm nhấn đổi mới}
+\tacgia
+
+\begin{itemize}
+    \item \textbf{Hybrid planning:} kết hợp heuristic, scoring xác định, external routing API và LLM thay vì giao toàn bộ quyết định cho AI.
+    \item \textbf{Context-aware recommendation:} thay đổi cách xếp hạng theo mưa, giờ cao điểm và preference của người dùng.
+    \item \textbf{Graceful degradation:} vẫn tạo được phương án hữu ích khi một số mode của OneMap không khả dụng.
+    \item \textbf{Human-in-the-loop adaptation:} hệ thống tạo đề xuất thay đổi nhưng người dùng quyết định có áp dụng hay không.
+    \item \textbf{Preference learning có thể giải thích:} các quy tắc học từ feedback đơn giản, minh bạch và dễ kiểm thử.
+\end{itemize}
+
+\subsection{Kiến trúc tổng quan}
+\tacgia
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.2cm and 1.2cm]
+    \node[nodebox] (user) {Traveller};
+    \node[nodebox,right=of user] (web) {React + Vite\\Frontend};
+    \node[nodebox,right=of web] (api) {FastAPI\\Routers};
+    \node[agent,above right=0.5cm and 1.1cm of api] (agents) {Planning / Adaptation\\Memory / Chat};
+    \node[agent,below right=0.5cm and 1.1cm of api] (services) {Routing / Transit\\Weather / AI / Scoring};
+    \node[data,right=3.5cm of api] (db) {Supabase\\PostgreSQL};
+    \node[external,above=of db] (ext) {OneMap / LTA /\\Weather / Gemini};
+    \draw[arrow] (user) -- (web);
+    \draw[arrow] (web) -- (api);
+    \draw[arrow] (api) -- (agents);
+    \draw[arrow] (api) -- (services);
+    \draw[arrow] (api) -- (db);
+    \draw[arrow] (services) -- (ext);
+\end{tikzpicture}
+\caption{Kiến trúc tổng quan của hệ thống IMOVEV2.}
+\label{fig:architecture}
+\end{figure}
+
+Luồng chính bắt đầu từ Frontend, đi qua các FastAPI router và được chuyển đến Agent hoặc Service phù hợp. Supabase cung cấp persistence, authentication và realtime alerts; các dịch vụ bên ngoài cung cấp dữ liệu routing, transit, thời tiết và AI.
+
+% -----------------------------------------------------------------
+\section{Nhận diện mẫu}
+
+\subsection{Khái niệm và vai trò}
+\tacgia
+
+Pattern Recognition trong IMOVE là việc nhận diện những cấu trúc hoặc hành vi lặp lại để tái sử dụng một chiến lược xử lý phù hợp. Dự án không xây dựng một mô hình machine learning dự đoán giao thông riêng; thay vào đó, hệ thống áp dụng các pattern xác định trong lập lịch, chấm điểm, kiểm tra dữ liệu, học preference và xử lý lỗi.
+
+\subsection{Các pattern được nhận diện}
+\tacgia
+
+\begin{longtable}{|L{2.6cm}|L{4.0cm}|L{4.0cm}|L{4.2cm}|}
+\hline
+\textbf{Nhóm pattern} & \textbf{Mẫu được nhận diện} & \textbf{Implementation} & \textbf{Ý nghĩa} \\ \hline
+\endhead
+Validation & Mọi địa điểm phải có trường bắt buộc và thời gian hợp lệ & \texttt{\_REQUIRED\_KEYS}, \texttt{\_validate\_time()} & Phát hiện dữ liệu lỗi khi khởi động \\ \hline
+Structural & Một hành trình gồm nhiều ngày; mỗi ngày gồm nhiều leg & \texttt{TripPlan}, \texttt{DayPlan}, \texttt{LegResponse} & Chuẩn hóa dữ liệu giữa backend và frontend \\ \hline
+Scheduling & Điểm gần và còn phù hợp time window nên được xét trước & \texttt{\_day\_bucketed\_greedy()} & Tạo lịch trình thực dụng \\ \hline
+Distribution & Địa điểm phải được phân bổ vào số ngày giới hạn & \texttt{\_distribute\_days()} & Tránh dồn toàn bộ địa điểm vào một ngày \\ \hline
+Context & Mưa và giờ cao điểm làm thay đổi ưu tiên & \texttt{ContextSnapshot}, \texttt{\_effective\_weights()} & Xếp hạng thích nghi \\ \hline
+Ranking & Các mode được so sánh trên cùng bốn dimension & \texttt{score\_alternatives()} & Chọn mode phù hợp nhất \\ \hline
+Behavioral & Thay đổi mode lặp lại thể hiện preference & \texttt{learn\_from\_implicit()} & Học xu hướng người dùng \\ \hline
+Resilience & Một mode hoặc service có thể không khả dụng & \texttt{NoRouteError}, Haversine/Grab estimates & Duy trì kết quả có ích \\ \hline
+Adaptation & Cảnh báo giao thông và mưa được kiểm tra định kỳ & \texttt{poll\_lta\_alerts()}, \texttt{poll\_weather\_alerts()} & Đề xuất thay đổi hành trình \\ \hline
+\end{longtable}
+
+\subsection{Pattern lập lịch tham lam có ràng buộc}
+\tacgia
+
+Việc sắp thứ tự địa điểm có nét tương đồng với nearest-neighbor routing, nhưng IMOVE phải đồng thời xét giờ mở cửa, thời lượng tham quan, số ngày và phân loại buổi tối. Vì vậy, \texttt{\_day\_bucketed\_greedy()} sử dụng heuristic thay vì exhaustive search:
+
+\begin{enumerate}
+    \item Phân loại địa điểm thành daytime/overlap và evening.
+    \item Tạo các bucket theo số ngày và chọn khách sạn hoặc vị trí neo làm điểm bắt đầu.
+    \item Lọc các địa điểm còn phù hợp giờ mở cửa và giới hạn ngày.
+    \item Chọn địa điểm gần nhất trong tập hợp hợp lệ.
+    \item Cập nhật clock, vị trí và time budget.
+    \item Phân bổ địa điểm buổi tối sau khi lịch ban ngày đã ổn định.
+    \item Sinh warning cho các địa điểm không thể nằm trong time window.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.75cm]
+    \node[nodebox] (a) {Danh sách địa điểm};
+    \node[nodebox,below=of a] (b) {Phân loại daytime/evening};
+    \node[nodebox,below=of b] (c) {Lọc ứng viên hợp lệ};
+    \node[nodebox,below=of c] (d) {Chọn điểm gần nhất};
+    \node[nodebox,below=of d] (e) {Cập nhật clock và vị trí};
+    \node[nodebox,below=of e] (f) {Gán địa điểm buổi tối};
+    \draw[arrow] (a) -- (b);
+    \draw[arrow] (b) -- (c);
+    \draw[arrow] (c) -- (d);
+    \draw[arrow] (d) -- (e);
+    \draw[arrow] (e.east) -- ++(1.0,0) |- (c.east);
+    \draw[arrow] (e) -- (f);
+\end{tikzpicture}
+\caption{Pattern lập lịch tham lam có ràng buộc thời gian.}
+\label{fig:greedy-pattern}
+\end{figure}
+
+\subsection{Pattern chấm điểm và xếp hạng}
+\tacgia
+
+Mỗi mode có bốn dimension: duration, cost, walking minutes và transfers. Mỗi dimension được chuẩn hóa trong tập alternative của cùng một leg:
+
+\[
+N(x) = 1 - \frac{x - x_{\min}}{x_{\max} - x_{\min}}
+\]
+
+\texttt{\_effective\_weights()} điều chỉnh trọng số theo các mẫu bối cảnh: mưa làm giảm \texttt{walking\_w}, giờ cao điểm làm tăng \texttt{transfers\_w}, còn \texttt{minimize\_walking} và \texttt{minimize\_fee} tăng dimension liên quan. Kết quả cuối được tính bằng weighted sum và sắp xếp giảm dần.
+
+\subsection{Pattern học từ hành vi và chịu lỗi}
+\tacgia
+
+Memory Agent quét implicit feedback trong bảng \texttt{trip\_feedback}. Ít nhất hai lần đổi \texttt{BUS -> MRT} tạo xu hướng ưu tiên MRT; ít nhất hai lần đổi sang \texttt{WALK} làm tăng giới hạn đi bộ.
+
+Đối với routing, các mode được lấy độc lập. Mode thất bại được xem là không khả dụng thay vì làm hỏng toàn bộ yêu cầu. Nếu drive không khả dụng, hệ thống tạo Grab estimate; nếu không có transit cho quãng ngắn, hệ thống tạo walking estimate; chỉ khi không còn phương án phù hợp mới raise \texttt{NoRouteError}.
+
+% -----------------------------------------------------------------
+\section{Trừu tượng hóa}
+
+\subsection{Vai trò của Abstraction}
+\tacgia
+
+Abstraction là quá trình che giấu chi tiết triển khai không cần thiết và cung cấp một giao diện hoặc mô hình dễ sử dụng hơn cho tầng phía trên. Trong IMOVE, abstraction giúp tách giao diện, API, Agent, Service, model dữ liệu và persistence.
+
+\subsection{Các tầng abstraction thực tế}
+\tacgia
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{|L{3.2cm}|X|X|}
+\hline
+\textbf{Tầng} & \textbf{Implementation} & \textbf{Chi tiết được che giấu} \\ \hline
+Frontend & Pages, components, hooks và API service & HTTP, authentication header và local cache \\ \hline
+Router & trips, places, alerts, transit, preferences và chat & Request validation và HTTP response \\ \hline
+Agent & Planning, Adaptation, Memory và Chat & Use-case orchestration \\ \hline
+Service & OneMap, LTA, OpenWeather, Gemini và Scoring & External API protocol và thuật toán chuyên biệt \\ \hline
+Model & Pydantic request/response models & Dictionary shape không kiểm soát \\ \hline
+Context & \texttt{ContextSnapshot} & Cách lấy weather và tính peak hours \\ \hline
+Persistence & Supabase, in-memory và localStorage & Chi tiết lưu trữ theo phạm vi \\ \hline
+\end{tabularx}
+\caption{Các tầng abstraction trong IMOVEV2.}
+\label{tab:abstraction-layers}
+\end{table}
+
+\subsection{Router, Agent, Service và Model Abstraction}
+\tacgia
+
+FastAPI routers là HTTP boundary. Agents thực hiện use case cấp cao, còn services đóng gói external API hoặc thuật toán chuyên biệt. Planning Agent yêu cầu alternatives đã chuẩn hóa mà không cần expose chi tiết token OneMap; frontend nhận \texttt{TripPlan} mà không cần biết thuật toán greedy hoặc scoring.
+
+Pydantic models tạo contract có kiểu dữ liệu rõ ràng: \texttt{TripPlan}, \texttt{DayPlan}, \texttt{LegResponse}, \texttt{AlternativeRoute}, \texttt{UserPreferenceProfile}, \texttt{ModeConstraints} và \texttt{ContextSnapshot}. Nhờ đó Agent và Router trao đổi object có cấu trúc thay vì dictionary không kiểm soát.
+
+\subsection{Data, Context và Fault-tolerant Abstraction}
+\tacgia
+
+\begin{itemize}
+    \item \texttt{singapore\_places.json} là curated dataset được load và validate khi backend khởi động.
+    \item Supabase PostgreSQL lưu trip, route leg, place relation, alert, feedback và preference.
+    \item In-memory store hỗ trợ phiên hoạt động và fallback khi Supabase không khả dụng.
+    \item Frontend localStorage lưu metadata/cache cục bộ.
+    \item \texttt{ContextSnapshot} gom lượng mưa và thời gian hiện tại cho Scoring Service.
+\end{itemize}
+
+Các lớp phía trên nhận route đã được chuẩn hóa thành \texttt{AlternativeRoute} và \texttt{LegResponse}. Chi tiết mode nào thất bại, Grab được ước tính ra sao hoặc instruction của OneMap được làm phẳng được xử lý bên trong Planning Agent và Service.
+
+\subsection{Hybrid AI-assisted Planning và giới hạn}
+\tacgia
+
+Code xác định xử lý validation, scheduling, routing, scoring và fallback. Gemini xử lý tác vụ ngôn ngữ hoặc trường hợp hỗ trợ như resolve tên địa điểm và sinh thông báo. Lỗi Gemini không được phép làm hỏng luồng planning cốt lõi trong các nhánh đã có fallback.
+
+Hệ thống hiện chưa có interface chung để thay thế linh hoạt nhiều AI provider, chưa phải distributed microservice architecture, một phần persistence logic vẫn nằm trong router và curated places dataset được load trực tiếp trong Planning Agent.
+
+% -----------------------------------------------------------------
+\section{Thiết kế hệ thống và thuật toán}
+
+\subsection{Công nghệ áp dụng}
+\tacgia
+
+\begin{longtable}{|L{3.6cm}|L{11.0cm}|}
+\hline
+\textbf{Tầng} & \textbf{Công nghệ} \\ \hline
+\endhead
+Frontend & React 18, Vite, React Router, Tailwind CSS 4, Radix UI và React Leaflet \\ \hline
+Backend & Python, FastAPI, Pydantic và APScheduler \\ \hline
+Database và Auth & Supabase PostgreSQL, Supabase Auth và Row Level Security \\ \hline
+Routing và geocoding & OneMap API \\ \hline
+Realtime transit & LTA DataMall \\ \hline
+Weather & OpenWeather \\ \hline
+AI & Google Gemini 2.5 Flash \\ \hline
+Map tiles & OpenStreetMap \\ \hline
+Testing & Pytest, Vitest và Testing Library \\ \hline
+\end{longtable}
+
+\subsection{Kiến trúc hệ thống theo mô hình C4}
+\tacgia
+
+\subsubsection{C4 Level 1: System Context}
+\tacgia
+Ở mức System Context, Traveller tương tác với IMOVE; IMOVE gọi OneMap, LTA DataMall, OpenWeather, Gemini, Supabase và OpenStreetMap.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.0cm and 1.2cm]
+    \node[nodebox,fill=blue!15] (user) {Traveller};
+    \node[agent,right=of user,minimum width=4cm,minimum height=1.3cm] (imove) {IMOVEV2\\Route Planning System};
+    \node[external,above right=0.1cm and 1.3cm of imove] (onemap) {OneMap};
+    \node[external,right=of imove] (lta) {LTA / Weather};
+    \node[external,below right=0.1cm and 1.3cm of imove] (others) {Gemini / Supabase / OSM};
+    \draw[arrow] (user) -- (imove);
+    \draw[arrow] (imove) -- (onemap);
+    \draw[arrow] (imove) -- (lta);
+    \draw[arrow] (imove) -- (others);
+\end{tikzpicture}
+\caption{C4 Level 1: System Context của IMOVEV2.}
+\label{fig:c4-context}
+\end{figure}
+
+\subsubsection{C4 Level 2: Container Diagram}
+\tacgia
+Các container chính gồm React/Vite Web Frontend, FastAPI Backend, Agent modules, Service modules, Supabase và curated places JSON.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.0cm and 1.1cm]
+    \node[nodebox] (web) {React + Vite\\Web Frontend};
+    \node[nodebox,right=of web] (api) {FastAPI Backend};
+    \node[agent,above right=of api] (agents) {Agents};
+    \node[agent,below right=of api] (services) {Services};
+    \node[data,right=of agents] (places) {Curated Places};
+    \node[data,right=of services] (db) {Supabase};
+    \node[external,below=of services] (ext) {External APIs};
+    \draw[arrow] (web) -- (api);
+    \draw[arrow] (api) -- (agents);
+    \draw[arrow] (api) -- (services);
+    \draw[arrow] (agents) -- (places);
+    \draw[arrow] (api) -- (db);
+    \draw[arrow] (services) -- (ext);
+\end{tikzpicture}
+\caption{C4 Level 2: Các container chính của IMOVEV2.}
+\label{fig:c4-container}
+\end{figure}
+
+\subsection{Quản lý trạng thái và luồng dữ liệu}
+\tacgia
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{|L{3.2cm}|L{4.0cm}|X|}
+\hline
+\textbf{Phạm vi} & \textbf{Cơ chế} & \textbf{Ví dụ} \\ \hline
+UI component/page & React state và hooks & Selected places, active tab, modal state \\ \hline
+Frontend cache & localStorage/sessionStorage & Saved trip metadata và pending state \\ \hline
+Backend session & In-memory dictionaries & Active trip, pending swap và chat state \\ \hline
+Persistent data & Supabase & Trips, route legs, preferences, alerts và feedback \\ \hline
+Context tạm thời & \texttt{ContextSnapshot} & Mưa và thời gian hiện tại cho scoring \\ \hline
+\end{tabularx}
+\caption{Quản lý trạng thái theo phạm vi.}
+\label{tab:state-management}
+\end{table}
+
+\subsection{Thiết kế thuật toán Planning Agent}
+\tacgia
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.7cm]
+    \node[nodebox] (a) {Trip request};
+    \node[nodebox,below=of a] (b) {Validate và resolve place IDs};
+    \node[nodebox,below=of b] (c) {Phân bổ địa điểm theo ngày};
+    \node[nodebox,below=of c] (d) {Fetch multimodal alternatives};
+    \node[nodebox,below=of d] (e) {Normalize và score};
+    \node[nodebox,below=of e] (f) {Apply distance/fallback guards};
+    \node[nodebox,below=of f] (g) {Build TripPlan};
+    \draw[arrow] (a) -- (b);
+    \draw[arrow] (b) -- (c);
+    \draw[arrow] (c) -- (d);
+    \draw[arrow] (d) -- (e);
+    \draw[arrow] (e) -- (f);
+    \draw[arrow] (f) -- (g);
+\end{tikzpicture}
+\caption{Planning Agent pipeline.}
+\label{fig:planning-pipeline}
+\end{figure}
+
+Optimize path sử dụng \texttt{\_day\_bucketed\_greedy()}, còn non-optimize path sử dụng \texttt{\_distribute\_days()} để giữ thứ tự người dùng và phản hồi nhanh. \texttt{\_fetch\_all\_alternatives()} gọi song song các mode OneMap: public transit, bus-only, walk, cycle và drive; kết quả được chuyển thành \texttt{METRO}, \texttt{BUS}, \texttt{WALK}, \texttt{CYCLE} và \texttt{GRAB}.
+
+\subsection{Thiết kế thuật toán Scoring}
+\tacgia
+
+\texttt{score\_alternatives()} nhận alternatives, profile và context. Thuật toán lọc hard constraints, trích xuất bốn dimension, chuẩn hóa tương đối, điều chỉnh weight theo context, tính weighted score, áp dụng penalty và sắp xếp giảm dần.
+
+\[
+\operatorname{score}(m) =
+w_d N_d(m) +
+w_c N_c(m) +
+w_w N_w(m) +
+w_t N_t(m)
+\]
+
+Trong đó \(m\) là transport mode; \(N_d,N_c,N_w,N_t\) lần lượt là duration, cost, walking và transfers đã chuẩn hóa.
+
+\subsection{Thiết kế thuật toán Adaptation và Memory}
+\tacgia
+
+APScheduler chạy \texttt{poll\_lta\_alerts()} mỗi hai phút và \texttt{poll\_weather\_alerts()} mỗi ba mươi phút. Khi cảnh báo ảnh hưởng trip, hệ thống tìm leg/place bị ảnh hưởng, tạo proposal, tính delta về chi phí/thời gian/walking và chỉ persist khi người dùng chấp nhận.
+
+Memory Agent lưu explicit và implicit feedback. \texttt{learn\_from\_implicit()} đếm các pattern được hỗ trợ và cập nhật \texttt{user\_preferences} khi vượt threshold.
+
+\subsection{Cơ chế chịu lỗi và giới hạn}
+\tacgia
+
+\begin{itemize}
+    \item Một mode OneMap thất bại: bỏ mode đó và giữ các mode còn lại.
+    \item Drive route thất bại: tạo Grab estimate bằng Haversine.
+    \item Không có transit cho quãng ngắn: tạo walking estimate.
+    \item Gemini sinh schedule warning thất bại: trả fallback warning xác định.
+    \item Supabase không khả dụng ở một số luồng: dùng in-memory fallback hoặc bỏ qua persistence không bắt buộc.
+    \item Các hướng chưa triển khai gồm urgency engine, daily routine, crowding realtime, full TSP solver và multi-city support.
+\end{itemize}
+
+% -----------------------------------------------------------------
+\section{Triển khai}
+
+\subsection{Implementation Challenges and Solutions}
+\tacgia
+
+\begin{longtable}{|L{3.2cm}|L{5.3cm}|L{5.5cm}|}
+\hline
+\textbf{Challenge} & \textbf{Solution} & \textbf{Remaining limitation} \\ \hline
+\endhead
+Multi-day scheduling & Day-bucketed greedy xét distance, dwell time và time window & Không bảo đảm tối ưu toàn cục \\ \hline
+Multimodal routing & Fetch song song, normalize mode và fallback & Grab estimate không có surge realtime \\ \hline
+Context-aware scoring & Relative normalization và weight adjustment & Chưa có crowding realtime \\ \hline
+Live adaptation & Poll LTA/weather, tạo proposal và human approval & Scheduler chạy in-process \\ \hline
+Place data quality & Startup validation và enrichment scripts & Cần tiếp tục audit dữ liệu/ảnh \\ \hline
+\end{longtable}
+
+% -----------------------------------------------------------------
+\section{Kiểm thử}
+
+\subsection{Testing Strategy and Test Cases}
+\tacgia
+
+Dự án sử dụng Pytest cho backend và Vitest/Testing Library cho frontend. External APIs được mock trong phần lớn test.
+
+\begin{longtable}{|L{2.8cm}|L{2.5cm}|L{5.0cm}|L{4.0cm}|}
+\hline
+\textbf{Feature} & \textbf{Level} & \textbf{Scenario} & \textbf{Expected result} \\ \hline
+\endhead
+Scoring & Unit & Duration-heavy profile & Fastest mode được ưu tiên \\ \hline
+Scoring context & Unit & Heavy rain & Walking-heavy option giảm hạng \\ \hline
+Day distribution & Unit & Multi-day và opening hours & Places phân bổ hợp lệ \\ \hline
+OneMap & Service & Một mode lỗi & Mode khác vẫn trả về \\ \hline
+Adaptation & Agent & MRT disruption hoặc rain & Tạo proposal \\ \hline
+Planner UI & Component & Chọn preference & UI và request cập nhật đúng \\ \hline
+\end{longtable}
+
+\subsection{Latest Test Results}
+\tacgia
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|C{4cm}|C{2.5cm}|C{2.5cm}|C{3cm}|}
+\hline
+\textbf{Suite} & \textbf{Passed} & \textbf{Failed} & \textbf{Date} \\ \hline
+Backend Pytest & \dienvao & \dienvao & \dienvao \\ \hline
+Frontend Vitest & \dienvao & \dienvao & \dienvao \\ \hline
+Frontend build & \dienvao & \dienvao & \dienvao \\ \hline
+\end{tabular}
+\caption{Kết quả test gần thời điểm nộp bài.}
+\end{table}
+
+\danhinh{Ảnh kết quả test cuối cùng.}
+
+\subsection{Bug Reports and Improvements}
+\tacgia
+
+Các vấn đề đã ghi nhận gồm Google OAuth provider chưa bật, localization tiếng Việt chưa đầy đủ, preference weights dạng phần trăm gây khó hiểu, map marker/control chưa rõ nghĩa và dữ liệu ảnh địa điểm cần tiếp tục audit.
+
+% -----------------------------------------------------------------
+\section{Demo}
+
+\subsection{Demo Scenario}
+\tacgia
+
+\begin{enumerate}
+    \item Mở Home page và tạo itinerary mới.
+    \item Nhập ngày, khách sạn, ngân sách, preference và địa điểm.
+    \item Tạo TripPlan và xem route được đề xuất.
+    \item Xem Overview, Day view, map và alternatives.
+    \item Đổi mode hoặc chỉnh thứ tự địa điểm.
+    \item Kiểm tra cảnh báo và adaptation proposal.
+    \item Gửi feedback và sử dụng chatbot.
+\end{enumerate}
+
+\subsection{Important UI Screenshots}
+\tacgia
+
+\danhinh{Trang Home/Landing của IMOVEV2.}
+\danhinh{Planner: thiết lập itinerary và chọn địa điểm.}
+\danhinh{Trip Overview và các metric chính.}
+\danhinh{Day itinerary cùng bản đồ route.}
+\danhinh{So sánh và đổi transport mode.}
+\danhinh{Cảnh báo và adaptation proposal.}
+\danhinh{Preference settings.}
+\danhinh{Chatbot của IMOVEV2.}
+
+\subsection{YouTube Demo Link}
+\tacgia
+
+\begin{tcolorbox}[colback=yellow!10,colframe=orange!70!black]
+\centering\Large\textbf{Dán link video YouTube vào đây}
+\end{tcolorbox}
+
+% -----------------------------------------------------------------
+\section{Triển khai hệ thống}
+
+\subsection{Deployment Architecture}
+\tacgia
+
+Kiến trúc triển khai mục tiêu dùng Vercel cho frontend, Render cho FastAPI backend và Supabase cho PostgreSQL/Auth/Realtime.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.2cm and 1.2cm]
+    \node[nodebox] (user) {User Browser};
+    \node[external,right=of user] (vercel) {Vercel\\React Frontend};
+    \node[external,right=of vercel] (render) {Render\\FastAPI Backend};
+    \node[data,above right=of render] (supabase) {Supabase};
+    \node[external,below right=of render] (apis) {OneMap / LTA /\\Weather / Gemini};
+    \draw[arrow] (user) -- (vercel);
+    \draw[arrow] (vercel) -- (render);
+    \draw[arrow] (render) -- (supabase);
+    \draw[arrow] (render) -- (apis);
+\end{tikzpicture}
+\caption{Kiến trúc deployment mục tiêu.}
+\label{fig:deployment}
+\end{figure}
+
+\subsection{Deployment Information}
+\tacgia
+
+\begin{itemize}
+    \item \textbf{Frontend URL:} \dienvao.
+    \item \textbf{Backend URL:} \dienvao.
+    \item \textbf{Environment variables và migration:} \dienvao\ nếu có thay đổi.
+\end{itemize}
+
+% -----------------------------------------------------------------
+\section{Logbook: Kế hoạch và thực tế}
+
+\subsection{Planned and Actual Workload}
+\tacgia
+
+\begin{longtable}{|C{2.5cm}|C{3.0cm}|C{5.5cm}|C{1.5cm}|C{1.8cm}|}
+\hline
+\textbf{Student ID} & \textbf{Full Name} & \textbf{Main Contributions} & \textbf{\%} & \textbf{Hours} \\ \hline
+\endhead
+\dienvao & \dienvao & \dienvao & \dienvao & \dienvao \\ \hline
+\dienvao & \dienvao & \dienvao & \dienvao & \dienvao \\ \hline
+\dienvao & \dienvao & \dienvao & \dienvao & \dienvao \\ \hline
+\dienvao & \dienvao & \dienvao & \dienvao & \dienvao \\ \hline
+\end{longtable}
+
+Tổng phần trăm actual workload phải bằng 100\%.
+
+\subsection{Management Tools and Evidence}
+\tacgia
+
+Nhóm sử dụng Git/GitHub để quản lý source. Các công cụ giao tiếp, task management và tài liệu khác: \dienvao.
+
+\danhinh{Bằng chứng công việc thành viên 1.}
+\danhinh{Bằng chứng công việc thành viên 2.}
+\danhinh{Bằng chứng công việc thành viên 3.}
+\danhinh{Bằng chứng công việc thành viên 4.}
+
+% -----------------------------------------------------------------
+\section{Khai báo sử dụng AI}
+
+\subsection{AI trong sản phẩm và quá trình phát triển}
+\tacgia
+
+IMOVEV2 sử dụng Gemini 2.5 Flash cho parse tên địa điểm, đề xuất địa điểm, warning, gap notification và chatbot. Routing, cost, scheduling và scoring chính được thực hiện bằng code xác định và external routing data.
+
+\begin{longtable}{|L{3.0cm}|L{3.5cm}|L{4.5cm}|L{4.0cm}|}
+\hline
+\textbf{AI Tool} & \textbf{Purpose} & \textbf{Output assisted} & \textbf{Human verification} \\ \hline
+\endhead
+Google Gemini & Product NLP & Parsing, suggestions, warning, chatbot & Validate structured output và fallback \\ \hline
+\dienvao & Development assistance & \dienvao & Code review, tests và đối chiếu repository \\ \hline
+\end{longtable}
+
+\subsection{Risk Control and Declaration}
+\tacgia
+
+Nhóm cam kết kiểm tra đầu ra AI trước khi sử dụng. Dữ liệu địa điểm do AI hỗ trợ có nguy cơ hallucination nên phải được audit bằng OneMap, Google Places hoặc nguồn đáng tin cậy. Các công cụ AI khác đã dùng và tuyên bố chính thức: \dienvao.
+
+% -----------------------------------------------------------------
+\section{Kết luận và hướng phát triển}
+
+\subsection{Kết luận}
+\tacgia
+
+IMOVEV2 đã xây dựng được web application lập itinerary nhiều ngày cho Singapore, kết hợp route đa phương thức, weighted scoring, map visualization, adaptation alerts, preference persistence và chatbot. Kiến trúc Agent/Service giúp phân tách trách nhiệm và giữ LLM ở vai trò hỗ trợ.
+
+\subsection{Lessons Learned}
+\tacgia
+
+\begin{itemize}
+    \item External data và API failure phải được xem là tình huống bình thường.
+    \item Heuristic đơn giản nhưng đúng ràng buộc phù hợp với prototype.
+    \item Typed contracts giảm lỗi tích hợp frontend/backend.
+    \item AI hữu ích cho ngôn ngữ tự nhiên nhưng cần validation và fallback.
+\end{itemize}
+
+\subsection{Future Work}
+\tacgia
+
+\begin{itemize}
+    \item Departure urgency engine và daily routine plan.
+    \item Realtime crowding data trong scoring.
+    \item Nâng chất lượng curated place data và ảnh.
+    \item Provider abstraction cho nhiều AI model.
+    \item Multi-city support.
+    \item Hoàn thiện localization, preference UX, monitoring, CI/CD và user testing.
+\end{itemize}
+
+\subsection{Suggestions for Instructors and Teaching Assistants}
+\tacgia
+
+\dienvao.
+
+\end{document}

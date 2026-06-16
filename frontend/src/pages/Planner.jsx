@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   AlertCircle,
   Building2,
@@ -10,7 +11,6 @@ import {
   Clock,
   Loader2,
   MapPin,
-  Navigation2,
   Plus,
   Search,
   Sparkles,
@@ -22,7 +22,6 @@ import {
   Shuffle,
   User,
   ArrowLeft,
-  ArrowRight,
   ArrowUp,
   HelpCircle,
 } from 'lucide-react'
@@ -31,6 +30,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import PlaceBrowser from '../components/planner/PlaceBrowser'
+import AuroraBackground from '../components/planner/AuroraBackground'
+import AnimatedGenerateButton from '../components/ui/animated-generate-button-shadcn-tailwind'
 import DateRangePicker, { isoToDate, dateToIso, daysBetweenInclusive } from '../components/ui/DateRangePicker'
 import TimePicker from '../components/ui/TimePicker'
 
@@ -78,37 +79,35 @@ function endDate(startDate, numDays) {
 function PlaceMiniCard({ place, onRemove }) {
   const { t } = useT()
   return (
-    <div className="group flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="h-14 w-16 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+    <div className="group flex items-center gap-2.5 rounded-xl border border-slate-100 bg-white p-2 shadow-[0_4px_16px_-14px_rgba(15,23,42,0.35)] transition-shadow hover:shadow-md">
+      <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+        <div className="absolute inset-0 grid place-items-center text-blue-500">
+          <MapPin size={15} />
+        </div>
         {place.image_url ? (
           <img
             src={place.image_url}
             alt=""
-            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+            className="relative h-full w-full object-cover"
             onError={(event) => { event.currentTarget.style.display = 'none' }}
           />
-        ) : (
-          <div className="grid h-full w-full place-items-center text-blue-500">
-            <MapPin size={18} />
-          </div>
-        )}
+        ) : null}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] font-bold text-slate-900">{place.name}</p>
-        <p className="mt-0.5 truncate text-[11px] font-semibold capitalize text-slate-400">
+        <p className="truncate text-[11px] font-extrabold text-slate-900">{place.name}</p>
+        <p className="mt-0.5 truncate text-[9px] font-semibold capitalize text-slate-400">
           {place.category || t('tripCategoryFallback')} · {t('tripMinShort', place.dwell_minutes ?? place.suggested_duration_minutes ?? 60)}
         </p>
-        {place.formatted_address && (
-          <p className="mt-1 truncate text-[11px] text-slate-500">{place.formatted_address}</p>
-        )}
       </div>
       <button
         type="button"
         onClick={onRemove}
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 transition hover:bg-red-50 hover:text-red-500"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-300 transition hover:bg-red-50 hover:text-red-500"
         title={t('tripRemove')}
       >
-        <Trash2 size={13} />
+        <Trash2 size={11} />
       </button>
     </div>
   )
@@ -127,7 +126,7 @@ function SelectedList({ places, onRemove }) {
   }
 
   return (
-    <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+    <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-330px)]">
       {places.map((place) => (
         <PlaceMiniCard key={place.id} place={place} onRemove={() => onRemove(place.id)} />
       ))}
@@ -229,6 +228,7 @@ const user = auth?.user
   }, [hotelQuery, hotel])
 
   const selectedIds = useMemo(() => selected.map((place) => place.id), [selected])
+  const curatedPlaces = useMemo(() => Object.values(placesById), [placesById])
 
   const addPlace = (place) => {
     if (!place?.id || selectedIds.includes(place.id)) return
@@ -337,7 +337,7 @@ const user = auth?.user
   // Wizard Step triggers
   const goToStep = (step) => {
     if (step >= 1 && step <= 4) {
-      setCurrentStep(step)
+      startTransition(() => setCurrentStep(step))
     }
   }
 
@@ -372,7 +372,8 @@ const user = auth?.user
   }, [selectedIds, optimizeOrder, hotel, budget, selectedPreset, dayStartTimes])
 
   return (
-    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 py-8 px-6">
+    <AuroraBackground>
+      <div className="py-8 px-6">
       <div className="mx-auto max-w-7xl">
         
         {/* Header section */}
@@ -499,7 +500,9 @@ const user = auth?.user
                             onClick={() => setFlexible(true)}
                             className={cn(
                               'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
-                              flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
+                              flexible
+                                ? 'bg-slate-950 text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.85)]'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
                             )}
                           >
                             <Clock size={12} /> {t('plnFlexible')}
@@ -509,7 +512,9 @@ const user = auth?.user
                             onClick={() => setFlexible(false)}
                             className={cn(
                               'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
-                              !flexible ? 'bg-white text-slate-950 shadow-sm border border-slate-200' : 'text-slate-500'
+                              !flexible
+                                ? 'bg-slate-950 text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.85)]'
+                                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
                             )}
                           >
                             <Calendar size={12} /> {t('plnCalendar')}
@@ -522,6 +527,7 @@ const user = auth?.user
                       <div className="animate-fade-in">
                         <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnStartDate')}</label>
                         <DateRangePicker
+                          appearance="scheduler"
                           from={isoToDate(startDate)}
                           to={isoToDate(endDate(startDate, numDays))}
                           onSelect={(range) => {
@@ -542,6 +548,7 @@ const user = auth?.user
                           <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2">
                             <span className="text-[11px] font-bold text-slate-400 w-9 shrink-0">{t('tripDay', i + 1)}</span>
                             <TimePicker
+                              appearance="scheduler"
                               value={dayStartTimes[i] ?? '09:00'}
                               onChange={(val) => {
                                 const next = [...dayStartTimes]
@@ -662,11 +669,12 @@ const user = auth?.user
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('fastest')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'fastest'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -676,13 +684,14 @@ const user = auth?.user
                           <Zap size={14} className="text-amber-500" /> {t('plnFastest')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnFastestDesc')}</p>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('cheapest')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'cheapest'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -692,13 +701,14 @@ const user = auth?.user
                           <Banknote size={14} className="text-emerald-500" /> {t('plnCheapest')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnCheapestDesc')}</p>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('leisure')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'leisure'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -708,13 +718,14 @@ const user = auth?.user
                           <Footprints size={14} className="text-indigo-500" /> {t('plnLeastWalking')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastWalkingDesc')}</p>
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
                         type="button"
                         onClick={() => setSelectedPreset('direct')}
+                        whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                         className={cn(
-                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                          'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                           selectedPreset === 'direct'
                             ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-300 shadow-sm'
                             : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
@@ -724,15 +735,16 @@ const user = auth?.user
                           <Shuffle size={14} className="text-purple-500" /> {t('plnLeastTransfers')}
                         </div>
                         <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastTransfersDesc')}</p>
-                      </button>
+                      </motion.button>
 
                       {user && (
-                        <button
+                        <motion.button
                           type="button"
                           onClick={() => setSelectedPreset('user')}
+                          whileHover={{ scale: 1.025, transition: { duration: 0.2 } }}
                           style={{ gridColumn: '1 / -1' }}
                           className={cn(
-                            'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition',
+                            'flex flex-col items-start gap-1 p-4 rounded-xl border text-left transition-colors transition-shadow hover:shadow-md',
                             selectedPreset === 'user'
                               ? 'border-emerald-400 bg-emerald-50/30 ring-1 ring-emerald-300 shadow-sm'
                               : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
@@ -742,7 +754,7 @@ const user = auth?.user
                             <User size={14} className="text-emerald-600" /> {t('plnUseProfile')}
                           </div>
                           <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnUseProfileDesc')}</p>
-                        </button>
+                        </motion.button>
                       )}
                     </div>
 
@@ -803,9 +815,9 @@ const user = auth?.user
                       <p className="text-[12.5px] text-slate-500">{t('plnPickSights')}</p>
                     </div>
 
-                    <div className="grid grid-cols-[1fr_260px] gap-6">
+                    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_230px]">
                       {/* Left: Place Browser */}
-                      <div className="border-r border-slate-100 pr-6">
+                      <div className="min-w-0 xl:border-r xl:border-slate-100 xl:pr-5">
                         <div className="flex justify-between items-center mb-2">
                           <span className="text-[12px] font-bold text-slate-500">{t('plnCuratedSearch')}</span>
                           <button
@@ -834,32 +846,31 @@ const user = auth?.user
                           </div>
                         )}
 
-                        <PlaceBrowser selectedIds={selectedIds} onToggle={togglePlace} />
+                        <PlaceBrowser
+                          selectedIds={selectedIds}
+                          onToggle={togglePlace}
+                          places={curatedPlaces}
+                          loading={placesLoading}
+                        />
                       </div>
 
                       {/* Right: Selected List */}
-                      <div className="flex flex-col">
+                      <div className="flex flex-col self-start xl:sticky xl:top-4">
                         <div>
                           <span className="text-[12px] font-bold text-slate-500 block mb-2">{t('plnSelectedShortlist', selected.length)}</span>
                           <SelectedList places={selected} onRemove={removePlace} />
                         </div>
                         <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
-                          <button
-                            type="button"
+                          <AnimatedGenerateButton
                             onClick={createPlan}
                             disabled={creating || selected.length < 2}
-                            className="h-10 w-full rounded-lg bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-500 transition shadow-sm inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {creating ? (
-                              <>
-                                <Loader2 size={14} className="animate-spin" /> {t('plnGenerating')}
-                              </>
-                            ) : (
-                              <>
-                                {t('plnGeneratePlan')} <Navigation2 size={13} />
-                              </>
-                            )}
-                          </button>
+                            generating={creating}
+                            labelIdle={t('plnGeneratePlan')}
+                            labelActive={t('plnGenerating')}
+                            ariaLabel={creating ? t('plnGenerating') : t('plnGeneratePlan')}
+                            className="w-full"
+                            highlightHueDeg={215}
+                          />
                           <button
                             type="button"
                             onClick={handlePrev}
@@ -887,14 +898,15 @@ const user = auth?.user
                 >
                   <ArrowLeft size={14} /> {t('tripBack')}
                 </button>
-                <button
-                  type="button"
+                <AnimatedGenerateButton
+                  key={currentStep}
                   onClick={handleNext}
                   disabled={creating}
-                  className="h-10 px-5 rounded-lg bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-500 transition shadow-sm inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {t('plnNext')} <ArrowRight size={14} />
-                </button>
+                  labelIdle={t('plnNextIdle')}
+                  labelActive={t('plnNext')}
+                  ariaLabel={t('plnNextIdle')}
+                  highlightHueDeg={215}
+                />
               </div>
             )}
 
@@ -993,6 +1005,7 @@ const user = auth?.user
           <ArrowUp size={18} />
         </button>
       )}
-    </main>
+      </div>
+    </AuroraBackground>
   )
 }

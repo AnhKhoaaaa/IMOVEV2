@@ -1,0 +1,41 @@
+\chapter{Conclusion and Future Work}
+
+\section{What the Project Achieved}
+\defaultauthor
+
+IMOVEV2 đã xây dựng được một web application lập itinerary nhiều ngày cho Singapore, kết hợp route đa phương thức, weighted scoring, map visualization, adaptation alerts, preference persistence và chatbot. Kiến trúc Agent/Service giúp phân tách trách nhiệm và giữ LLM ở vai trò hỗ trợ thay vì thay thế business logic xác định.
+
+\section{Computational Thinking Outcomes}
+\defaultauthor
+
+Dự án thể hiện bốn kỹ thuật chính: phân rã bài toán thành module, nhận diện pattern trong scheduling/context/feedback, trừu tượng hóa bằng router-agent-service-model và thiết kế thuật toán greedy/scoring/adaptation. Các kỹ thuật này giúp hệ thống có hành vi giải thích được và kiểm thử được.
+
+\section{Lessons Learned}
+\defaultauthor
+
+\begin{itemize}
+  \item External data và API failure phải được xem là tình huống bình thường.
+  \item Heuristic đơn giản nhưng đúng ràng buộc thường phù hợp hơn thuật toán phức tạp cho prototype.
+  \item Typed contracts giảm lỗi tích hợp giữa frontend và backend.
+  \item AI hữu ích cho ngôn ngữ tự nhiên nhưng cần validation và deterministic fallback.
+  \item UX phải thể hiện rõ dữ liệu thật, dữ liệu estimate và proposal chưa được chấp nhận.
+\end{itemize}
+
+\section{Future Work}
+\defaultauthor
+
+\begin{itemize}
+  \item Departure urgency engine với trạng thái rõ ràng.
+  \item Daily routine plan và Smart Override.
+  \item Realtime crowding data trong scoring.
+  \item Nâng chất lượng curated place data và ảnh.
+  \item Provider abstraction cho nhiều AI model.
+  \item Multi-city support.
+  \item Hoàn thiện localization tiếng Việt, preference UX và accessibility.
+  \item Mở rộng monitoring, CI/CD và user testing chính thức.
+\end{itemize}
+
+\section{Suggestions for Instructors and Teaching Assistants}
+\defaultauthor
+
+\requiredtodo{TEAM\_SUGGESTIONS\_FOR\_INSTRUCTORS\_AND\_TAS}

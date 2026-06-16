@@ -1,0 +1,30 @@
+\chapter{AI usage and declaration}
+
+\section{AI trong sản phẩm}
+\defaultauthor
+
+IMOVE sử dụng Gemini 2.5 Flash cho tác vụ ngôn ngữ: parse tên địa điểm, đề xuất địa điểm, sinh warning/gap notification và chatbot. Routing, cost, scheduling và scoring chính được thực hiện bằng code xác định và external routing data, không giao cho LLM.
+
+\section{AI trong quá trình phát triển}
+\defaultauthor
+
+\begin{longtable}{p{3.2cm}p{4cm}p{4.5cm}p{4cm}}
+\toprule
+\textbf{AI Tool} & \textbf{Purpose} & \textbf{Output assisted} & \textbf{Human verification} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{AI Tool} & \textbf{Purpose} & \textbf{Output assisted} & \textbf{Human verification} \\
+\midrule
+\endhead
+Google Gemini & Product NLP & Place parsing, suggestions, warning, chatbot response & Validate IDs, structured output và fallback \\
+TODO\_REQUIRED:AI\_DEV\_TOOLS & Development assistance & TODO\_REQUIRED:AI\_ASSISTED\_OUTPUTS & Code review, tests và đối chiếu repository \\
+\bottomrule
+\end{longtable}
+
+\section{Risk Control and Declaration}
+\defaultauthor
+
+Nhóm cam kết kiểm tra đầu ra AI trước khi sử dụng. Dữ liệu địa điểm do AI hỗ trợ có nguy cơ hallucination nên phải được audit bằng OneMap, Google Places hoặc nguồn đáng tin cậy. Báo cáo phân biệt rõ tính năng đã triển khai và Future Work, đồng thời không dùng LLM làm nguồn sự thật cho route, thời gian hoặc chi phí.
+
+\requiredtodo{CONFIRM\_ALL\_AI\_TOOLS\_AND\_DECLARATION}
