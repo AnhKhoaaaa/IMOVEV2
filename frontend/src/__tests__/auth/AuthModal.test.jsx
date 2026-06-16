@@ -83,6 +83,14 @@ describe('AuthModal', () => {
     fireEvent.click(screen.getByRole('button', { name: /^create account$/i }))
     await waitFor(() => expect(screen.getByText('Check your email')).toBeInTheDocument())
     expect(screen.getByText(/new@x\.com/)).toBeInTheDocument()
+    expect(supabase.auth.signUp).toHaveBeenCalledWith({
+      email: 'new@x.com',
+      password: 'pass123',
+      options: {
+        data: { username: 'new' },
+        emailRedirectTo: window.location.origin,
+      },
+    })
   })
 
   it('calls onClose when signup returns a session immediately', async () => {
@@ -128,7 +136,10 @@ describe('AuthModal', () => {
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'ml@x.com' } })
     fireEvent.click(screen.getByRole('button', { name: /send magic link/i }))
     await waitFor(() => expect(screen.getByText('Check your email')).toBeInTheDocument())
-    expect(supabase.auth.signInWithOtp).toHaveBeenCalledWith({ email: 'ml@x.com' })
+    expect(supabase.auth.signInWithOtp).toHaveBeenCalledWith({
+      email: 'ml@x.com',
+      options: { emailRedirectTo: window.location.origin },
+    })
   })
 
   it('shows error on magic link failure', async () => {

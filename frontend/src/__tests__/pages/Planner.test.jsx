@@ -151,6 +151,7 @@ describe('Planner', () => {
     fireEvent.click(screen.getAllByText(/^Generate$/i)[0])
     
     await waitFor(() => expect(api.createTrip).toHaveBeenCalledTimes(1), { timeout: 2500 })
+    expect(api.createTrip.mock.calls[0][0]).not.toHaveProperty('user_id')
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
       place_ids: ['p1', 'p2'],
       optimize_order: true,

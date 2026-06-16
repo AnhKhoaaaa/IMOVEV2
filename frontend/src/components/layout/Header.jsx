@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { User, LogOut, Globe, Settings } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useLang, useT } from '../../contexts/LanguageContext'
 import AuthModal from '../auth/AuthModal'
 
 export default function Header() {
+  const navigate = useNavigate()
   const [showAuth, setShowAuth] = useState(false)
   const [user, setUser] = useState(null)
   const { lang, toggleLang } = useLang()
@@ -19,7 +20,10 @@ export default function Header() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const handleLogout = async () => { await supabase.auth.signOut() }
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    navigate('/')
+  }
   const displayName = user?.user_metadata?.username || user?.email?.split('@')[0]
 
   return (

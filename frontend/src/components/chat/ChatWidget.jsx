@@ -52,6 +52,15 @@ export default function ChatWidget() {
   const [resolvedAlerts, setResolvedAlerts] = useState(new Set())  // alert ids dismissed/applied in chat
 
   useEffect(() => {
+    surfacedRef.current.clear()
+    setMessages(open && user ? [{ role: 'assistant', text: t('chatGreeting') }] : [])
+    setPending(null)
+    setInput('')
+    setUnread(0)
+    setResolvedAlerts(new Set())
+  }, [user?.id, tripId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     if (open) {
       setUnread(0)
       if (messages.length === 0) setMessages([{ role: 'assistant', text: t('chatGreeting') }])

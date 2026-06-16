@@ -904,7 +904,7 @@ export default function Trip() {
   const { user } = useAuth()
   const { trip, loading, error, refresh, isOffline } = useTrip(id, user?.id ?? null)
   const { trips: savedTrips, save: saveTrip } = useSavedTrips(user?.id ?? null)
-  const { alerts, dismiss } = useAlerts(id)
+  const { alerts, dismiss } = useAlerts(user ? id : null)
   const { position, error: geoError } = useGeolocation()
   const { t } = useT()
   const lastLocationSent = useRef(0)
@@ -1465,10 +1465,22 @@ export default function Trip() {
   }
 
   if (error || !trip) {
+    const message = error?.status === 403
+      ? t('tripAccessDenied')
+      : error?.status === 401
+        ? t('tripLoginRequired')
+        : String(error?.message ?? t('tripNotFound'))
+
     return (
       <main className="grid min-h-[calc(100dvh-56px)] place-items-center bg-slate-50 px-6">
-        <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-700">
-          {t('tripLoadError', String(error?.message ?? t('tripNotFound')))}
+        <div className="max-w-md rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-700">
+          <p>{t('tripLoadError', message)}</p>
+          <button
+            onClick={() => navigate('/')}
+            className="mt-4 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
+          >
+            {t('tripBackHome')}
+          </button>
         </div>
       </main>
     )

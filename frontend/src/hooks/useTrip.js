@@ -1,16 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
+
+function isAuthError(error) {
+  return error?.status === 401 || error?.status === 403
+}
 
 export function useTrip(tripId, userId = null) {
   const [trip, setTrip] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [isOffline, setIsOffline] = useState(false)
-
-  // Track latest userId without triggering a re-fetch when it changes.
-  // Cache writes/reads always use the most up-to-date value.
-  const userIdRef = useRef(userId)
-  userIdRef.current = userId
 
   useEffect(() => {
     if (!tripId) return
@@ -19,47 +18,71 @@ export function useTrip(tripId, userId = null) {
     setError(null)
     setIsOffline(false)
     setLoading(true)
+
     api.getTrip(tripId)
       .then((data) => {
         if (!ignore) {
           setTrip(data)
           setIsOffline(false)
-          api.cacheTripData(tripId, data, userIdRef.current)
+          api.cacheTripData(tripId, data, userId)
         }
       })
-      .catch(() => {
-        if (!ignore) {
-          const cached = api.getCachedTripData(tripId, userIdRef.current)
-          if (cached) {
-            setTrip(cached)
-            setIsOffline(true)
-          } else {
-            setError(new Error('Network error — no cached data available'))
-          }
+      .catch((err) => {
+        if (ignore) return
+        if (isAuthError(err)) {
+          setTrip(null)
+          setError(err)
+          setIsOffline(false)
+          return
+        }
+
+        const cached = api.getCachedTripData(tripId, userId)
+        if (cached) {
+          setTrip(cached)
+          setIsOffline(true)
+        } else {
+          setError(new Error('Network error - no cached data available'))
         }
       })
       .finally(() => { if (!ignore) setLoading(false) })
+
     return () => { ignore = true }
-  }, [tripId])
+  }, [tripId, userId])
 
   const refresh = useCallback((preloaded) => {
     if (preloaded && Array.isArray(preloaded.days)) {
       setTrip(preloaded)
+      setError(null)
       setIsOffline(false)
-      api.cacheTripData(tripId, preloaded, userIdRef.current)
+      api.cacheTripData(tripId, preloaded, userId)
       return Promise.resolve(preloaded)
     }
+
     return api.getTrip(tripId)
       .then((data) => {
         setTrip(data)
+        setError(null)
         setIsOffline(false)
-        api.cacheTripData(tripId, data, userIdRef.current)
+        api.cacheTripData(tripId, data, userId)
+        return data
       })
-      .catch(() => {
-        const cached = api.getCachedTripData(tripId, userIdRef.current)
-        if (cached) { setTrip(cached); setIsOffline(true) }
+      .catch((err) => {
+        if (isAuthError(err)) {
+          setTrip(null)
+          setError(err)
+          setIsOffline(false)
+          return null
+        }
+
+        const cached = api.getCachedTripData(tripId, userId)
+        if (cached) {
+          setTrip(cached)
+          setIsOffline(true)
+          return cached
+        }
+        return null
       })
-  }, [tripId])
+  }, [tripId, userId])
 
   return { trip, loading, error, refresh, isOffline }
 }

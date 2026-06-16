@@ -19,6 +19,7 @@ export default function AuthModal({ onClose }) {
   const [authError, setAuthError] = useState(null)
   const [loading, setLoading] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
+  const redirectTo = window.location.origin
 
   const submit = async () => {
     setAuthError(null)
@@ -28,12 +29,18 @@ export default function AuthModal({ onClose }) {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { data: { username: username.trim() || email.split('@')[0] } },
+          options: {
+            data: { username: username.trim() || email.split('@')[0] },
+            emailRedirectTo: redirectTo,
+          },
         })
         if (error) { setAuthError(String(error.message)); return }
         if (!data.session) { setEmailSent(true) } else { onClose() }
       } else if (signinTab === 'magic_link') {
-        const { error } = await supabase.auth.signInWithOtp({ email })
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: redirectTo },
+        })
         if (error) { setAuthError(String(error.message)); return }
         setEmailSent(true)
       } else {
@@ -50,7 +57,7 @@ export default function AuthModal({ onClose }) {
     setAuthError(null)
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     })
     // Surface config errors (e.g. provider not enabled) instead of failing silently.
     if (error) setAuthError(String(error.message))

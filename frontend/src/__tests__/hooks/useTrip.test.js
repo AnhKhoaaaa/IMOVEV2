@@ -64,7 +64,7 @@ describe('useTrip', () => {
     expect(result.current.trip).toBeNull()
   })
 
-  it('does not re-fetch when userId changes — fetch is keyed only on tripId', async () => {
+  it('re-fetches when userId changes to avoid showing another user cache', async () => {
     api.getTrip.mockResolvedValue(mockTrip)
     const { result, rerender } = renderHook(({ uid }) => useTrip('trip-1', uid), {
       initialProps: { uid: null },
@@ -72,7 +72,20 @@ describe('useTrip', () => {
     await waitFor(() => expect(result.current.trip).toEqual(mockTrip))
     const callCount = api.getTrip.mock.calls.length
     rerender({ uid: 'user-a' })
-    // no additional fetch triggered by userId change
-    expect(api.getTrip.mock.calls.length).toBe(callCount)
+    await waitFor(() => expect(api.getTrip.mock.calls.length).toBe(callCount + 1))
+  })
+
+  it('does not fall back to cached data on 401/403 auth errors', async () => {
+    const err = new Error('Access denied')
+    err.status = 403
+    api.getTrip.mockRejectedValue(err)
+    api.getCachedTripData.mockReturnValue(mockTrip)
+
+    const { result } = renderHook(() => useTrip('trip-1', 'user-a'))
+
+    await waitFor(() => expect(result.current.error).toBe(err))
+    expect(result.current.trip).toBeNull()
+    expect(result.current.isOffline).toBe(false)
+    expect(api.getCachedTripData).not.toHaveBeenCalled()
   })
 })
