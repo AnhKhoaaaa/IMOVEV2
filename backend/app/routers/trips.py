@@ -33,15 +33,19 @@ _pending_swaps: dict[str, dict] = {}  # trip_id → {alert_id, updated_trip}
 
 
 @router.post("")
-async def create_trip(body: TripCreate):
+async def create_trip(
+    body: TripCreate,
+    current_user: Optional[str] = Depends(get_current_user),
+):
     trip_id = str(uuid.uuid4())
+    user_id = current_user
 
     # Cache for no-DB fallback path (budget, num_days, session_id, user_id, name)
     _trip_meta[trip_id] = {
         "num_days": body.num_days,
         "budget_sgd": float(body.budget_sgd),
         "session_id": body.session_id,
-        "user_id": str(body.user_id) if body.user_id else None,
+        "user_id": user_id,
         "name": body.name,
         "start_date": body.start_date,   # date | None — used for close_days-aware planning (dev21)
     }
@@ -50,7 +54,7 @@ async def create_trip(body: TripCreate):
         supabase.table("trips").insert({
             "id": trip_id,
             "session_id": body.session_id,
-            "user_id": str(body.user_id) if body.user_id else None,
+            "user_id": user_id,
             "num_days": body.num_days,
             "budget_sgd": float(body.budget_sgd),
             "status": "DRAFT",
@@ -68,6 +72,7 @@ async def plan_trip(
     body: TripPlanRequest,
     current_user: Optional[str] = Depends(get_current_user),
 ):
+    _verify_user_ownership(trip_id, current_user)
     num_days, budget_sgd = _get_trip_params(trip_id, body)
 
     # [PATCH 3] Fetch user preference profile — fallback to default nếu guest/new user
@@ -148,12 +153,10 @@ async def plan_trip(
 
 @router.get("/{trip_id}")
 async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_current_user)):
+    _verify_user_ownership(trip_id, current_user)
+
     # Try in-memory cache first (covers session without Supabase)
     if trip_id in _trip_store:
-        meta = _trip_meta.get(trip_id, {})
-        trip_user_id = meta.get("user_id")
-        if current_user and trip_user_id and trip_user_id != current_user:
-            raise HTTPException(status_code=403, detail="Access denied")
         return _trip_store[trip_id]
 
     if supabase:
@@ -163,8 +166,6 @@ async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_curre
             if trip_resp.data:
                 t = trip_resp.data[0]
                 trip_user_id = t.get("user_id")
-                if current_user and trip_user_id and trip_user_id != current_user:
-                    raise HTTPException(status_code=403, detail="Access denied")
                 # Repopulate in-memory caches so subsequent mutations work after server restart
                 plan.name = t.get("name")
                 _trip_store[trip_id] = plan
@@ -185,12 +186,19 @@ async def get_trip(trip_id: str, current_user: Optional[str] = Depends(get_curre
 
 
 @router.patch("/{trip_id}/legs/{leg_id}")
-async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSwapResult:
+async def update_leg(
+    trip_id: str,
+    leg_id: str,
+    body: LegUpdateRequest,
+    current_user: Optional[str] = Depends(get_current_user),
+) -> LegSwapResult:
     """Real mode-switch: replaces duration/cost/geometry/sub_legs from pre-fetched alternatives.
 
     Returns LegSwapResult { updated_leg, trip_cost_sgd, warnings }.
     422 when requested mode has no available route.
     """
+    _verify_user_ownership(trip_id, current_user)
+
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
         plan = _fetch_trip_from_db(trip_id)
@@ -277,7 +285,12 @@ async def update_leg(trip_id: str, leg_id: str, body: LegUpdateRequest) -> LegSw
 
 
 @router.post("/{trip_id}/legs/{leg_id}/switch-now")
-async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> LegSwapResult:
+async def switch_leg_now(
+    trip_id: str,
+    leg_id: str,
+    body: LiveSwitchRequest,
+    current_user: Optional[str] = Depends(get_current_user),
+) -> LegSwapResult:
     """User-initiated live mode-switch using current GPS position.
 
     Differs from PATCH /legs/{id}:
@@ -285,6 +298,8 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
     - No alert_id required, no accept-swap flow — commits immediately
     - Returns routed_from_current_position=True when geometry originates from GPS
     """
+    _verify_user_ownership(trip_id, current_user)
+
     plan = _trip_store.get(trip_id)
     if plan is None and supabase:
         plan = _fetch_trip_from_db(trip_id)
@@ -367,7 +382,13 @@ async def switch_leg_now(trip_id: str, leg_id: str, body: LiveSwitchRequest) -> 
 
 
 @router.post("/{trip_id}/adapt")
-async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
+async def adapt_trip_endpoint(
+    trip_id: str,
+    body: AdaptRequest,
+    current_user: Optional[str] = Depends(get_current_user),
+):
+    _verify_user_ownership(trip_id, current_user)
+
     # Verify session ownership before applying adaptation
     if supabase and not body.session_id:
         raise HTTPException(status_code=403, detail="session_id is required")
@@ -398,7 +419,13 @@ async def adapt_trip_endpoint(trip_id: str, body: AdaptRequest):
 
 
 @router.post("/{trip_id}/location", status_code=204)
-async def update_location(trip_id: str, body: LocationUpdate):
+async def update_location(
+    trip_id: str,
+    body: LocationUpdate,
+    current_user: Optional[str] = Depends(get_current_user),
+):
+    _verify_user_ownership(trip_id, current_user)
+
     if body.session_id:
         _verify_session_ownership(trip_id, body.session_id)
 
@@ -788,7 +815,12 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
 
 
 @router.delete("/{trip_id}", status_code=204)
-async def delete_trip(trip_id: str):
+async def delete_trip(
+    trip_id: str,
+    current_user: Optional[str] = Depends(get_current_user),
+):
+    _verify_user_ownership(trip_id, current_user)
+
     _trip_store.pop(trip_id, None)
     _trip_meta.pop(trip_id, None)
     _pending_swaps.pop(trip_id, None)
@@ -803,7 +835,13 @@ async def delete_trip(trip_id: str):
 
 
 @router.post("/{trip_id}/accept-swap")
-async def accept_swap(trip_id: str, body: AdaptRequest):
+async def accept_swap(
+    trip_id: str,
+    body: AdaptRequest,
+    current_user: Optional[str] = Depends(get_current_user),
+):
+    _verify_user_ownership(trip_id, current_user)
+
     if body.session_id:
         _verify_session_ownership(trip_id, body.session_id)
 
@@ -822,7 +860,11 @@ async def accept_swap(trip_id: str, body: AdaptRequest):
 
 
 @router.post("/{trip_id}/check-alerts")
-async def check_trip_alerts(trip_id: str, body: CheckAlertsRequest):
+async def check_trip_alerts(
+    trip_id: str,
+    body: CheckAlertsRequest,
+    current_user: Optional[str] = Depends(get_current_user),
+):
     """Demand-triggered alert check for UPCOMING trips.
 
     Called by the frontend when a user opens a trip scheduled for tomorrow.
@@ -832,6 +874,8 @@ async def check_trip_alerts(trip_id: str, body: CheckAlertsRequest):
 
     Returns {"lta_checked": bool, "weather_checked": bool, "alerts_inserted": int}.
     """
+    _verify_user_ownership(trip_id, current_user)
+
     if body.session_id:
         _verify_session_ownership(trip_id, body.session_id)
 
@@ -966,9 +1010,7 @@ def _get_trip_start_date(trip_id: str) -> Optional[date]:
 
 
 def _verify_user_ownership(trip_id: str, current_user: Optional[str]) -> None:
-    """Raise 403 if an authenticated user doesn't own this trip."""
-    if current_user is None:
-        return  # unauthenticated / guest — allow
+    """Require the matching JWT whenever a trip belongs to an account."""
     meta = _trip_meta.get(trip_id)
     if meta:
         trip_user_id = meta.get("user_id")
