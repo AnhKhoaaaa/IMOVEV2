@@ -1,0 +1,47 @@
+\chapter{Deployment}
+
+\section{Deployment Architecture}
+\defaultauthor
+
+Kiến trúc triển khai mục tiêu dùng Vercel cho frontend, Render cho FastAPI backend và Supabase cho PostgreSQL/Auth/Realtime. Các external API tiếp tục được gọi từ backend.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.2cm and 1.2cm]
+  \node[imovenode] (user) {User Browser};
+  \node[imoveexternal,right=of user] (vercel) {Vercel\\React Frontend};
+  \node[imoveexternal,right=of vercel] (render) {Render\\FastAPI Backend};
+  \node[imovedata,above right=of render] (supabase) {Supabase};
+  \node[imoveexternal,below right=of render] (apis) {OneMap / LTA /\\Weather / Gemini};
+  \draw[imovearrow] (user) -- (vercel);
+  \draw[imovearrow] (vercel) -- (render);
+  \draw[imovearrow] (render) -- (supabase);
+  \draw[imovearrow] (render) -- (apis);
+\end{tikzpicture}
+\caption{Kiến trúc deployment mục tiêu.}
+\label{fig:deployment}
+\end{figure}
+
+\section{Configuration}
+\defaultauthor
+
+\begin{itemize}
+  \item Backend: OneMap credentials, LTA API key, Gemini/Vertex settings, Supabase service role, OpenWeather key và frontend CORS URL.
+  \item Frontend: API base URL và Supabase public configuration.
+  \item Database: chạy migrations trong \code{supabase/migrations}.
+  \item Health check: backend expose endpoint health cho platform monitoring.
+\end{itemize}
+
+Không đưa secret vào source control hoặc báo cáo.
+
+\section{Deployment URLs and Limitations}
+\defaultauthor
+
+\requiredtodo{CONFIRM\_DEPLOYMENT\_STATUS\_AND\_URLS}
+
+\begin{itemize}
+  \item Frontend URL: \texttt{\FrontendURL}
+  \item Backend URL: \texttt{\BackendURL}
+  \item Free-tier backend có thể hibernate.
+  \item In-process scheduler cần đánh giá lại nếu chạy nhiều backend instance.
+\end{itemize}

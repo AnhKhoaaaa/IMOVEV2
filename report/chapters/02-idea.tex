@@ -1,0 +1,32 @@
+\chapter{Idea}
+
+\section{Problem Statement}
+\defaultauthor
+
+Singapore có mạng lưới MRT, LRT, bus và walking link dày đặc. Một du khách lần đầu thường đã có danh sách địa điểm muốn tham quan nhưng chưa biết cách phân bổ chúng vào nhiều ngày, sắp thứ tự hợp lý hoặc chọn phương tiện cân bằng thời gian, chi phí và số lần chuyển tuyến. Các công cụ bản đồ phổ biến giải tốt câu hỏi ``đi từ A đến B ngay bây giờ'', nhưng không giải quyết đồng thời bài toán lịch trình nhiều ngày, thích nghi khi điều kiện thay đổi và học từ phản hồi cá nhân.
+
+\section{Product Vision}
+\defaultauthor
+
+IMOVEV2 hướng tới một trợ lý lập kế hoạch giao thông công cộng có thể đồng hành trước và trong chuyến đi. Hệ thống biến danh sách địa điểm thành lịch trình theo ngày, đính kèm route đa phương thức, phản ứng trước mưa hoặc gián đoạn tàu, và lưu preference cho người dùng đăng nhập.
+
+\section{Target Users}
+\defaultauthor
+
+Người dùng chính là solo traveler hoặc nhóm nhỏ từ hai đến bốn người, lần đầu hoặc ít kinh nghiệm di chuyển tại Singapore. Họ cần hướng dẫn rõ ràng, muốn biết trước thời gian và chi phí, nhưng không muốn tự phân tích toàn bộ mạng lưới giao thông.
+
+\section{Project Goals and Success Criteria}
+\defaultauthor
+
+\begin{itemize}
+  \item Tạo được itinerary nhiều ngày từ danh sách địa điểm.
+  \item Cung cấp route Metro, Bus, Walk, Cycle và Grab khi phù hợp.
+  \item Xếp hạng mode theo preference và bối cảnh.
+  \item Tạo proposal thích nghi khi có cảnh báo giao thông hoặc thời tiết.
+  \item Hoạt động ở guest mode; bổ sung persistence và learning khi đăng nhập.
+\end{itemize}
+
+\section{Scope and Non-goals}
+\defaultauthor
+
+Phiên bản hiện tại tập trung vào Singapore, phụ thuộc OneMap cho routing và không tích hợp thanh toán. Hệ thống chưa phải bộ giải TSP đầy đủ, chưa có dữ liệu crowding realtime trong scoring và chưa hỗ trợ multi-city. Các giới hạn này được giữ rõ ràng để tránh mô tả quá khả năng implementation.
