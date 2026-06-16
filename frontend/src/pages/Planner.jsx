@@ -136,8 +136,8 @@ function SelectedList({ places, onRemove }) {
 
 export default function Planner() {
   const navigate = useNavigate()
-const auth = useAuth()
-const user = auth?.user
+  const auth = useAuth()
+  const user = auth?.user
   const { t } = useT()
   
   // Wizard steps: 1: Essentials, 2: Hotel, 3: Travel Style, 4: Places
@@ -291,7 +291,6 @@ const user = auth?.user
         end_date: flexible || !startDate ? null : endDate(startDate, numDays),
         day_start_times: dayStartTimes,
         name: tripName.trim() || 'Singapore Trip',
-        user_id: user?.id ?? null,
       }
       
       const trip = await api.createTrip(body)

@@ -18,7 +18,10 @@ export function useAlerts(tripId, channelSuffix = '') {
   const [alerts, setAlerts] = useState([])
 
   useEffect(() => {
-    if (!tripId) return
+    if (!tripId) {
+      setAlerts([])
+      return
+    }
     let ignore = false
 
     supabase.from('lta_alerts').select('*').eq('trip_id', tripId).is('resolved_at', null)

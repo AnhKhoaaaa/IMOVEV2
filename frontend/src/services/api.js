@@ -4,6 +4,16 @@ import { supabase } from '../lib/supabase'
 // Set VITE_API_BASE_URL=https://your-backend.com for production
 const BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
+export class ApiError extends Error {
+  constructor(message, { status, detail, path } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+    this.path = path
+  }
+}
+
 function formatApiError(detail) {
   if (detail == null) return 'Request failed'
   if (typeof detail === 'string') return detail
@@ -39,7 +49,11 @@ async function request(path, options = {}) {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(formatApiError(err.detail) || 'Request failed')
+    throw new ApiError(formatApiError(err.detail) || 'Request failed', {
+      status: res.status,
+      detail: err.detail,
+      path,
+    })
   }
   if (res.status === 204) return null
   return res.json()

@@ -517,12 +517,14 @@ function GenericAlertCard({ alert, tripId, onDismiss, onAdapted }) {
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState(null)
   const [feedbackSent, setFeedbackSent] = useState(false)
+  const [feedbackError, setFeedbackError] = useState(null)
 
   useEffect(() => {
     setAdaptError(null)
     setProposal(null)
     setAcceptError(null)
     setFeedbackSent(false)
+    setFeedbackError(null)
   }, [alert.id])
 
   const handleAdapt = async () => {
@@ -563,14 +565,18 @@ function GenericAlertCard({ alert, tripId, onDismiss, onAdapted }) {
 
   const sendFeedback = async (rating) => {
     setFeedbackSent(true)
+    setFeedbackError(null)
     try {
       await api.submitFeedback({
         trip_id: tripId,
         rating,
         comment: rating >= 4 ? 'Helpful alert' : 'Not helpful alert',
       })
-    } catch {
+    } catch (e) {
       setFeedbackSent(false)
+      setFeedbackError(e?.status === 401 || e?.status === 403
+        ? t('alertFeedbackLoginRequired')
+        : t('alertFeedbackFailed'))
     }
   }
 
@@ -643,6 +649,7 @@ function GenericAlertCard({ alert, tripId, onDismiss, onAdapted }) {
 
         {adaptError && <p className="mt-2 text-xs text-red-600">{adaptError}</p>}
         {acceptError && <p className="mt-2 text-xs text-red-600">{acceptError}</p>}
+        {feedbackError && <p className="mt-2 text-xs text-red-600">{feedbackError}</p>}
       </div>
 
       <button

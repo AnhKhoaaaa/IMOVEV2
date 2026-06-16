@@ -190,6 +190,12 @@ export default function Home() {
   ], [t])
 
   useEffect(() => {
+    setHydrated({})
+    inFlightRef.current.clear()
+    setLoadingIds(new Set())
+  }, [user?.id])
+
+  useEffect(() => {
     trips.forEach((trip) => {
       if (!trip.id || hydrated[trip.id] || inFlightRef.current.has(trip.id)) return
       inFlightRef.current.add(trip.id)
