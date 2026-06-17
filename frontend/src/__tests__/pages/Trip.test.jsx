@@ -81,7 +81,9 @@ describe('Trip page', () => {
   it('shows error message', () => {
     useTrip.mockReturnValue({ trip: null, loading: false, error: new Error('Not found') })
     render(<BrowserRouter><Trip /></BrowserRouter>)
-    expect(screen.getByText(/Not found/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Trip unavailable/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Back to home/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Start a new trip/i })).toBeInTheDocument()
   })
 
   it('renders day by day board when loaded', () => {

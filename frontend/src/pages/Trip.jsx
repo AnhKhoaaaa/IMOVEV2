@@ -11,7 +11,9 @@ import {
   Clock,
   CloudRain,
   FileText,
+  Home,
   Loader2,
+  Lock,
   MapPin,
   Navigation2,
   Plus,
@@ -1472,15 +1474,33 @@ export default function Trip() {
         : String(error?.message ?? t('tripNotFound'))
 
     return (
-      <main className="grid min-h-[calc(100dvh-56px)] place-items-center bg-slate-50 px-6">
-        <div className="max-w-md rounded-lg border border-red-200 bg-red-50 p-6 text-center text-red-700">
-          <p>{t('tripLoadError', message)}</p>
-          <button
-            onClick={() => navigate('/')}
-            className="mt-4 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
-          >
-            {t('tripBackHome')}
-          </button>
+      <main className="grid min-h-[calc(100dvh-56px)] place-items-center bg-gradient-to-br from-slate-50 via-white to-blue-50/60 px-6">
+        <div className="w-full max-w-[420px] rounded-3xl border border-slate-100 bg-white/95 p-8 text-center shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur">
+          <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-red-50 text-red-600 shadow-inner">
+            <Lock className="h-9 w-9" aria-hidden="true" />
+          </div>
+          <h1 className="mt-6 font-display text-2xl font-extrabold text-slate-950">
+            {t('tripUnavailableTitle')}
+          </h1>
+          <p className="mx-auto mt-3 max-w-[300px] text-sm font-medium leading-6 text-slate-500">
+            {t('tripUnavailableBody', message)}
+          </p>
+          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            <button
+              onClick={() => navigate('/')}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            >
+              <Home className="h-4 w-4" aria-hidden="true" />
+              {t('tripBackHome')}
+            </button>
+            <button
+              onClick={() => navigate('/plan')}
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {t('tripStartNew')}
+            </button>
+          </div>
         </div>
       </main>
     )
