@@ -41,9 +41,12 @@ export function useT() {
 
 const EN = {
   /* ── Header ──────────────────────── */
+  home: 'Home',
   newTrip: 'New Trip',
-  signIn: 'Sign in',
+  signIn: 'Sign In',
   signOut: 'Sign out',
+  setting: 'Setting',
+  language: 'Language',
 
   /* ── Auth modal ───────────────────── */
   signInTitle: 'Sign in',
@@ -752,9 +755,12 @@ const EN = {
 
 const VI = {
   /* ── Header ──────────────────────── */
+  home: 'Trang chủ',
   newTrip: 'Chuyến mới',
   signIn: 'Đăng nhập',
   signOut: 'Đăng xuất',
+  setting: 'Cài đặt',
+  language: 'Ngôn ngữ',
 
   /* ── Auth modal ───────────────────── */
   signInTitle: 'Đăng nhập',
@@ -1285,8 +1291,8 @@ const VI = {
   plnPickSights: 'Chọn điểm tham quan. Cần ít nhất 2 địa điểm. Bạn có thể tìm kiếm hoặc dùng gợi ý AI.',
   plnCuratedSearch: 'Tìm địa điểm tuyển chọn',
   plnAutoShortlist: 'Gợi ý AI tự động',
-  plnAnalyzing: (n) => `AI đang phân tích ${n} ngày và lộ trình để chọn các điểm phù hợp...`,
-  plnShortlistDone: 'AI đã chọn sẵn. Bạn có thể chỉnh tuỳ ý!',
+  plnAnalyzing: (n) => `AI đang phân tích ${n} ngày và chọn lọc các điểm phù hợp...`,
+  plnShortlistDone: 'Đã chọn sẵn danh sách bằng AI. Chỉnh sửa tùy ý!',
   plnSelectedShortlist: (n) => `Đã chọn (${n})`,
   plnGenerating: 'Đang tạo',
   plnGeneratePlan: 'Tạo',

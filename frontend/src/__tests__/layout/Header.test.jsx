@@ -36,10 +36,9 @@ describe('Header', () => {
     expect(screen.getByText('IMOVE')).toBeInTheDocument()
   })
 
-  it('renders language toggle with EN and VI', () => {
+  it('renders Language menu trigger', () => {
     wrap()
-    expect(screen.getByText('EN')).toBeInTheDocument()
-    expect(screen.getByText('VI')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /language/i })).toBeInTheDocument()
   })
 
   it('renders New Trip link', () => {
@@ -47,10 +46,16 @@ describe('Header', () => {
     expect(screen.getByText('New Trip')).toBeInTheDocument()
   })
 
-  it('renders New Trip link in VI after toggle', () => {
+  it('allows selecting Vietnamese from Language menu', () => {
     wrap()
-    fireEvent.click(screen.getByTitle(/switch to vietnamese/i))
+    fireEvent.click(screen.getByRole('button', { name: /language/i }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /tiếng việt/i }))
+    expect(localStorage.getItem('imove_lang')).toBe('vi')
+    expect(screen.getByText('Trang chủ')).toBeInTheDocument()
+    expect(screen.getByText('Đăng nhập')).toBeInTheDocument()
     expect(screen.getByText('Chuyến mới')).toBeInTheDocument()
+    expect(screen.getByText('Cài đặt')).toBeInTheDocument()
+    expect(screen.getByText('Ngôn ngữ')).toBeInTheDocument()
   })
 
   it('AuthModal hidden by default', () => {
