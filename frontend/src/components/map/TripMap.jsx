@@ -193,7 +193,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
   return (
     <div className="h-full w-full rounded-2xl overflow-hidden border border-slate-200 shadow-card relative">
       {colorByDay && presentDays.length > 0 && (
-        <div className="absolute bottom-6 left-2 z-[400] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
+        <div className="absolute bottom-6 left-2 z-[1100] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
           {presentDays.map((day) => (
             <div key={day} className="flex items-center gap-1.5">
               <span
@@ -206,7 +206,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
         </div>
       )}
       {!colorByDay && presentModes.length > 0 && (
-        <div className="absolute bottom-6 left-2 z-[400] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
+        <div className="absolute bottom-6 left-2 z-[1100] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
           {presentModes.map((mode) => {
             const style = MODE_STYLE[mode]
             return (

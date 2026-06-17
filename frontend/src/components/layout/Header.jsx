@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { User, LogOut, Globe, Settings } from 'lucide-react'
+import { User, LogOut } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useLang, useT } from '../../contexts/LanguageContext'
 import AuthModal from '../auth/AuthModal'
+import NavHeader from '../ui/nav-header'
 
 export default function Header() {
   const navigate = useNavigate()
@@ -25,14 +26,43 @@ export default function Header() {
     navigate('/')
   }
   const displayName = user?.user_metadata?.username || user?.email?.split('@')[0]
+  const handleLanguageSelect = (nextLang) => {
+    if (lang !== nextLang) toggleLang()
+  }
+  const navItems = [
+    { key: 'home', label: t('home'), to: '/' },
+    ...(!user ? [{ key: 'sign-in', label: t('signIn'), onClick: () => setShowAuth(true) }] : []),
+    { key: 'new-trip', label: t('newTrip'), to: '/plan' },
+    { key: 'setting', label: t('setting'), to: '/settings' },
+    {
+      key: 'language',
+      label: t('language'),
+      menu: {
+        options: [
+          {
+            label: 'English',
+            value: 'en',
+            selected: lang === 'en',
+            onSelect: () => handleLanguageSelect('en'),
+          },
+          {
+            label: 'Tiếng Việt',
+            value: 'vi',
+            selected: lang === 'vi',
+            onSelect: () => handleLanguageSelect('vi'),
+          },
+        ],
+      },
+    },
+  ]
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full border-b border-slate-100 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
+      <header className="sticky top-0 z-40 w-full">
+        <div className="relative mx-auto flex h-14 max-w-7xl items-center justify-center px-4 sm:px-6">
 
           {/* Logo */}
-          <Link to="/" className="flex items-center" aria-label="IMOVE home">
+          <Link to="/" className="absolute left-4 flex items-center sm:left-6" aria-label="IMOVE home">
             <img
               src="/imove-logo-transparent.png"
               alt=""
@@ -41,34 +71,10 @@ export default function Header() {
             <span className="sr-only">IMOVE</span>
           </Link>
 
+          <NavHeader items={navItems} className="hidden sm:block" />
+
           {/* Right side */}
-          <div className="flex items-center gap-2">
-            <Link
-              to="/plan"
-              className="hidden sm:inline-flex h-9 items-center rounded-lg px-3 text-sm font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
-            >
-              {t('newTrip')}
-            </Link>
-            <Link
-              to="/settings"
-              className="hidden sm:grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors"
-              title="Settings"
-            >
-              <Settings className="h-4 w-4" />
-            </Link>
-
-            {/* Language toggle */}
-            <button
-              onClick={toggleLang}
-              title={lang === 'en' ? 'Switch to Vietnamese' : 'Chuyển sang tiếng Anh'}
-              className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 text-[12px] font-semibold text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors select-none"
-            >
-              <Globe className="h-3 w-3" />
-              <span className={lang === 'en' ? 'text-indigo-600' : 'text-slate-400'}>EN</span>
-              <span className="text-slate-300">/</span>
-              <span className={lang === 'vi' ? 'text-indigo-600' : 'text-slate-400'}>VI</span>
-            </button>
-
+          <div className="absolute right-4 flex items-center gap-2 sm:right-6">
             {user ? (
               <div className="flex items-center gap-2">
                 <span className="hidden sm:block text-[13px] font-medium text-slate-700 max-w-[120px] truncate">
@@ -88,8 +94,9 @@ export default function Header() {
             ) : (
               <button
                 onClick={() => setShowAuth(true)}
-                aria-label={t('signIn')}
-                className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors"
+                aria-label="Open account"
+                title={t('signIn')}
+                className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors sm:hidden"
               >
                 <User className="h-4 w-4" />
               </button>
