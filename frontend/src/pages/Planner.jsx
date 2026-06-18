@@ -13,7 +13,6 @@ import {
   MapPin,
   Plus,
   Search,
-  Sparkles,
   Trash2,
   X,
   Zap,
@@ -173,7 +172,6 @@ export default function Planner() {
   // UI Flow States
   const [error, setError] = useState(null)
   const [creating, setCreating] = useState(false)
-  const [suggestState, setSuggestState] = useState('idle')  // idle | thinking | done | error — Auto AI Shortlist
 
   // Floating "back to top" button for the long Sightseeing list (step 4)
   const [showScrollTop, setShowScrollTop] = useState(false)
@@ -242,36 +240,6 @@ export default function Planner() {
   const togglePlace = (place) => {
     if (selectedIds.includes(place.id)) removePlace(place.id)
     else addPlace(place)
-  }
-
-  // Calls AI API to auto-shortlist places based on day budget + selected preset.
-  // NOTE: backend endpoint /places/ai-suggest currently returns 500 — fix tracked
-  // separately (see project memory project-ai-shortlist-bug).
-  const suggestPlaces = async () => {
-    setSuggestState('thinking')
-    setError(null)
-    try {
-      // Map current preset to some standard tags for AI compatibility
-      const stylesMap = {
-        fastest: ['heritage', 'nature'],
-        cheapest: ['food', 'shopping'],
-        leisure: ['nature', 'food'],
-        direct: ['heritage', 'shopping'],
-        user: ['heritage', 'nature'],
-      }
-      const response = await api.suggestPlaces({
-        num_days: numDays,
-        travel_styles: stylesMap[selectedPreset] || ['heritage'],
-        group_type: 'solo',
-      })
-      const ids = response?.suggested_place_ids ?? []
-      const next = ids.map((id) => placesById[id]).filter(Boolean)
-      setSelected(next)
-      setSuggestState('done')
-    } catch (err) {
-      setError(err.message)
-      setSuggestState('error')
-    }
   }
 
   const createPlan = async () => {
@@ -819,33 +787,9 @@ export default function Planner() {
                       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_230px]">
                         {/* Left: Place Browser */}
                         <div className="min-w-0 xl:border-r xl:border-slate-100 xl:pr-5">
-                          <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="mb-2 flex items-center">
                             <span className="text-[12px] font-bold text-slate-500">{t('plnCuratedSearch')}</span>
-                            <button
-                              type="button"
-                              onClick={suggestPlaces}
-                              disabled={suggestState === 'thinking' || placesLoading}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-extrabold rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 transition"
-                            >
-                              {suggestState === 'thinking' ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                              {t('plnAutoShortlist')}
-                            </button>
                           </div>
-
-                          {suggestState === 'thinking' && (
-                            <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/50 p-3 flex items-start gap-2 animate-pulse">
-                              <Loader2 size={14} className="animate-spin text-blue-600 shrink-0 mt-0.5" />
-                              <p className="text-[11.5px] text-blue-700 leading-normal">
-                                {t('plnAnalyzing', numDays)}
-                              </p>
-                            </div>
-                          )}
-
-                          {suggestState === 'done' && (
-                            <div className="mb-3 flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-[11.5px] font-bold text-emerald-700 animate-pop-in">
-                              <Check size={13} /> {t('plnShortlistDone')}
-                            </div>
-                          )}
 
                           <PlaceBrowser
                             selectedIds={selectedIds}
