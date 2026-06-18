@@ -7,7 +7,6 @@ import {
   Calendar,
   Check,
   ChevronLeft,
-  ChevronDown,
   Clock,
   Loader2,
   MapPin,
@@ -156,7 +155,6 @@ export default function Planner() {
   const [dayStartTimes, setDayStartTimes] = useState(() => Array(3).fill('09:00'))
 
   // Sidebar states
-  const [payloadOpen, setPayloadOpen] = useState(false)
 
   // Step 2: Hotel States (Optional)
   const [hotelQuery, setHotelQuery] = useState('')
@@ -321,24 +319,6 @@ export default function Planner() {
   const handlePrev = () => {
     goToStep(currentStep - 1)
   }
-
-  // Live JSON Preview compiler
-  const livePayload = useMemo(() => {
-    const weightsObj = selectedPreset === 'user' ? {} : PRESETS[selectedPreset]
-    const payload = {
-      place_ids: selectedIds,
-      optimize_order: optimizeOrder,
-      hotel_name: hotel?.name ?? null,
-      hotel_lat: hotel?.lat ?? null,
-      hotel_lng: hotel?.lng ?? null,
-      day_start_times: dayStartTimes,
-      preferences: {
-        budget_sgd: Number(budget),
-        ...weightsObj
-      }
-    }
-    return JSON.stringify(payload, null, 2)
-  }, [selectedIds, optimizeOrder, hotel, budget, selectedPreset, dayStartTimes])
 
   return (
     <AuroraBackground>
@@ -863,7 +843,7 @@ export default function Planner() {
               {/* Summary Info */}
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center gap-1.5 border-b border-slate-100 pb-3 mb-4">
-                  <div className="grid h-7 w-7 place-items-center rounded bg-blue-50 text-blue-600 font-bold text-sm">🗓</div>
+                  <div className="grid h-7 w-7 place-items-center rounded bg-blue-50 text-blue-600"><Calendar size={16} /></div>
                   <h3 className="font-display font-bold text-[15px] text-slate-900">{t('plnConfigSummary')}</h3>
                 </div>
 
@@ -904,28 +884,6 @@ export default function Planner() {
                     <span className="text-[12.5px] font-bold text-slate-800">{t('plnStopsValue', selected.length)}</span>
                   </div>
                 </div>
-              </section>
-
-              {/* API Live Payload Debug Panel */}
-              <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setPayloadOpen((v) => !v)}
-                  className="w-full flex items-center justify-between gap-2 px-5 py-3 hover:bg-slate-50 transition"
-                >
-                  <span className="text-[12px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">{t('plnApiPayload')}</span>
-                  <ChevronDown
-                    size={14}
-                    className={cn('text-slate-400 transition-transform duration-200', payloadOpen && 'rotate-180')}
-                  />
-                </button>
-                {payloadOpen && (
-                  <div className="px-5 pb-4">
-                    <pre className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 font-mono text-[10px] text-sky-400 overflow-x-auto max-h-[200px]">
-                      {livePayload}
-                    </pre>
-                  </div>
-                )}
               </section>
 
               {error && (
