@@ -255,7 +255,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
                         setHotelResult(null)
                         setHotelQuery('')
                       }}
-                      className="flex shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-blue-500"
+                      className="flex shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
                     >
                       <Check size={10} /> {t('plnUse')}
                     </button>
@@ -291,7 +291,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
           <button
             type="button"
             onClick={handleSave}
-            className="h-9 px-5 rounded-lg bg-blue-600 text-white text-[13px] font-semibold hover:bg-blue-700 transition inline-flex items-center gap-1.5"
+            className="h-9 px-5 rounded-lg bg-blue-600 text-white text-[13px] font-semibold hover:bg-blue-700 btn-lift shadow-sm hover:shadow-md inline-flex items-center gap-1.5"
           >
             <Check size={13} /> {t('tsmSaveChanges')}
           </button>

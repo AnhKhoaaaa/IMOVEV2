@@ -68,14 +68,14 @@ export default function ConfirmDialog({
           <button
             ref={cancelRef}
             onClick={onCancel}
-            className="h-10 rounded-lg border border-slate-200 px-4 text-[13px] font-bold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98]"
+            className="h-10 rounded-lg border border-slate-200 px-4 text-[13px] font-bold text-slate-700 btn-lift hover:shadow-md hover:bg-slate-50"
           >
             {cancelLabel ?? t('cancelBtn')}
           </button>
           <button
             onClick={onConfirm}
             className={cn(
-              'h-10 rounded-lg px-4 text-[13px] font-bold text-white transition active:scale-[0.98]',
+              'h-10 rounded-lg px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md',
               tone === 'danger' ? 'bg-red-600 hover:bg-red-500' : 'bg-slate-900 hover:bg-slate-700'
             )}
           >

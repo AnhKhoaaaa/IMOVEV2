@@ -123,7 +123,7 @@ export default function Settings() {
               </div>
               <button
                 onClick={() => setShowAuth(true)}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white shadow-card hover:bg-blue-500"
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
               >
                 <LogIn size={16} /> {t('signIn')}
               </button>
@@ -192,7 +192,7 @@ export default function Settings() {
                   <button
                     onClick={save}
                     disabled={saving}
-                    className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500 disabled:opacity-60"
+                    className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700 disabled:opacity-60"
                   >
                     {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
                     {t('setSave')}
