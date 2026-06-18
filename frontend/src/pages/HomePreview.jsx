@@ -84,10 +84,10 @@ export default function HomePreview() {
                 A calmer, more cinematic way to plan routes, monitor live conditions, and discover what comes next.
               </p>
               <div className="mt-9 flex flex-wrap gap-3">
-                <button onClick={() => navigate('/plan')} className="group flex h-12 items-center gap-2 rounded-lg bg-blue-600 px-6 text-[14px] font-bold text-white transition hover:-translate-y-1 hover:bg-blue-500">
+                <button onClick={() => navigate('/plan')} className="group flex h-12 items-center gap-2 rounded-lg bg-blue-600 px-6 text-[14px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700">
                   Plan a new trip <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                 </button>
-                <button onClick={() => navigate('/')} className="h-12 rounded-lg border border-slate-200 bg-white px-6 text-[14px] font-bold text-slate-700 transition hover:-translate-y-1 hover:border-blue-200">
+                <button onClick={() => navigate('/')} className="h-12 rounded-lg border border-slate-200 bg-white px-6 text-[14px] font-bold text-slate-700 btn-lift hover:shadow-md hover:border-blue-200">
                   Return to current home
                 </button>
               </div>

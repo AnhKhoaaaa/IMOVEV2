@@ -521,7 +521,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
               <div className="relative">
                 <button
                   onClick={() => setRouteDropdownOpen((v) => !v)}
-                  className="flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500 disabled:opacity-60"
+                  className="flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700 disabled:opacity-60"
                   disabled={mutating}
                 >
                   {mutating ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
@@ -865,7 +865,7 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
           <p className="mt-2 text-[14px] font-bold text-slate-600">{t('tripNoLegs')}</p>
           <button
             onClick={() => onAddPlace(day.day)}
-            className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white"
+            className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
           >
             <Plus size={15} /> {t('tripAddPlace')}
           </button>
@@ -1495,7 +1495,7 @@ export default function Trip() {
             </button>
             <button
               onClick={() => navigate('/plan')}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-700"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
               {t('tripStartNew')}
@@ -1809,7 +1809,7 @@ export default function Trip() {
               </button>
               <button
                 onClick={handleConfirmOptimise}
-                className="flex-1 h-10 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
+                className="flex-1 h-10 rounded-md bg-blue-600 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
               >
                 {t('tripConfirm')}
               </button>

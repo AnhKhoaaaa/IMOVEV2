@@ -115,7 +115,7 @@ function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
       <div className="flex items-center gap-2">
         <button
           onClick={() => onOpen(trip)}
-          className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
+          className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-blue-600 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
         >
           {t('openBtn')} <ArrowRight size={14} />
         </button>
@@ -377,7 +377,7 @@ export default function Home() {
               <p className="mt-2 text-[14px] text-slate-500">{t('homeNoTripsDesc')}</p>
               <button
                 onClick={() => navigate('/plan')}
-                className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500"
+                className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
               >
                 <Plus size={15} /> {t('newTrip')}
               </button>
