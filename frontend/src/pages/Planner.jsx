@@ -664,7 +664,7 @@ export default function Planner() {
                           )}
                         >
                           <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
-                            <Footprints size={14} className="text-indigo-500" /> {t('plnLeastWalking')}
+                            <Footprints size={14} className="text-blue-500" /> {t('plnLeastWalking')}
                           </div>
                           <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastWalkingDesc')}</p>
                         </motion.button>
@@ -681,7 +681,7 @@ export default function Planner() {
                           )}
                         >
                           <div className="flex items-center gap-1.5 font-bold text-[14px] text-slate-900">
-                            <Shuffle size={14} className="text-purple-500" /> {t('plnLeastTransfers')}
+                            <Shuffle size={14} className="text-blue-500" /> {t('plnLeastTransfers')}
                           </div>
                           <p className="text-[11.5px] text-slate-400 leading-relaxed">{t('plnLeastTransfersDesc')}</p>
                         </motion.button>

@@ -80,7 +80,7 @@ export default function Header() {
                 <span className="hidden sm:block text-[13px] font-medium text-slate-700 max-w-[120px] truncate">
                   {displayName}
                 </span>
-                <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white text-[13px] font-bold select-none">
+                <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white text-[13px] font-bold select-none">
                   {displayName?.[0]?.toUpperCase() ?? <User className="h-4 w-4" />}
                 </div>
                 <button
@@ -96,7 +96,7 @@ export default function Header() {
                 onClick={() => setShowAuth(true)}
                 aria-label="Open account"
                 title={t('signIn')}
-                className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-colors sm:hidden"
+                className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors sm:hidden"
               >
                 <User className="h-4 w-4" />
               </button>

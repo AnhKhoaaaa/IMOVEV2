@@ -4,7 +4,7 @@ import { buildOrderedPlaces } from '../../lib/tripUtils'
 import { useT } from '../../contexts/LanguageContext'
 
 const MODE_COLORS = {
-  MRT: 'bg-indigo-500',
+  MRT: 'bg-blue-500',
   LRT: 'bg-violet-500',
   BUS: 'bg-emerald-500',
   WALK: 'bg-orange-400',
@@ -67,7 +67,7 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
         <button
           onClick={handleOptimize}
           disabled={optimizing}
-          className="w-full h-10 rounded-xl border border-indigo-200 bg-indigo-50 text-[13.5px] font-semibold text-indigo-700 hover:bg-indigo-100 transition inline-flex items-center justify-center gap-2 disabled:opacity-60"
+          className="w-full h-10 rounded-xl border border-blue-200 bg-blue-50 text-[13.5px] font-semibold text-blue-700 hover:bg-blue-100 transition inline-flex items-center justify-center gap-2 disabled:opacity-60"
         >
           {optimizing
             ? <><Loader2 size={14} className="animate-spin" /> {t('ovOptimizing')}</>
@@ -91,7 +91,7 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
           <MiniMapSvg days={days} allPlaces={allPlaces} />
           <div className="absolute bottom-3 right-3">
             <button className="inline-flex items-center gap-1.5 rounded-full bg-white border border-slate-200 px-3 h-8 text-[12.5px] font-semibold text-slate-700 shadow-card hover:bg-slate-50">
-              <MapPin size={12} className="text-indigo-600" /> {t('ovViewMap')}
+              <MapPin size={12} className="text-blue-600" /> {t('ovViewMap')}
             </button>
           </div>
         </div>
@@ -131,11 +131,11 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
             <button
               key={d.day}
               onClick={() => onJumpDay && onJumpDay(d.day)}
-              className="w-full text-left rounded-2xl border border-slate-200 bg-white shadow-card hover:border-indigo-300 hover:shadow-pop transition p-4 group"
+              className="w-full text-left rounded-2xl border border-slate-200 bg-white shadow-card hover:border-blue-300 hover:shadow-pop transition p-4 group"
             >
               <div className="flex items-center justify-between gap-3 mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-indigo-100 to-fuchsia-100 text-indigo-700 font-display font-bold text-[12px]">
+                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-blue-100 to-blue-50 text-blue-700 font-display font-bold text-[12px]">
                     D{d.day}
                   </span>
                   <span className="font-display font-bold text-[15px] text-slate-900">
@@ -165,7 +165,7 @@ export default function OverviewTab({ trip, savedMeta, onJumpDay, onOptimize }) 
                       {fmtMin(dayMin)}
                     </span>
                   )}
-                  <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-600 transition" />
+                  <ChevronRight size={14} className="text-slate-300 group-hover:text-blue-600 transition" />
                 </div>
               </div>
 

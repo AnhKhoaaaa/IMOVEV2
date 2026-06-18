@@ -105,11 +105,11 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
           className={cn(
             'inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[12px] font-medium transition focus-ring shadow-card',
             open
-              ? 'border-indigo-300 bg-white ring-1 ring-indigo-100 text-slate-900'
+              ? 'border-blue-300 bg-white ring-1 ring-blue-100 text-slate-900'
               : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
           )}
         >
-          <Icon size={12} className={open ? 'text-indigo-500' : 'text-slate-400'} />
+          <Icon size={12} className={open ? 'text-blue-500' : 'text-slate-400'} />
           <span className="tabular-nums font-semibold">{t('tripMinShort', leg.duration_minutes)}</span>
           {leg.is_estimated && <span className="text-[9.5px] font-bold text-amber-500 uppercase">~</span>}
           <ChevronDown size={11} className={cn('text-slate-400 transition', open && 'rotate-180')} />
@@ -135,14 +135,14 @@ export default function TransitSegment({ leg, tripId, fromPlace, toPlace, onUpda
                     'w-full flex items-center justify-between gap-3 px-3 py-2.5 transition focus-ring hover:bg-slate-50'
                   )}
                 >
-                  <span className={cn('inline-flex items-center gap-2 text-[13.5px] font-semibold', selected ? 'text-indigo-700' : 'text-slate-800')}>
+                  <span className={cn('inline-flex items-center gap-2 text-[13.5px] font-semibold', selected ? 'text-blue-700' : 'text-slate-800')}>
                     <opt.Icon size={15} /> {t(opt.labelKey)}
                   </span>
                   <span className="inline-flex items-center gap-2">
-                    <span className={cn('text-[12.5px] tabular-nums', selected ? 'text-indigo-700 font-semibold' : 'text-slate-500')}>
+                    <span className={cn('text-[12.5px] tabular-nums', selected ? 'text-blue-700 font-semibold' : 'text-slate-500')}>
                       {detail}
                     </span>
-                    {selected && <CheckCircle2 size={14} className="text-indigo-600" />}
+                    {selected && <CheckCircle2 size={14} className="text-blue-600" />}
                   </span>
                 </button>
               )

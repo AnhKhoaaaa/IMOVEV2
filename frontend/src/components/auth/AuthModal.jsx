@@ -105,7 +105,7 @@ export default function AuthModal({ onClose }) {
         <DialogHeader>
           {isSignup && (
             <div className="flex justify-center mb-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500 text-white shadow-card">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-600 text-white shadow-card">
                 <UserCircle2 size={22} />
               </div>
             </div>
@@ -202,7 +202,7 @@ export default function AuthModal({ onClose }) {
           <Button
             className={cn(
               'w-full',
-              isSignup && 'bg-gradient-to-r from-indigo-600 via-purple-600 to-fuchsia-500 hover:opacity-90 border-0 text-white'
+              isSignup && 'bg-blue-600 hover:bg-blue-700 border-0 text-white'
             )}
             onClick={submit}
             disabled={loading}

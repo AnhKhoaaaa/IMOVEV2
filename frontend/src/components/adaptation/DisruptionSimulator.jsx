@@ -28,7 +28,7 @@ export default function DisruptionSimulator({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
         <div className="flex items-center gap-1.5">
-          <Sparkles size={12} className="text-fuchsia-400" />
+          <Sparkles size={12} className="text-blue-400" />
           <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wide">
             Agent Simulator
           </span>

@@ -153,7 +153,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
                 value={draft.name}
                 onChange={(e) => set('name', e.target.value)}
                 placeholder={t('tripDefaultName')}
-                className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-400"
               />
             </div>
             <div>
@@ -168,7 +168,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
                   step="1"
                   value={draft.budget_sgd}
                   onChange={(e) => set('budget_sgd', e.target.value)}
-                  className="flex h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                  className="flex h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-400"
                 />
               </div>
             </div>
@@ -237,7 +237,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
                     value={hotelQuery}
                     onChange={(e) => setHotelQuery(e.target.value)}
                     placeholder={t('tsmHotelPlaceholder')}
-                    className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                    className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-400"
                   />
                   {hotelLoading && (
                     <Loader2 size={13} className="absolute right-2.5 top-3 animate-spin text-slate-400" />
@@ -255,7 +255,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
                         setHotelResult(null)
                         setHotelQuery('')
                       }}
-                      className="flex shrink-0 items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-indigo-500"
+                      className="flex shrink-0 items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-blue-500"
                     >
                       <Check size={10} /> {t('plnUse')}
                     </button>
@@ -291,7 +291,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
           <button
             type="button"
             onClick={handleSave}
-            className="h-9 px-5 rounded-lg bg-indigo-600 text-white text-[13px] font-semibold hover:bg-indigo-700 transition inline-flex items-center gap-1.5"
+            className="h-9 px-5 rounded-lg bg-blue-600 text-white text-[13px] font-semibold hover:bg-blue-700 transition inline-flex items-center gap-1.5"
           >
             <Check size={13} /> {t('tsmSaveChanges')}
           </button>

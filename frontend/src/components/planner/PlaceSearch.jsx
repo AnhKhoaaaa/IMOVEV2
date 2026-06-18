@@ -92,15 +92,15 @@ function PlaceCard({ place, isAdded, onAdd }) {
       'group rounded-xl border bg-white px-3.5 py-3 transition',
       isAdded
         ? 'border-emerald-200 bg-emerald-50/40'
-        : 'border-slate-200 hover:border-indigo-200 hover:shadow-sm'
+        : 'border-slate-200 hover:border-blue-200 hover:shadow-sm'
     )}>
       <div className="flex items-start gap-2.5">
         {/* Left: icon */}
         <div className={cn(
           'mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg',
-          isAdded ? 'bg-emerald-100' : 'bg-slate-100 group-hover:bg-indigo-50'
+          isAdded ? 'bg-emerald-100' : 'bg-slate-100 group-hover:bg-blue-50'
         )}>
-          <MapPin size={14} className={isAdded ? 'text-emerald-600' : 'text-slate-500 group-hover:text-indigo-500'} />
+          <MapPin size={14} className={isAdded ? 'text-emerald-600' : 'text-slate-500 group-hover:text-blue-500'} />
         </div>
 
         {/* Middle: name + badges */}
@@ -148,7 +148,7 @@ function PlaceCard({ place, isAdded, onAdd }) {
             isAdded
               ? 'bg-emerald-100 text-emerald-700 cursor-default'
               : canAdd
-                ? 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95'
+                ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95'
                 : 'bg-slate-100 text-slate-400 cursor-not-allowed'
           )}
         >
@@ -219,12 +219,12 @@ export default function PlaceSearch({ onAdd, addedIds = new Set() }) {
           value={query}
           onChange={e => setQuery(e.target.value)}
           placeholder={t('searchPlaceholder')}
-          className="flex h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition"
+          className="flex h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition"
           autoFocus
         />
         {searching && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
           </div>
         )}
       </div>
@@ -243,7 +243,7 @@ export default function PlaceSearch({ onAdd, addedIds = new Set() }) {
           <button
             type="button"
             onClick={() => setQuery('')}
-            className="text-[11px] text-indigo-500 hover:text-indigo-700 font-medium"
+            className="text-[11px] text-blue-500 hover:text-blue-700 font-medium"
           >
             Clear
           </button>
