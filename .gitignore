@@ -12,8 +12,16 @@ frontend/.env
 
 # Node
 node_modules/
+node_modules.zip
+*.zip
 dist/
 .vite/
+
+# Non-source artifacts — design scratch, screenshots, LaTeX report exports
+picture/
+report/
+*.tex
+*-preview.html
 
 # OS
 .DS_Store
