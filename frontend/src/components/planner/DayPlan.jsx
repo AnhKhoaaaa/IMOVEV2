@@ -210,9 +210,9 @@ export default function DayPlan({
           {tripId && !isActiveDay && (
             <div className="pl-12 mt-2">
               {showAddSearch ? (
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-3 space-y-2">
+                <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-semibold text-indigo-700">{t('dpAddPlaceToDay', day)}</span>
+                    <span className="text-[12px] font-semibold text-blue-700">{t('dpAddPlaceToDay', day)}</span>
                     <button
                       onClick={() => setShowAddSearch(false)}
                       className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:bg-slate-200"
@@ -234,7 +234,7 @@ export default function DayPlan({
               ) : (
                 <button
                   onClick={() => setShowAddSearch(true)}
-                  className="w-full h-9 rounded-xl border-2 border-dashed border-slate-300 text-[13px] font-semibold text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/30 transition inline-flex items-center justify-center gap-2"
+                  className="w-full h-9 rounded-xl border-2 border-dashed border-slate-300 text-[13px] font-semibold text-slate-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/30 transition inline-flex items-center justify-center gap-2"
                 >
                   <Plus size={13} /> {t('tripAddPlace')}
                 </button>
@@ -252,7 +252,7 @@ export default function DayPlan({
                   value={dayNotes}
                   onChange={(e) => setDayNotes(e.target.value)}
                   placeholder={t('dpDayNotesPlaceholder')}
-                  className="w-full rounded-md border border-slate-200 bg-slate-50/30 px-3 py-2 text-[13px] placeholder:text-slate-400 focus-ring focus:border-indigo-400 resize-none"
+                  className="w-full rounded-md border border-slate-200 bg-slate-50/30 px-3 py-2 text-[13px] placeholder:text-slate-400 focus-ring focus:border-blue-400 resize-none"
                 />
               </div>
             </div>

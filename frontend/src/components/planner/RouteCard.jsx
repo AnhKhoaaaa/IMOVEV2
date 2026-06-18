@@ -56,7 +56,7 @@ export default function RouteCard({ leg, tripId, onUpdated }) {
                   id="transport-mode-select"
                   value={newMode}
                   onChange={(e) => setNewMode(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {MODES.map((m) => (
                     <option key={m} value={m}>{t(MODE_LABEL_KEY[m])}</option>

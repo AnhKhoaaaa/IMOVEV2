@@ -121,7 +121,7 @@ function WeatherSwapBanner({ alert, onApprove, onDismiss }) {
 
 /* ── Target venue card ───────────────────────────────────────────── */
 const PHOTO_GRADIENTS = [
-  'from-indigo-400 to-purple-500',
+  'from-blue-400 to-blue-600',
   'from-emerald-400 to-teal-500',
   'from-amber-400 to-orange-500',
 ]
@@ -154,7 +154,7 @@ function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
         <div className="flex items-start justify-between gap-2 mb-2">
           <div>
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="grid h-6 w-6 place-items-center rounded-lg bg-indigo-600 text-white font-bold text-[11px] shrink-0">
+              <span className="grid h-6 w-6 place-items-center rounded-lg bg-blue-600 text-white font-bold text-[11px] shrink-0">
                 {index}
               </span>
               <span className="font-display font-bold text-[17px] text-slate-900">{place.name}</span>
@@ -173,7 +173,7 @@ function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
         {/* Category badges */}
         <div className="flex flex-wrap gap-1.5 mb-3">
           {place.category && (
-            <span className="rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 h-5 text-[11px] font-medium inline-flex items-center">
+            <span className="rounded-full bg-blue-50 text-blue-700 border border-blue-100 px-2 h-5 text-[11px] font-medium inline-flex items-center">
               {place.category}
             </span>
           )}
@@ -195,7 +195,7 @@ function TargetVenueCard({ place, index, onArrive, note, onNoteChange }) {
           value={note ?? ''}
           onChange={(e) => onNoteChange?.(e.target.value)}
           placeholder={t('alNotePlaceholder')}
-          className="w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-[12.5px] placeholder:text-slate-400 resize-none mb-3 focus:outline-none focus:border-indigo-300"
+          className="w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-[12.5px] placeholder:text-slate-400 resize-none mb-3 focus:outline-none focus:border-blue-300"
         />
 
         {/* Arrived CTA */}
@@ -327,28 +327,28 @@ export default function ActiveLegFocus({
       )}
 
       {/* YOU ARE HERE block */}
-      <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4">
+      <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
         <div className="flex items-center gap-2 mb-2">
           <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-40 animate-ping" />
-            <span className="relative h-2.5 w-2.5 rounded-full bg-indigo-600" />
+            <span className="absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-40 animate-ping" />
+            <span className="relative h-2.5 w-2.5 rounded-full bg-blue-600" />
           </span>
-          <span className="font-display font-bold text-[13px] text-indigo-900">{t('alYouAreHere')}</span>
+          <span className="font-display font-bold text-[13px] text-blue-900">{t('alYouAreHere')}</span>
           {originPlace && (
-            <span className="text-[12px] text-indigo-600 opacity-75 truncate">
+            <span className="text-[12px] text-blue-600 opacity-75 truncate">
               {t('alNear', originPlace.name)}
             </span>
           )}
         </div>
         {position ? (
-          <p className="text-[12px] text-indigo-700 tabular-nums ml-7">
+          <p className="text-[12px] text-blue-700 tabular-nums ml-7">
             {position.lat.toFixed(4)}°N · {position.lng.toFixed(4)}°E
           </p>
         ) : (
-          <p className="text-[12px] text-indigo-400 italic ml-7">{t('alAcquiringGps')}</p>
+          <p className="text-[12px] text-blue-400 italic ml-7">{t('alAcquiringGps')}</p>
         )}
         {distToTarget != null && (
-          <p className="text-[12px] font-semibold text-indigo-800 ml-7 mt-1">
+          <p className="text-[12px] font-semibold text-blue-800 ml-7 mt-1">
             {t('alDistTo', fmtDist(distToTarget), targetPlace?.name)}
           </p>
         )}

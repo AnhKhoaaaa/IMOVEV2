@@ -129,7 +129,7 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
               return (
                 <div key={d.day} className="flex items-center justify-between text-[13px]">
                   <span className="inline-flex items-center gap-2">
-                    <span className="grid h-6 w-6 place-items-center rounded-md bg-indigo-50 text-indigo-700 font-display font-bold text-[11px]">
+                    <span className="grid h-6 w-6 place-items-center rounded-md bg-blue-50 text-blue-700 font-display font-bold text-[11px]">
                       D{d.day}
                     </span>
                     <span className="font-medium text-slate-900">{t('tripDay', d.day)}</span>
@@ -147,7 +147,7 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
       {totalPlaces > 0 && days.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Sparkles size={13} className="text-fuchsia-600" />
+            <Sparkles size={13} className="text-blue-600" />
             <div className="font-display font-bold text-[14px] text-slate-900">{t('sumPaceCheck')}</div>
           </div>
           <div className="text-[13px] text-slate-600 leading-relaxed">
@@ -159,10 +159,10 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
       {/* Agent activity log */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
         <div className="flex items-center gap-2 mb-3">
-          <Zap size={13} className="text-indigo-600" />
+          <Zap size={13} className="text-blue-600" />
           <div className="font-display font-bold text-[14px] text-slate-900">{t('sumAgentActivity')}</div>
           {optimizationLog.length > 0 && (
-            <span className="grid h-5 w-5 place-items-center rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold ml-auto">
+            <span className="grid h-5 w-5 place-items-center rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold ml-auto">
               {optimizationLog.length}
             </span>
           )}
@@ -190,7 +190,7 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
           </button>
           <button
             onClick={handlePrint}
-            className="flex-1 h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-[13px] font-semibold text-indigo-700 hover:bg-indigo-100 transition inline-flex items-center justify-center gap-1.5"
+            className="flex-1 h-9 rounded-lg border border-blue-200 bg-blue-50 text-[13px] font-semibold text-blue-700 hover:bg-blue-100 transition inline-flex items-center justify-center gap-1.5"
           >
             <FileDown size={13} /> {t('sumSavePdf')}
           </button>

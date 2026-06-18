@@ -521,7 +521,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
               <div className="relative">
                 <button
                   onClick={() => setRouteDropdownOpen((v) => !v)}
-                  className="flex h-10 items-center gap-2 rounded-md bg-indigo-600 px-4 text-[13px] font-bold text-white hover:bg-indigo-500 disabled:opacity-60"
+                  className="flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500 disabled:opacity-60"
                   disabled={mutating}
                 >
                   {mutating ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
@@ -557,7 +557,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
               <button
                 onClick={onOptimiseOrder}
                 disabled={mutating}
-                className="flex h-10 items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-4 text-[13px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+                className="flex h-10 items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 text-[13px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
               >
                 <Sparkles size={15} /> {t('tripOptimiseOrder')}
               </button>
@@ -1637,7 +1637,7 @@ export default function Trip() {
             </div>
           )}
           {optimizeMsg && (
-            <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[13px] font-semibold text-indigo-800">
+            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] font-semibold text-blue-800">
               <Sparkles size={15} /> {optimizeMsg}
               <button onClick={() => setOptimizeMsg(null)} className="ml-auto"><X size={14} /></button>
             </div>
@@ -1809,7 +1809,7 @@ export default function Trip() {
               </button>
               <button
                 onClick={handleConfirmOptimise}
-                className="flex-1 h-10 rounded-md bg-indigo-600 text-[13px] font-bold text-white hover:bg-indigo-500"
+                className="flex-1 h-10 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
               >
                 {t('tripConfirm')}
               </button>
