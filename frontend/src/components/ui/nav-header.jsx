@@ -68,8 +68,8 @@ function NavHeader({ items, className }) {
                   setOpenMenu(null)
                 }}
                 className={cn(
-                  'w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-900 transition-colors hover:bg-sky-50 hover:text-sky-700',
-                  option.selected && 'bg-sky-50 text-sky-700'
+                  'w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-900 transition-colors hover:bg-blue-50 hover:text-blue-700',
+                  option.selected && 'bg-blue-50 text-blue-700'
                 )}
               >
                 {option.label}
@@ -138,7 +138,7 @@ function Cursor({ position }) {
   return (
     <motion.li
       animate={position}
-      className="absolute z-0 h-7 rounded-full bg-sky-400 md:h-11"
+      className="absolute z-0 h-7 rounded-full bg-blue-400 md:h-11"
     />
   )
 }

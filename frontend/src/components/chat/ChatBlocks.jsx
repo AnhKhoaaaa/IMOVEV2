@@ -12,7 +12,7 @@ import { useT } from '../../contexts/LanguageContext'
 // it, so model text can't inject markup. Links open safely in a new tab.
 const MD_COMPONENTS = {
   a: ({ node, ...props }) => (
-    <a {...props} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline" />
+    <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline" />
   ),
   ul: ({ node, ...props }) => <ul {...props} className="my-1 list-disc pl-4 space-y-0.5" />,
   ol: ({ node, ...props }) => <ol {...props} className="my-1 list-decimal pl-4 space-y-0.5" />,
