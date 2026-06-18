@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from app.main import app
@@ -88,4 +89,30 @@ async def test_ai_suggest_uses_defaults():
                return_value=["merlion-park"]) as mock_suggest:
         resp = client.post("/places/ai-suggest", json={})
     assert resp.status_code == 200
-    mock_suggest.assert_called_once_with(1, [], "solo")
+    # Regression: gemini.suggest_places needs the curated places list as a 4th arg.
+    # (The previous 3-arg call raised TypeError → 500 on every request.)
+    args, _ = mock_suggest.call_args
+    assert args[:3] == (1, [], "solo")
+    assert isinstance(args[3], list) and len(args[3]) > 0
+
+
+@pytest.mark.asyncio
+async def test_ai_suggest_returns_503_when_llm_unavailable():
+    """LLM failures surface as 503, not an opaque 500."""
+    with patch("app.agents.planning_agent.suggest_places", new_callable=AsyncMock,
+               side_effect=RuntimeError("gemini down")):
+        resp = client.post("/places/ai-suggest", json={"num_days": 2})
+    assert resp.status_code == 503
+    assert "unavailable" in resp.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_ai_suggest_drives_real_suggest_places_signature():
+    """Run the REAL gemini.suggest_places (only the Gemini client mocked) so a
+    signature mismatch between router and service is caught here, not in prod."""
+    mock_resp = SimpleNamespace(text='["merlion-park"]')
+    with patch("app.services.gemini._client") as mock_client:
+        mock_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+        resp = client.post("/places/ai-suggest", json={"num_days": 1})
+    assert resp.status_code == 200
+    assert resp.json()["suggested_place_ids"] == ["merlion-park"]
