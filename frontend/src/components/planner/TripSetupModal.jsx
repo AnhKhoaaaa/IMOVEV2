@@ -1,53 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Calendar, Clock, AlertTriangle, Check, AlarmClock, Building2, Loader2 } from 'lucide-react'
-import { cn } from '../../lib/utils'
+import { X, Calendar, AlertTriangle, Check, AlarmClock, Building2, Loader2, Wallet } from 'lucide-react'
 import { api } from '../../services/api'
 import { useT } from '../../contexts/LanguageContext'
 import DateRangePicker, { isoToDate, dateToIso } from '../ui/DateRangePicker'
 import TimePicker from '../ui/TimePicker'
 
-const COMPANIONS = [
-  { id: 'solo',     emoji: '🚶',    labelKey: 'comp_solo' },
-  { id: 'couple',   emoji: '💑',    labelKey: 'comp_couple' },
-  { id: 'family',   emoji: '👨‍👩‍👧‍👦', labelKey: 'comp_family' },
-  { id: 'friends',  emoji: '👬',    labelKey: 'comp_friends' },
-  { id: 'elderly',  emoji: '👵',    labelKey: 'comp_elderly' },
-]
-
-const STYLES = [
-  { id: 'nature',    emoji: '🌿', labelKey: 'tsmStyleNature' },
-  { id: 'food',      emoji: '🍜', labelKey: 'tsmStyleFood' },
-  { id: 'heritage',  emoji: '🏛️', labelKey: 'tsmStyleHeritage' },
-  { id: 'shopping',  emoji: '🛍️', labelKey: 'tsmStyleShopping' },
-  { id: 'nightlife', emoji: '🌃', labelKey: 'tsmStyleNightlife' },
-]
-
-const PACES = [
-  { id: 'ambitious', emoji: '📅', labelKey: 'pace_ambitious' },
-  { id: 'moderate',  emoji: '⚖️', labelKey: 'pace_moderate' },
-  { id: 'relaxed',   emoji: '🌴', labelKey: 'pace_relaxed' },
-]
-
-function Chip({ active, onClick, children }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-3 h-8 text-[12.5px] font-medium transition whitespace-nowrap',
-        active
-          ? 'border-indigo-300 bg-indigo-50 text-indigo-900 ring-1 ring-indigo-200'
-          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-      )}
-    >
-      {children}
-    </button>
-  )
-}
-
 export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, onSave }) {
   const { t } = useT()
   const [draft, setDraft] = useState({
+    name: '',
+    budget_sgd: 50,
     origin: '',
     destination: 'Singapore',
     dateMode: 'flexible',
@@ -74,6 +36,8 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
       const hotelLat = savedMeta?.hotelLat ?? tripHotel?.lat ?? null
       const hotelLng = savedMeta?.hotelLng ?? tripHotel?.lng ?? null
       setDraft({
+        name: savedMeta?.name ?? '',
+        budget_sgd: savedMeta?.budget_sgd ?? 50,
         origin: savedMeta?.origin ?? '',
         destination: savedMeta?.destination ?? 'Singapore',
         dateMode: savedMeta?.startDate ? 'specific' : 'flexible',
@@ -122,14 +86,14 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
 
   const set = (key, val) => setDraft((d) => ({ ...d, [key]: val }))
 
-  const toggleStyle = (id) =>
-    set('styles', draft.styles.includes(id)
-      ? draft.styles.filter((s) => s !== id)
-      : [...draft.styles, id])
-
   const handleSave = () => {
-    const computed = { ...draft }
-    if (computed.dateMode === 'specific' && computed.startDate && computed.endDate) {
+    const computed = {
+      ...draft,
+      name: draft.name.trim() || t('tripDefaultName'),
+      budget_sgd: Math.max(0, Number(draft.budget_sgd) || 0),
+      dateMode: draft.startDate ? 'specific' : 'flexible',
+    }
+    if (computed.startDate && computed.endDate) {
       const ms = new Date(computed.endDate) - new Date(computed.startDate)
       computed.numDays = Math.max(1, Math.round(ms / 86400000) + 1)
     }
@@ -137,9 +101,15 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
     onClose()
   }
 
-  const datesChanged = draft.dateMode !== (savedMeta?.startDate ? 'specific' : 'flexible') ||
+  const routeSettingsChanged = draft.dateMode !== (savedMeta?.startDate ? 'specific' : 'flexible') ||
     draft.startDate !== (savedMeta?.startDate ?? '') ||
-    draft.numDays !== (savedMeta?.numDays ?? 3)
+    draft.endDate !== (savedMeta?.endDate ?? '') ||
+    draft.numDays !== (savedMeta?.numDays ?? 3) ||
+    draft.startTime !== (savedMeta?.startTime ?? '09:00') ||
+    Number(draft.budget_sgd) !== Number(savedMeta?.budget_sgd ?? 50) ||
+    draft.hotelName !== (savedMeta?.hotelName ?? tripHotel?.name ?? '') ||
+    draft.hotelLat !== (savedMeta?.hotelLat ?? tripHotel?.lat ?? null) ||
+    draft.hotelLng !== (savedMeta?.hotelLng ?? tripHotel?.lng ?? null)
 
   return (
     <div
@@ -172,93 +142,56 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
             {t('tsmDesc')}
           </p>
 
-          {/* Origin / Destination */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Trip name / budget */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-1.5">
-                {t('tripOrigin')}
+                {t('plnTripName')}
               </label>
               <input
                 type="text"
-                value={draft.origin}
-                onChange={(e) => set('origin', e.target.value)}
-                placeholder={t('tsmOriginPlaceholder')}
+                value={draft.name}
+                onChange={(e) => set('name', e.target.value)}
+                placeholder={t('tripDefaultName')}
                 className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
               />
             </div>
             <div>
               <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-1.5">
-                {t('tripDestination')}
+                {t('plnBudget')}
               </label>
-              <input
-                type="text"
-                value={draft.destination}
-                onChange={(e) => set('destination', e.target.value)}
-                placeholder="Singapore"
-                className="flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
-              />
+              <div className="relative">
+                <Wallet size={13} className="absolute left-3 top-3 text-slate-400" />
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={draft.budget_sgd}
+                  onChange={(e) => set('budget_sgd', e.target.value)}
+                  className="flex h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                />
+              </div>
             </div>
           </div>
 
           {/* Dates */}
           <div>
-            <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-2">
-              {t('tsmDates')}
+            <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5">
+              <Calendar size={13} className="text-slate-400" />
+              <span>{t('tsmDates')}</span>
             </label>
-            <div className="flex rounded-xl border border-slate-200 p-1 bg-slate-50 gap-1 mb-3">
-              {[
-                { id: 'specific', label: t('specificDatesLabel'), icon: <Calendar size={12} /> },
-                { id: 'flexible', label: t('tsmFlexibleDuration'), icon: <Clock size={12} /> },
-              ].map(({ id, label, icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => set('dateMode', id)}
-                  className={cn(
-                    'flex-1 h-8 rounded-lg text-[12.5px] font-medium transition inline-flex items-center justify-center gap-1.5',
-                    draft.dateMode === id
-                      ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
-                      : 'text-slate-500 hover:text-slate-700'
-                  )}
-                >
-                  {icon} {label}
-                </button>
-              ))}
-            </div>
-
-            {draft.dateMode === 'specific' ? (
-              <DateRangePicker
-                from={isoToDate(draft.startDate)}
-                to={isoToDate(draft.endDate)}
-                onSelect={(range) => {
-                  setDraft((d) => ({
-                    ...d,
-                    startDate: dateToIso(range.from),
-                    endDate: dateToIso(range.to),
-                  }))
-                }}
-              />
-            ) : (
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-medium text-slate-700">{t('plnDuration')}</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => set('numDays', Math.max(1, draft.numDays - 1))}
-                    className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold"
-                  >−</button>
-                  <div className="h-9 w-16 rounded-lg border border-slate-200 bg-slate-50/40 grid place-items-center">
-                    <span className="font-display font-bold text-[18px] text-slate-900 tabular-nums">{draft.numDays}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => set('numDays', Math.min(30, draft.numDays + 1))}
-                    className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition font-bold"
-                  >+</button>
-                  <span className="text-[12px] text-slate-500">{t('tsmDays')}</span>
-                </div>
-              </div>
-            )}
+            <DateRangePicker
+              from={isoToDate(draft.startDate)}
+              to={isoToDate(draft.endDate)}
+              onSelect={(range) => {
+                setDraft((d) => ({
+                  ...d,
+                  startDate: dateToIso(range.from),
+                  endDate: dateToIso(range.to),
+                  dateMode: range.from ? 'specific' : 'flexible',
+                }))
+              }}
+            />
           </div>
 
           {/* Daily start time */}
@@ -336,7 +269,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
           </div>
 
           {/* Date change warning */}
-          {datesChanged && (
+          {routeSettingsChanged && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
               <AlertTriangle size={13} className="text-amber-600 mt-0.5 shrink-0" />
               <p className="text-[12px] text-amber-800">
@@ -344,51 +277,6 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
               </p>
             </div>
           )}
-
-          {/* Companions */}
-          <div>
-            <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-2">
-              {t('tsmCompanions')}
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {COMPANIONS.map(({ id, emoji, labelKey }) => (
-                <Chip key={id} active={draft.companion === id} onClick={() => set('companion', id)}>
-                  <span className="text-[14px] leading-none">{emoji}</span>
-                  <span>{t(labelKey)}</span>
-                </Chip>
-              ))}
-            </div>
-          </div>
-
-          {/* Travel style */}
-          <div>
-            <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-2">
-              {t('travelStyleLabel')}
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {STYLES.map(({ id, emoji, labelKey }) => (
-                <Chip key={id} active={draft.styles.includes(id)} onClick={() => toggleStyle(id)}>
-                  <span className="text-[14px] leading-none">{emoji}</span>
-                  <span>{t(labelKey)}</span>
-                </Chip>
-              ))}
-            </div>
-          </div>
-
-          {/* Pace */}
-          <div>
-            <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-2">
-              {t('tsmPace')}
-            </label>
-            <div className="flex gap-2">
-              {PACES.map(({ id, emoji, labelKey }) => (
-                <Chip key={id} active={draft.pace === id} onClick={() => set('pace', id)}>
-                  <span className="text-[14px] leading-none">{emoji}</span>
-                  <span>{t(labelKey)}</span>
-                </Chip>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Footer */}

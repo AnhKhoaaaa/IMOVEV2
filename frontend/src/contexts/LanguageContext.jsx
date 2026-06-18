@@ -697,7 +697,7 @@ const EN = {
 
   /* ── Trip setup modal ────────────── */
   tsmTitle: 'Trip preferences',
-  tsmDesc: 'Adjust dates and travel preferences. Existing days stay in place.',
+  tsmDesc: 'Adjust trip name, dates, budget, hotel, and daily start time. Existing places stay in place.',
   tsmOriginPlaceholder: 'Ho Chi Minh City',
   tsmDates: 'Dates',
   tsmFlexibleDuration: 'Flexible duration',
@@ -709,7 +709,7 @@ const EN = {
   tsmHotel: 'Hotel',
   tsmHotelOptional: '(optional — daily start origin)',
   tsmHotelPlaceholder: 'e.g. Marina Bay Sands',
-  tsmDateWarning: 'Changing dates or styles will re-run route planning. Existing places are kept; legs will be recalculated.',
+  tsmDateWarning: 'Changing dates, budget, hotel, or start time will re-run route planning. Existing places are kept; legs will be recalculated.',
   tsmCompanions: 'Travel companions',
   tsmPace: 'Travel pace',
   tsmSaveChanges: 'Save changes',
@@ -1408,7 +1408,7 @@ const VI = {
 
   /* ── Trip setup modal ────────────── */
   tsmTitle: 'Tuỳ chọn chuyến đi',
-  tsmDesc: 'Điều chỉnh ngày và tuỳ chọn di chuyển. Các ngày hiện có được giữ nguyên.',
+  tsmDesc: 'Điều chỉnh tên chuyến đi, ngày, ngân sách, khách sạn và giờ bắt đầu mỗi ngày. Các địa điểm hiện có được giữ nguyên.',
   tsmOriginPlaceholder: 'TP. Hồ Chí Minh',
   tsmDates: 'Ngày',
   tsmFlexibleDuration: 'Thời lượng linh hoạt',
@@ -1420,7 +1420,7 @@ const VI = {
   tsmHotel: 'Khách sạn',
   tsmHotelOptional: '(tuỳ chọn — điểm xuất phát mỗi ngày)',
   tsmHotelPlaceholder: 'VD: Marina Bay Sands',
-  tsmDateWarning: 'Đổi ngày hoặc phong cách sẽ chạy lại việc lập lộ trình. Các địa điểm được giữ; các chặng sẽ được tính lại.',
+  tsmDateWarning: 'Đổi ngày, ngân sách, khách sạn hoặc giờ bắt đầu sẽ chạy lại việc lập lộ trình. Các địa điểm được giữ; các chặng sẽ được tính lại.',
   tsmCompanions: 'Đi cùng ai',
   tsmPace: 'Nhịp độ di chuyển',
   tsmSaveChanges: 'Lưu thay đổi',
