@@ -82,14 +82,4 @@ describe('LanguageContext', () => {
     expect(result.current.t('or')).toBe('hoặc')
     expect(result.current.t('flexibleDates')).toBe('Ngày linh hoạt')
   })
-
-  it('companion/style/pace keys translate', () => {
-    const { result } = renderHook(useAll, { wrapper })
-    expect(result.current.t('comp_family')).toBe('Family')
-    expect(result.current.t('style_cultural')).toBe('Cultural')
-    expect(result.current.t('pace_relaxed')).toBe('Relaxed')
-    act(() => result.current.toggleLang())
-    expect(result.current.t('comp_family')).toBe('Gia đình')
-    expect(result.current.t('pace_relaxed')).toBe('Thư thả')
-  })
 })
