@@ -13,7 +13,7 @@ describe('LanguageContext', () => {
   it('defaults to EN', () => {
     const { result } = renderHook(useAll, { wrapper })
     expect(result.current.lang).toBe('en')
-    expect(result.current.t('signIn')).toBe('Sign in')
+    expect(result.current.t('signIn')).toBe('Sign In')
     expect(result.current.t('newTrip')).toBe('New Trip')
   })
 
@@ -30,7 +30,7 @@ describe('LanguageContext', () => {
     act(() => result.current.toggleLang())
     act(() => result.current.toggleLang())
     expect(result.current.lang).toBe('en')
-    expect(result.current.t('signIn')).toBe('Sign in')
+    expect(result.current.t('signIn')).toBe('Sign In')
   })
 
   it('handles function translations with args', () => {

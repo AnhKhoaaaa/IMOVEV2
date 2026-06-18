@@ -136,7 +136,8 @@ describe('ChatWidget alert action card (dev25 P2)', () => {
     render(<ChatWidget />)
     fireEvent.click(screen.getByLabelText('chatOpen'))
 
-    const textarea = screen.getByPlaceholderText('chatPlaceholder')
+    // On a trip page the composer uses the trip-context placeholder (dev28 chat redesign)
+    const textarea = screen.getByPlaceholderText('Ask or request a safe itinerary change...')
     fireEvent.change(textarea, { target: { value: 'ideas?' } })
     fireEvent.click(screen.getByLabelText('chatSend'))
 
