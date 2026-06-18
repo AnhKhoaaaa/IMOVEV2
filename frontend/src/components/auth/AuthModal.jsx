@@ -219,7 +219,7 @@ export default function AuthModal({ onClose }) {
           <div className="text-center">
             <button
               onClick={switchMode}
-              className="text-sm text-sky-600 hover:text-sky-700 hover:underline transition-colors"
+              className="text-sm text-blue-600 hover:text-blue-700 hover:underline transition-colors"
             >
               {isSignup ? t('alreadyAccount') : t('noAccount')}
             </button>
