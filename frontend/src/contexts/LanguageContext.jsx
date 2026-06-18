@@ -265,25 +265,6 @@ const EN = {
   transport_bus: 'Bus',
   transport_mrt: 'MRT',
 
-  /* ── Companions ────────────────────── */
-  comp_solo: 'Solo',
-  comp_family: 'Family',
-  comp_couple: 'Couple',
-  comp_friends: 'Friends',
-  comp_elderly: 'Elderly',
-
-  /* ── Travel styles ─────────────────── */
-  style_cultural: 'Cultural',
-  style_classic: 'Classic',
-  style_nature: 'Nature',
-  style_cityscape: 'Cityscape',
-  style_historical: 'Historical',
-
-  /* ── Pace ──────────────────────────── */
-  pace_ambitious: 'Ambitious',
-  pace_moderate: 'Moderate',
-  pace_relaxed: 'Relaxed',
-
   /* ── Alert Banner ────────────────── */
   alertTransit: 'Transit Alert',
   alertWeather: 'Weather Alert',
@@ -710,14 +691,7 @@ const EN = {
   tsmHotelOptional: '(optional — daily start origin)',
   tsmHotelPlaceholder: 'e.g. Marina Bay Sands',
   tsmDateWarning: 'Changing dates, budget, hotel, or start time will re-run route planning. Existing places are kept; legs will be recalculated.',
-  tsmCompanions: 'Travel companions',
-  tsmPace: 'Travel pace',
   tsmSaveChanges: 'Save changes',
-  tsmStyleNature: 'Nature',
-  tsmStyleFood: 'Food',
-  tsmStyleHeritage: 'Heritage',
-  tsmStyleShopping: 'Shopping',
-  tsmStyleNightlife: 'Nightlife',
 
   /* ── Trip map ────────────────────── */
   tmEstimated: '(estimated)',
@@ -975,25 +949,6 @@ const VI = {
   transport_walk: 'Đi bộ',
   transport_bus: 'Xe buýt',
   transport_mrt: 'MRT',
-
-  /* ── Companions ────────────────────── */
-  comp_solo: 'Solo',
-  comp_family: 'Gia đình',
-  comp_couple: 'Cặp đôi',
-  comp_friends: 'Bạn bè',
-  comp_elderly: 'Người cao tuổi',
-
-  /* ── Travel styles ─────────────────── */
-  style_cultural: 'Văn hoá',
-  style_classic: 'Cổ điển',
-  style_nature: 'Thiên nhiên',
-  style_cityscape: 'Đô thị',
-  style_historical: 'Lịch sử',
-
-  /* ── Pace ──────────────────────────── */
-  pace_ambitious: 'Nhiều điểm',
-  pace_moderate: 'Vừa phải',
-  pace_relaxed: 'Thư thả',
 
   /* ── Alert Banner ────────────────── */
   alertTransit: 'Cảnh báo giao thông',
@@ -1421,14 +1376,7 @@ const VI = {
   tsmHotelOptional: '(tuỳ chọn — điểm xuất phát mỗi ngày)',
   tsmHotelPlaceholder: 'VD: Marina Bay Sands',
   tsmDateWarning: 'Đổi ngày, ngân sách, khách sạn hoặc giờ bắt đầu sẽ chạy lại việc lập lộ trình. Các địa điểm được giữ; các chặng sẽ được tính lại.',
-  tsmCompanions: 'Đi cùng ai',
-  tsmPace: 'Nhịp độ di chuyển',
   tsmSaveChanges: 'Lưu thay đổi',
-  tsmStyleNature: 'Thiên nhiên',
-  tsmStyleFood: 'Ẩm thực',
-  tsmStyleHeritage: 'Di sản',
-  tsmStyleShopping: 'Mua sắm',
-  tsmStyleNightlife: 'Về đêm',
 
   /* ── Trip map ────────────────────── */
   tmEstimated: '(ước tính)',
