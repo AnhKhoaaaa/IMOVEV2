@@ -21,7 +21,6 @@ vi.mock('../../services/api', () => ({
       { id: 'p2', name: 'Sentosa Beach Club', category: 'Entertainment', dwell_minutes: 180 }
     ]),
     geocodeHotel: vi.fn(),
-    suggestPlaces: vi.fn(),
   },
 }))
 

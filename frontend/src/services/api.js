@@ -66,7 +66,6 @@ export const api = {
   searchPlaces: (q) => request(`/places/search?q=${encodeURIComponent(q)}`),
   geocodeHotel: (q) => request(`/places/geocode?q=${encodeURIComponent(q)}`),
   getCuratedPlaces: () => request('/places/curated'),
-  suggestPlaces: (body) => request('/places/ai-suggest', { method: 'POST', body: JSON.stringify(body) }),
   createTrip: (body) => request('/trips', { method: 'POST', body: JSON.stringify(body) }),
   planTrip: (id, body) => request(`/trips/${id}/plan`, { method: 'POST', body: JSON.stringify(body) }),
   getTrip: (id) => request(`/trips/${id}`),
