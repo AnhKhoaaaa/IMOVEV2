@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { User, LogOut } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useLang, useT } from '../../contexts/LanguageContext'
@@ -12,6 +12,13 @@ export default function Header() {
   const [user, setUser] = useState(null)
   const { lang, toggleLang } = useLang()
   const { t } = useT()
+  const { pathname } = useLocation()
+  const isHome = pathname === '/'
+  const [navHidden, setNavHidden] = useState(false)
+  const headerHidden = !isHome && navHidden
+
+  // Trang chủ luôn hiện header (và không có nút toggle) — reset khi quay về '/'
+  useEffect(() => { if (isHome) setNavHidden(false) }, [isHome])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null))
@@ -58,7 +65,14 @@ export default function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full">
+      <header
+        id="app-header"
+        aria-hidden={headerHidden}
+        inert={headerHidden ? '' : undefined}
+        className={`sticky top-0 z-40 w-full transition-[transform,margin-bottom,opacity] duration-[420ms] ease-[cubic-bezier(.2,.7,.2,1)] motion-reduce:transition-none ${
+          headerHidden ? '-translate-y-full -mb-14 opacity-0 pointer-events-none' : 'opacity-100'
+        }`}
+      >
         <div className="relative mx-auto flex h-14 max-w-7xl items-center justify-center px-4 sm:px-6">
 
           {/* Logo */}
@@ -104,6 +118,26 @@ export default function Header() {
           </div>
         </div>
       </header>
+
+      {/* Nút bật/tắt header — hiện ở mọi trang trừ trang chủ.
+          Đang hiện → ↑ (nhấn để ẩn, header trượt lên); đang ẩn → ↓ (nhấn để hiện lại). */}
+      {!isHome && (
+        <button
+          type="button"
+          onClick={() => setNavHidden((v) => !v)}
+          aria-controls="app-header"
+          aria-expanded={!headerHidden}
+          aria-label={headerHidden ? t('showNav') : t('hideNav')}
+          title={headerHidden ? t('showNav') : t('hideNav')}
+          className={`nav-toggle fixed right-4 z-30 grid h-9 w-9 place-items-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-[0_12px_28px_rgba(15,23,42,0.12)] hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 sm:right-6 ${
+            headerHidden ? 'top-3' : 'top-[66px]'
+          }`}
+        >
+          <span aria-hidden="true" className="font-display text-[18px] font-bold leading-none">
+            {headerHidden ? '↓' : '↑'}
+          </span>
+        </button>
+      )}
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </>

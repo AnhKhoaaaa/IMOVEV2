@@ -47,6 +47,8 @@ const EN = {
   signOut: 'Sign out',
   setting: 'Setting',
   language: 'Language',
+  hideNav: 'Hide navigation',
+  showNav: 'Show navigation',
 
   /* ── Auth modal ───────────────────── */
   signInTitle: 'Sign in',
@@ -731,6 +733,8 @@ const VI = {
   signOut: 'Đăng xuất',
   setting: 'Cài đặt',
   language: 'Ngôn ngữ',
+  hideNav: 'Ẩn thanh điều hướng',
+  showNav: 'Hiện thanh điều hướng',
 
   /* ── Auth modal ───────────────────── */
   signInTitle: 'Đăng nhập',
