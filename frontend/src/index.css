@@ -9,15 +9,40 @@
   --color-primary-600: #2563eb;  /* primary action — matches logo */
   --color-primary-700: #1d4ed8;  /* hover / active */
 
-  /* Semantic tokens (preserve meaning, stop hardcoding scattered hues) */
+  /* Semantic state tokens — softened to 500 (pastel) per design-system Phase 2.
+     -50 = surface tint, -500 = accent/dot (default), -600 = strong text/legacy. */
   --color-success-50:  #ecfdf5;
-  --color-success-600: #059669;  /* emerald — live / success */
+  --color-success-500: #10b981;  /* emerald 500 — live / on-time (softer) */
+  --color-success-600: #059669;
   --color-warning-50:  #fffbeb;
-  --color-warning-600: #d97706;  /* amber — warning */
+  --color-warning-500: #f59e0b;  /* amber 500 — warning (softer) */
+  --color-warning-600: #d97706;
   --color-danger-50:   #fef2f2;
-  --color-danger-600:  #dc2626;  /* red — danger */
+  --color-danger-500:  #ef4444;  /* red 500 — danger (softer) */
+  --color-danger-600:  #dc2626;
+  --color-info-50:     #eff6ff;
+  --color-info-500:    #3b82f6;  /* blue 500 — info / weather-neutral */
+  --color-info-600:    #2563eb;
 
-  --radius: 0.625rem; /* 10px — base for inputs / buttons */
+  /* Transit MODE tokens (color by mode) — base + 50 tint for icon container.
+     Each pairs with white text except where noted; see design-system §1.3. */
+  --color-mode-mrt:   #2563eb; --color-mode-mrt-50:   #eff6ff;  /* rail = brand */
+  --color-mode-lrt:   #3b82f6; --color-mode-lrt-50:   #eff6ff;  /* rail light */
+  --color-mode-bus:   #06b6d4; --color-mode-bus-50:   #ecfeff;  /* cyan */
+  --color-mode-taxi:  #00b14f; --color-mode-taxi-50:  #ecfdf5;  /* Grab green */
+  --color-mode-walk:  #64748b; --color-mode-walk-50:  #f1f5f9;  /* slate */
+  --color-mode-cycle: #f97316; --color-mode-cycle-50: #fff7ed;  /* orange */
+
+  /* POI CATEGORY tokens (soft bg-50 + text accent) — on-brand, replaces leftover indigo/violet */
+  --color-cat-culture:       #7c3aed; --color-cat-culture-50:       #f5f3ff;
+  --color-cat-landmark:      #2563eb; --color-cat-landmark-50:      #eff6ff;
+  --color-cat-nature:        #059669; --color-cat-nature-50:        #ecfdf5;
+  --color-cat-food:          #d97706; --color-cat-food-50:          #fffbeb;
+  --color-cat-shopping:      #db2777; --color-cat-shopping-50:      #fdf2f8;
+  --color-cat-entertainment: #c026d3; --color-cat-entertainment-50: #fdf4ff;
+  --color-cat-default:       #64748b; --color-cat-default-50:       #f8fafc;
+
+  --radius: 0.625rem; /* 10px — base for inputs / select / secondary buttons */
 }
 
 @layer base {
@@ -65,6 +90,19 @@
     .btn-lift { transition: background-color .2s ease, box-shadow .2s ease, color .2s ease; }
     .btn-lift:hover, .btn-lift:active { transform: none; }
   }
+  /* Phase 2 — primary action shadow, tinted with brand blue (level B). Pairs with .btn-lift. */
+  .shadow-btn {
+    box-shadow: 0 4px 12px -3px rgb(37 99 235 / 0.42), 0 2px 4px -2px rgb(37 99 235 / 0.28);
+  }
+  .shadow-btn:hover {
+    box-shadow: 0 8px 18px -4px rgb(37 99 235 / 0.50), 0 3px 6px -3px rgb(37 99 235 / 0.32);
+  }
+  .shadow-btn-danger {
+    box-shadow: 0 4px 12px -3px rgb(239 68 68 / 0.40), 0 2px 4px -2px rgb(239 68 68 / 0.25);
+  }
+  .shadow-btn-danger:hover {
+    box-shadow: 0 8px 18px -4px rgb(239 68 68 / 0.48), 0 3px 6px -3px rgb(239 68 68 / 0.3);
+  }
   /* dev30 — header show/hide toggle: slides in sync with the header (top), subtle lift on hover */
   .nav-toggle {
     transition: top .42s cubic-bezier(.2,.7,.2,1),
@@ -100,7 +138,7 @@
     font-family: 'JetBrains Mono', ui-monospace, monospace;
   }
   .focus-ring:focus-visible {
-    outline: 2px solid hsl(243 75% 59%);
+    outline: 2px solid #2563eb; /* brand blue (was leftover indigo) */
     outline-offset: 2px;
   }
   .map-grid {
@@ -184,10 +222,10 @@
 .animate-fade-up  { animation: fade-up  280ms cubic-bezier(.2,.7,.2,1) both; }
 .animate-slide-up { animation: slide-up 220ms cubic-bezier(.2,.7,.2,1) both; }
 
-/* dev28 — react-day-picker theme (neutral tokens; swap when brand palette is set) */
+/* react-day-picker theme — Phase 2: accent on brand blue */
 .imove-rdp {
-  --rdp-accent-color: #1f2937;            /* selected day */
-  --rdp-accent-background-color: #eef1f5; /* range middle / hover */
+  --rdp-accent-color: #2563eb;            /* selected day — brand blue */
+  --rdp-accent-background-color: #eff6ff; /* range middle / hover — primary-50 */
   --rdp-today-color: #0f172a;
   --rdp-day-width: 38px;
   --rdp-day-height: 38px;
