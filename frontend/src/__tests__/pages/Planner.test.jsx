@@ -154,15 +154,33 @@ describe('Planner', () => {
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
       place_ids: ['p1', 'p2'],
       optimize_order: true,
+      day_start_times: ['09:00', '09:00', '09:00'],
       preferences: expect.objectContaining({
         budget_sgd: 50,
         duration_w: 0.7
       })
     })))
+
+    expect(api.saveTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
+      budget_sgd: 50,
+      dayStartTimes: ['09:00', '09:00', '09:00'],
+      startTime: '09:00',
+      travelStyle: 'fastest',
+      routeWeights: expect.objectContaining({ duration_w: 0.7 }),
+      confirmed: false,
+    }), null)
     
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith(
       '/trip/trip-123',
-      expect.any(Object)
+      expect.objectContaining({
+        state: {
+          pendingSave: expect.objectContaining({
+            budget_sgd: 50,
+            dayStartTimes: ['09:00', '09:00', '09:00'],
+            travelStyle: 'fastest',
+          }),
+        },
+      })
     ))
   })
 })

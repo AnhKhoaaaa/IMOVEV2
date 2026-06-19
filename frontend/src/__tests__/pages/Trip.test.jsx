@@ -30,6 +30,7 @@ vi.mock('../../services/api', () => ({
     optimizeRoute: vi.fn(() => Promise.resolve({ days: [] })),
     updateLocation: vi.fn(() => Promise.resolve({})),
     checkAlerts: vi.fn(() => Promise.resolve({})),
+    planTrip: vi.fn(() => Promise.resolve({})),
   },
 }))
 vi.mock('../../components/adaptation/AlertBanner', () => ({
@@ -158,7 +159,16 @@ describe('Trip page', () => {
   it('P6-BUG-1: handleSaveSetup uses hook saveTrip, not api.saveTrip directly', async () => {
     const mockSave = vi.fn()
     useSavedTrips.mockReturnValue({
-      trips: [{ id: 'trip-123', name: 'My Trip' }],
+      trips: [{
+        id: 'trip-123',
+        name: 'My Trip',
+        numDays: 1,
+        budget_sgd: 88,
+        dayStartTimes: ['08:00'],
+        startTime: '08:00',
+        travelStyle: 'direct',
+        routeWeights: { duration_w: 0.2, cost_w: 0.2, walking_w: 0.1, transfers_w: 0.5 },
+      }],
       save: mockSave,
       remove: vi.fn(),
       reload: vi.fn(),
@@ -169,7 +179,20 @@ describe('Trip page', () => {
     fireEvent.click(screen.getByTitle('Edit setup'))
     // Click Save changes in the modal
     fireEvent.click(screen.getByText('Save changes'))
-    expect(mockSave).toHaveBeenCalledWith('trip-123', expect.any(Object))
+    expect(mockSave).toHaveBeenCalledWith('trip-123', expect.objectContaining({
+      budget_sgd: 88,
+      dayStartTimes: ['08:00'],
+      startTime: '08:00',
+      travelStyle: 'direct',
+    }))
+    await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
+      day_start_times: ['08:00'],
+      preferences: expect.objectContaining({
+        budget_sgd: 88,
+        transfers_w: 0.5,
+        travel_style: 'direct',
+      }),
+    })))
   })
 
   it('P6-BUG-2: passes authUserId from useAuth to useTrip', () => {
