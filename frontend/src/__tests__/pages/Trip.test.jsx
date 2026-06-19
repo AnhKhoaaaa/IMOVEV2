@@ -163,6 +163,8 @@ describe('Trip page', () => {
         id: 'trip-123',
         name: 'My Trip',
         numDays: 1,
+        startDate: '2026-07-01',
+        endDate: '2026-07-01',
         budget_sgd: 88,
         dayStartTimes: ['08:00'],
         startTime: '08:00',
@@ -183,9 +185,14 @@ describe('Trip page', () => {
       budget_sgd: 88,
       dayStartTimes: ['08:00'],
       startTime: '08:00',
+      startDate: '2026-07-01',
+      start_date: '2026-07-01',
       travelStyle: 'direct',
     }))
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
+      num_days: 1,
+      start_date: '2026-07-01',
+      end_date: '2026-07-01',
       day_start_times: ['08:00'],
       preferences: expect.objectContaining({
         budget_sgd: 88,

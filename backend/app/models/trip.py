@@ -23,6 +23,9 @@ class TripCreate(BaseModel):
 class TripPlanRequest(BaseModel):
     place_ids: list[str] = Field(min_length=2)
     optimize_order: bool = True
+    num_days: Optional[int] = Field(default=None, ge=1, le=14)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     preferences: Optional[dict] = None
     hotel_name: Optional[str] = None
     hotel_lat: Optional[float] = None

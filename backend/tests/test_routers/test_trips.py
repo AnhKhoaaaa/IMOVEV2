@@ -105,6 +105,38 @@ def test_plan_trip_returns_tripplan_shape():
     assert data["days"][0]["legs"][0]["is_estimated"] is False
 
 
+def test_plan_trip_syncs_date_metadata_before_planning():
+    create = client.post("/trips", json={"session_id": "session-sync-date", "num_days": 1, "budget_sgd": 999})
+    trip_id = create.json()["trip_id"]
+    mock_plan = _make_plan(trip_id)
+    captured = {}
+
+    async def _spy_plan_trip(*args, **kwargs):
+        captured.update(kwargs)
+        return mock_plan
+
+    try:
+        with patch("app.routers.trips.planning_agent.plan_trip", side_effect=_spy_plan_trip):
+            resp = client.post(f"/trips/{trip_id}/plan", json={
+                "place_ids": ["gardens-by-the-bay", "marina-bay-sands"],
+                "optimize_order": True,
+                "num_days": 3,
+                "start_date": "2026-07-01",
+                "end_date": "2026-07-03",
+                "preferences": {"budget_sgd": 999},
+            })
+
+        assert resp.status_code == 200
+        assert captured["num_days"] == 3
+        assert str(captured["start_date"]) == "2026-07-01"
+        assert _trips_module._trip_meta[trip_id]["num_days"] == 3
+        assert str(_trips_module._trip_meta[trip_id]["start_date"]) == "2026-07-01"
+        assert str(_trips_module._trip_meta[trip_id]["end_date"]) == "2026-07-03"
+    finally:
+        _trips_module._trip_store.pop(trip_id, None)
+        _trips_module._trip_meta.pop(trip_id, None)
+
+
 def test_plan_trip_missing_place_returns_422():
     create = client.post("/trips", json={"session_id": "session-x", "num_days": 1, "budget_sgd": 999})
     trip_id = create.json()["trip_id"]

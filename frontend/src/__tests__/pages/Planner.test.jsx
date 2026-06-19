@@ -154,6 +154,9 @@ describe('Planner', () => {
     await waitFor(() => expect(api.planTrip).toHaveBeenCalledWith('trip-123', expect.objectContaining({
       place_ids: ['p1', 'p2'],
       optimize_order: true,
+      num_days: 3,
+      start_date: null,
+      end_date: null,
       day_start_times: ['09:00', '09:00', '09:00'],
       preferences: expect.objectContaining({
         budget_sgd: 50,

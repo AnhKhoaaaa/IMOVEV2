@@ -231,6 +231,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
               <span>{t('tsmDates')}</span>
             </label>
             <DateRangePicker
+              appearance="scheduler"
               from={isoToDate(draft.startDate)}
               to={isoToDate(draft.endDate)}
               onSelect={(range) => {

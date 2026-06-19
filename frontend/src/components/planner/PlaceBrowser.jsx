@@ -203,7 +203,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
 
       {/* Cards */}
       {loading ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label={getLoadingAriaLabel()}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={getLoadingAriaLabel()}>
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-64 rounded-2xl" />
           ))}
@@ -212,7 +212,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
         <p className="py-4 text-center text-sm text-slate-400">{getEmptyMessage()}</p>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {visiblePlaces.map((place) => {
               const isSelected = selectedIds.includes(place.id)
               const Icon = ICON_BY_CATEGORY[getExtendedCategory(place)] ?? MapPin

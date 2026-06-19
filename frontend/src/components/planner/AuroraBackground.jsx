@@ -29,6 +29,13 @@ export default function AuroraBackground({ children }) {
           opacity: 0.72;
           mask-image: radial-gradient(ellipse at 100% 0%, black 10%, transparent 70%);
           -webkit-mask-image: radial-gradient(ellipse at 100% 0%, black 10%, transparent 70%);
+          /* dev30 — pin this expensive blur+blend layer onto its own cached GPU layer.
+             Header show/hide animates layout above it; without this the whole aurora
+             gets repainted every frame (visible jank on Planner only). Promoting it
+             means reflow just re-composites the cached texture — same visuals, no jank. */
+          transform: translateZ(0);
+          will-change: transform;
+          backface-visibility: hidden;
         }
 
         .planner-aurora-layer::after {

@@ -124,7 +124,7 @@ function SelectedList({ places, onRemove }) {
   }
 
   return (
-    <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-330px)]">
+    <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-500px)]">
       {places.map((place) => (
         <PlaceMiniCard key={place.id} place={place} onRemove={() => onRemove(place.id)} />
       ))}
@@ -291,6 +291,9 @@ export default function Planner() {
       await api.planTrip(trip.trip_id, {
         place_ids: selected.map((place) => place.id),
         optimize_order: optimizeOrder,
+        num_days: numDays,
+        start_date: planStartDate,
+        end_date: planEndDate,
         preferences: preferencesObj,
         hotel_name: hotel?.name ?? null,
         hotel_lat: hotel?.lat ?? null,
@@ -774,47 +777,18 @@ export default function Planner() {
                         <p className="text-[12.5px] text-slate-500">{t('plnPickSights')}</p>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_230px]">
-                        {/* Left: Place Browser */}
-                        <div className="min-w-0 xl:border-r xl:border-slate-100 xl:pr-5">
-                          <div className="mb-2 flex items-center">
-                            <span className="text-[12px] font-bold text-slate-500">{t('plnCuratedSearch')}</span>
-                          </div>
-
-                          <PlaceBrowser
-                            selectedIds={selectedIds}
-                            onToggle={togglePlace}
-                            places={curatedPlaces}
-                            loading={placesLoading}
-                          />
+                      {/* Place browser chiếm full width — danh sách "Đã chọn" đã dời sang sidebar phải (dưới summary) */}
+                      <div className="min-w-0">
+                        <div className="mb-2 flex items-center">
+                          <span className="text-[12px] font-bold text-slate-500">{t('plnCuratedSearch')}</span>
                         </div>
 
-                        {/* Right: Selected List */}
-                        <div className="flex flex-col self-start xl:sticky xl:top-4">
-                          <div>
-                            <span className="text-[12px] font-bold text-slate-500 block mb-2">{t('plnSelectedShortlist', selected.length)}</span>
-                            <SelectedList places={selected} onRemove={removePlace} />
-                          </div>
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
-                            <AnimatedGenerateButton
-                              onClick={createPlan}
-                              disabled={creating || selected.length < 2}
-                              generating={creating}
-                              labelIdle={t('plnGeneratePlan')}
-                              labelActive={t('plnGenerating')}
-                              ariaLabel={creating ? t('plnGenerating') : t('plnGeneratePlan')}
-                              className="w-full"
-                              highlightHueDeg={215}
-                            />
-                            <button
-                              type="button"
-                              onClick={handlePrev}
-                              className="h-10 w-full rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition inline-flex items-center justify-center gap-1.5"
-                            >
-                              <ArrowLeft size={14} /> {t('tripBack')}
-                            </button>
-                          </div>
-                        </div>
+                        <PlaceBrowser
+                          selectedIds={selectedIds}
+                          onToggle={togglePlace}
+                          places={curatedPlaces}
+                          loading={placesLoading}
+                        />
                       </div>
                     </div>
                   )}
@@ -848,7 +822,7 @@ export default function Planner() {
             </div>
 
             {/* Sidebar Info/JSON Panel (Right) */}
-            <aside className="space-y-4">
+            <aside className="space-y-4 self-start xl:sticky xl:top-4">
 
               {/* Summary Info */}
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -895,6 +869,33 @@ export default function Planner() {
                   </div>
                 </div>
               </section>
+
+              {/* Đã chọn — dời xuống đây (dưới summary) ở step 4 để PlaceBrowser chiếm full width */}
+              {currentStep === 4 && (
+                <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <span className="text-[12px] font-bold text-slate-500 block mb-2">{t('plnSelectedShortlist', selected.length)}</span>
+                  <SelectedList places={selected} onRemove={removePlace} />
+                  <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
+                    <AnimatedGenerateButton
+                      onClick={createPlan}
+                      disabled={creating || selected.length < 2}
+                      generating={creating}
+                      labelIdle={t('plnGeneratePlan')}
+                      labelActive={t('plnGenerating')}
+                      ariaLabel={creating ? t('plnGenerating') : t('plnGeneratePlan')}
+                      className="w-full"
+                      highlightHueDeg={215}
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePrev}
+                      className="h-10 w-full rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition inline-flex items-center justify-center gap-1.5"
+                    >
+                      <ArrowLeft size={14} /> {t('tripBack')}
+                    </button>
+                  </div>
+                </section>
+              )}
 
               {error && (
                 <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 shadow-sm animate-pop-in">

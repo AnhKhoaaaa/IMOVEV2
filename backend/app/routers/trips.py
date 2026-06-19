@@ -73,7 +73,29 @@ async def plan_trip(
     current_user: Optional[str] = Depends(get_current_user),
 ):
     _verify_user_ownership(trip_id, current_user)
+    fields_set = getattr(body, "model_fields_set", None)
+    if fields_set is None:
+        fields_set = getattr(body, "__fields_set__", set())
+    meta = _trip_meta.setdefault(trip_id, {})
+    db_updates = {}
+    if body.num_days is not None:
+        meta["num_days"] = body.num_days
+        db_updates["num_days"] = body.num_days
+    if "start_date" in fields_set:
+        meta["start_date"] = body.start_date
+        db_updates["start_date"] = body.start_date.isoformat() if body.start_date else None
+    if "end_date" in fields_set:
+        meta["end_date"] = body.end_date
+        db_updates["end_date"] = body.end_date.isoformat() if body.end_date else None
+    if db_updates and supabase:
+        try:
+            supabase.table("trips").update(db_updates).eq("id", trip_id).execute()
+        except Exception as exc:
+            log.warning("trip metadata update failed for %s: %s", trip_id, exc)
+
     num_days, budget_sgd = _get_trip_params(trip_id, body)
+    if body.num_days is not None:
+        num_days = body.num_days
 
     # [PATCH 3] Fetch user preference profile — fallback to default nếu guest/new user
     effective_profile: UserPreferenceProfile = UserPreferenceProfile()

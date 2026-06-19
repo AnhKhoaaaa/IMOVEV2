@@ -1774,7 +1774,19 @@ export default function Trip() {
         tripHotel={allPlacesById['hotel'] ?? null}
         onClose={() => setSetupOpen(false)}
         onSave={async (meta) => {
-          const nextMeta = { ...effectiveMeta, ...meta, confirmed: true }
+          const nextStartDate = meta.startDate || meta.start_date || null
+          const nextEndDate = meta.endDate || meta.end_date || null
+          const nextNumDays = meta.numDays ?? meta.num_days ?? effectiveMeta?.numDays ?? effectiveMeta?.num_days ?? trip.days?.length ?? 1
+          const nextMeta = {
+            ...effectiveMeta,
+            ...meta,
+            startDate: nextStartDate,
+            start_date: nextStartDate,
+            endDate: nextEndDate,
+            end_date: nextEndDate,
+            numDays: nextNumDays,
+            confirmed: true,
+          }
           saveTrip(id, nextMeta)
           if (!trip?.places?.length) return
           setMutating(true)
@@ -1783,6 +1795,9 @@ export default function Trip() {
             await api.planTrip(id, {
               place_ids: trip.places.filter((p) => p.id !== 'hotel').map((p) => p.id),
               optimize_order: true,
+              num_days: nextNumDays,
+              start_date: nextStartDate,
+              end_date: nextEndDate,
               preferences: {
                 budget_sgd: meta.budget_sgd ?? effectiveMeta?.budget_sgd ?? 100,
                 ...(meta.routeWeights ?? meta.route_weights ?? {}),

@@ -37,6 +37,15 @@ export function useT() {
   return { t, lang }
 }
 
+/** Resolve a key in an explicit language (used to reserve nav width across EN/VI). */
+export function tFor(lang, key, ...args) {
+  const T = lang === 'vi' ? VI : EN
+  const val = T[key]
+  if (val === undefined) return key
+  if (typeof val === 'function') return val(...args)
+  return val
+}
+
 /* ── Translations ─────────────────────────────────────────────────── */
 
 const EN = {

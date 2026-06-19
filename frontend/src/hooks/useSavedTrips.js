@@ -2,11 +2,28 @@ import { useState, useCallback, useEffect } from 'react'
 import { api } from '../services/api'
 import { computeTripStatus } from '../lib/tripUtils'
 
-function enrich(raw) {
-  return raw.map((t) => ({
+function normalizeTripMeta(t) {
+  const startDate = t.startDate ?? t.start_date ?? null
+  const endDate = t.endDate ?? t.end_date ?? null
+  const numDays = t.numDays ?? t.num_days ?? 1
+  return {
     ...t,
-    status: t.confirmed === false ? 'draft' : computeTripStatus(t.startDate, t.numDays ?? 1),
-  }))
+    startDate,
+    start_date: startDate,
+    endDate,
+    end_date: endDate,
+    numDays,
+  }
+}
+
+function enrich(raw) {
+  return raw.map((t) => {
+    const trip = normalizeTripMeta(t)
+    return {
+      ...trip,
+      status: trip.confirmed === false ? 'draft' : computeTripStatus(trip.startDate, trip.numDays ?? 1),
+    }
+  })
 }
 
 export function useSavedTrips(userId = null) {
