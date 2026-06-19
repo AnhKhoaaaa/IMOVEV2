@@ -505,7 +505,7 @@ function computeHaversineTimes(places, hotel, startTimeStr) {
   return times
 }
 
-function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTime, needsRouteUpdate, mutating }) {
+function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTimeForDay, needsRouteUpdate, mutating }) {
   const { t } = useT()
   const [routeDropdownOpen, setRouteDropdownOpen] = useState(false)
   return (
@@ -613,7 +613,8 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
 
           const hotelPlace = allPlacesById['hotel'] ?? null
           const stats = dayStats(day)
-          const serverPlaceTimes = computePlaceTimes(day, allPlacesById, startTime ?? '09:00')
+          const dayStartTime = startTimeForDay?.(day.day) ?? '09:00'
+          const serverPlaceTimes = computePlaceTimes(day, allPlacesById, dayStartTime)
           const placeTimes = isDirty ? (pendingTimes[day.day] ?? serverPlaceTimes) : serverPlaceTimes
           // Total transit includes all legs (hotel→first and last→hotel)
           const transitMin = (day.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
@@ -621,7 +622,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
           const hasHotelStart = day.legs?.[0]?.from_place_id === 'hotel'
           const hasHotelEnd   = (day.legs?.length ?? 0) > 0 && day.legs[day.legs.length - 1]?.to_place_id === 'hotel'
           const firstTime = hasHotelStart
-            ? (startTime ?? '09:00')
+            ? dayStartTime
             : (visitPlaces[0] ? placeTimes[visitPlaces[0].id]?.arrive : null)
           const lastTime = hasHotelEnd
             ? placeTimes['hotel']?.arrive
@@ -977,6 +978,7 @@ export default function Trip() {
   }, [alerts, selectedDay])
 
   const savedMeta = useMemo(() => savedTrips.find((item) => item.id === id), [savedTrips, id])
+  const effectiveMeta = useMemo(() => ({ ...(pendingSave ?? {}), ...(savedMeta ?? {}) }), [pendingSave, savedMeta])
   const placesById = useMemo(() => buildPlacesById(trip?.places ?? []), [trip])
   const allPlacesById = useMemo(() => ({ ...placesById, ...pendingPlaces }), [placesById, pendingPlaces])
   const currentDay = useMemo(
@@ -1026,6 +1028,11 @@ export default function Trip() {
   const needsRouteUpdate = isEstimated || hasDirtyDays
   // isLive drives all UI decisions; raw tripStarted drives GPS/backend effects
   const isLive = tripStarted && !editMode
+  const startTimeForDay = (dayNum) => {
+    const times = effectiveMeta?.dayStartTimes ?? effectiveMeta?.day_start_times
+    if (Array.isArray(times) && times[dayNum - 1]) return times[dayNum - 1]
+    return effectiveMeta?.startTime ?? '09:00'
+  }
 
   // Chatbot confirmed a write → refresh the itinerary from the server.
   useEffect(() => {
@@ -1035,17 +1042,16 @@ export default function Trip() {
   }, [refresh])
 
   // Estimated times for pending (dirty) days — computed purely from haversine, no API call
-  const startTimeStr = savedMeta?.startTime ?? '09:00'
   const pendingTimes = useMemo(() => {
     if (!hasDirtyDays) return {}
     const hotel = allPlacesById['hotel'] ?? null
     const result = {}
     for (const [dayStr, placeIds] of Object.entries(pendingByDay)) {
       const places = placeIds.map((pid) => allPlacesById[pid]).filter(Boolean)
-      result[Number(dayStr)] = computeHaversineTimes(places, hotel, startTimeStr)
+      result[Number(dayStr)] = computeHaversineTimes(places, hotel, startTimeForDay(Number(dayStr)))
     }
     return result
-  }, [pendingByDay, allPlacesById, startTimeStr, hasDirtyDays])
+  }, [pendingByDay, allPlacesById, effectiveMeta, hasDirtyDays])
 
   // Task 3a: IDs of places in the currently selected day tab (null = no inter-day dimming)
   const activeDayPlaceIds = useMemo(() => {
@@ -1113,10 +1119,11 @@ export default function Trip() {
   }, [trip, selectedDay])
 
   useEffect(() => {
-    if (!savedMeta?.start_date || tripStarted) return
+    const tripStartDate = effectiveMeta?.start_date ?? effectiveMeta?.startDate
+    if (!tripStartDate || tripStarted) return
     const today = new Date().toISOString().slice(0, 10)
-    if (savedMeta.start_date === today) setTodayBanner(true)
-  }, [savedMeta, tripStarted])
+    if (tripStartDate === today) setTodayBanner(true)
+  }, [effectiveMeta, tripStarted])
 
   useEffect(() => {
     if (!tripStarted || !position || !id) return
@@ -1516,7 +1523,7 @@ export default function Trip() {
             </button>
             <div className="min-w-0">
               <h1 className="truncate font-display text-[22px] font-extrabold text-slate-950">
-                {savedMeta?.name ?? pendingSave?.name ?? t('tripDefaultName')}
+                {effectiveMeta?.name ?? t('tripDefaultName')}
               </h1>
               <p className="mt-1 text-[12px] font-semibold text-slate-400">
                 {t('tripDaysCount', trip.days?.length ?? 0)} · {t('tripPlacesCount', trip.places?.length ?? 0)}
@@ -1698,7 +1705,7 @@ export default function Trip() {
               onOptimiseOrder={() => setConfirmOptimise(true)}
               onStartTrip={null}
               tripStarted={isLive}
-              startTime={savedMeta?.startTime ?? '09:00'}
+              startTimeForDay={startTimeForDay}
               needsRouteUpdate={needsRouteUpdate}
               mutating={mutating}
             />
@@ -1721,7 +1728,7 @@ export default function Trip() {
               canGoBack={canGoBack}
               arrivedPending={arrivedPending}
               onAddPlace={setAddDayFor}
-              startTime={savedMeta?.startTime ?? '09:00'}
+              startTime={startTimeForDay(currentDay.day)}
               gapNotifications={trip.gap_notifications ?? []}
             />
           )}
@@ -1732,7 +1739,7 @@ export default function Trip() {
               pendingSave={pendingSave}
               optimizationLog={(trip.warnings ?? []).map((warning) => ({ title: warning, type: 'mode_change' }))}
               onSave={(name) => {
-                const meta = { ...pendingSave, name, confirmed: true }
+                const meta = { ...effectiveMeta, name, confirmed: true }
                 saveTrip(id, meta)
                 setPendingSave(null)
                 sessionStorage.removeItem(pendingKey)
@@ -1763,11 +1770,12 @@ export default function Trip() {
 
       <TripSetupModal
         open={setupOpen}
-        savedMeta={savedMeta}
+        savedMeta={effectiveMeta}
         tripHotel={allPlacesById['hotel'] ?? null}
         onClose={() => setSetupOpen(false)}
         onSave={async (meta) => {
-          saveTrip(id, { ...savedMeta, ...meta, confirmed: true })
+          const nextMeta = { ...effectiveMeta, ...meta, confirmed: true }
+          saveTrip(id, nextMeta)
           if (!trip?.places?.length) return
           setMutating(true)
           setUiWarning(null)
@@ -1776,13 +1784,16 @@ export default function Trip() {
               place_ids: trip.places.filter((p) => p.id !== 'hotel').map((p) => p.id),
               optimize_order: true,
               preferences: {
-                budget_sgd: meta.budget_sgd ?? savedMeta?.budget_sgd ?? 100,
+                budget_sgd: meta.budget_sgd ?? effectiveMeta?.budget_sgd ?? 100,
+                ...(meta.routeWeights ?? meta.route_weights ?? {}),
+                travel_style: meta.travelStyle ?? meta.travel_style ?? effectiveMeta?.travelStyle ?? null,
                 travel_styles: meta.styles ?? [],
                 group_type: meta.companion ?? 'solo',
               },
               hotel_name: meta.hotelName ?? null,
               hotel_lat: meta.hotelLat ?? null,
               hotel_lng: meta.hotelLng ?? null,
+              day_start_times: meta.dayStartTimes ?? meta.day_start_times ?? effectiveMeta?.dayStartTimes ?? [],
             })
             await refresh()
           } catch (e) {
