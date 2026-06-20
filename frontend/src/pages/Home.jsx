@@ -266,7 +266,7 @@ export default function Home() {
         features={heroFeatures}
       />
 
-      <section className="relative isolate overflow-hidden border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/70 to-white">
+      <section className="relative isolate hidden overflow-hidden border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/70 to-white md:block">
         <WaveLightShader className="absolute -inset-x-[8%] -inset-y-20 h-[calc(100%+10rem)] w-[116%] opacity-50 mix-blend-multiply" />
         <div className="pointer-events-none absolute inset-0 bg-white/20" />
         <div className="relative mx-auto max-w-7xl px-6 py-6">
@@ -320,16 +320,16 @@ export default function Home() {
         )
       })()}
 
-      <section className="mx-auto max-w-7xl px-6 py-6">
+      <section className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
         <ScrollReveal>
-          <div className="mb-5 flex items-center justify-between gap-4">
-            <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-card">
+          <div className="mb-4 flex flex-col gap-3 sm:mb-5 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+            <div className="flex max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-card">
               {FILTERS.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setFilter(item.id)}
                   className={cn(
-                    'h-9 rounded-md px-3 text-[13px] font-bold transition',
+                    'h-9 shrink-0 rounded-md px-3 text-[13px] font-bold transition',
                     filter === item.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                   )}
                 >
@@ -342,13 +342,13 @@ export default function Home() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t('homeSearch')}
-              className="w-[320px]"
+              className="w-full lg:w-[320px]"
             />
           </div>
         </ScrollReveal>
 
         {filteredTrips.length ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredTrips.map((trip, index) => (
               <ScrollReveal key={trip.id} delay={Math.min(index, 5) * 90}>
                 <div className="relative">
@@ -371,7 +371,7 @@ export default function Home() {
           </div>
         ) : (
           <ScrollReveal delay={100}>
-            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center sm:p-12">
               <MapPin className="mx-auto h-8 w-8 text-slate-300" />
               <h2 className="mt-3 font-display text-[22px] font-extrabold text-slate-950">{t('homeNoTrips')}</h2>
               <p className="mt-2 text-[14px] text-slate-500">{t('homeNoTripsDesc')}</p>

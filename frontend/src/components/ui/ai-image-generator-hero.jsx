@@ -50,21 +50,21 @@ export function ImageCarouselHero({
       <div className="pointer-events-none absolute -left-32 top-16 h-80 w-80 rounded-full bg-[#d8e2ff]/70 blur-3xl" />
       <div className="pointer-events-none absolute -right-24 bottom-8 h-96 w-96 rounded-full bg-[#dce2f7]/65 blur-3xl" />
 
-      <div className="relative z-10 mx-auto grid min-h-[690px] max-w-7xl items-center gap-12 px-5 py-12 lg:grid-cols-[0.9fr_1.1fr] lg:px-16 lg:py-16">
+      <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-8 px-4 py-8 sm:px-6 sm:py-10 lg:min-h-[690px] lg:grid-cols-[0.9fr_1.1fr] lg:gap-12 lg:px-16 lg:py-16">
         <div className="max-w-[560px]">
-          <h1 className="font-sans text-[40px] font-bold leading-[48px] tracking-[-0.02em] text-[#111827] sm:text-[48px] sm:leading-[56px]">
+          <h1 className="font-display text-[32px] font-extrabold leading-[38px] tracking-[-0.02em] text-[#0f172a] sm:text-[48px] sm:leading-[56px]">
             {title}
           </h1>
-          <p className="mt-6 max-w-lg text-[16px] leading-7 text-[#6b7280] sm:text-[18px]">
+          <p className="mt-4 max-w-lg text-[14px] leading-6 text-[#64748b] sm:mt-6 sm:text-[18px] sm:leading-7">
             {description}
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-6 flex flex-wrap gap-2.5 sm:mt-8 sm:gap-3">
             <RippleButton
               type="button"
               onClick={onCtaClick}
               hoverRippleColor="#0369a1"
-              className="group inline-flex h-12 items-center justify-center rounded-lg bg-[#3b82f6] px-6 text-[14px] font-semibold text-white transition focus:outline-none focus:ring-2 focus:ring-[#adc6ff] focus:ring-offset-2"
+              className="group inline-flex h-11 items-center justify-center rounded-lg bg-[#2563eb] px-4 text-[13px] font-semibold text-white shadow-[0_4px_12px_-3px_rgba(37,99,235,.42),0_2px_4px_-2px_rgba(37,99,235,.28)] transition focus:outline-none focus:ring-2 focus:ring-[#adc6ff] focus:ring-offset-2 sm:h-12 sm:px-6 sm:text-[14px]"
             >
               {ctaText}
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
@@ -74,21 +74,21 @@ export function ImageCarouselHero({
                 type="button"
                 onClick={onSecondaryCtaClick}
                 hoverRippleColor="#d8e2ff"
-                className="inline-flex h-12 items-center justify-center rounded-lg border border-[#e5e7eb] bg-transparent px-6 text-[14px] font-semibold text-[#111827] transition hover:border-[#c2c6d6] focus:outline-none focus:ring-2 focus:ring-[#d8e2ff] focus:ring-offset-2"
+                className="inline-flex h-11 items-center justify-center rounded-lg border border-[#e2e8f0] bg-white px-4 text-[13px] font-semibold text-[#334155] shadow-sm transition hover:border-[#c2c6d6] hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#d8e2ff] focus:ring-offset-2 sm:h-12 sm:px-6 sm:text-[14px]"
               >
                 {secondaryCtaText}
               </RippleButton>
             )}
           </div>
 
-          <div className="mt-12 grid gap-4 sm:grid-cols-3">
+          <div className="mt-7 hidden gap-3 sm:grid sm:grid-cols-3 lg:mt-12 lg:gap-4">
             {features.map((feature, index) => {
               const Icon = FEATURE_ICONS[index % FEATURE_ICONS.length]
               return (
                 <GlowCard
                   key={feature.title}
                   glowColor={FEATURE_GLOWS[index % FEATURE_GLOWS.length]}
-                  className="rounded-xl bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.05)]"
+                  className="rounded-xl bg-white p-4 shadow-card lg:p-5 lg:shadow-[0_4px_20px_rgba(0,0,0,0.05)]"
                 >
                   <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#eff6ff]">
                     <Icon className="h-4 w-4 text-[#0058be]" />
@@ -102,7 +102,7 @@ export function ImageCarouselHero({
         </div>
 
         <div
-          className="relative mx-auto h-[430px] w-full max-w-[600px] overflow-hidden sm:h-[520px] lg:overflow-visible"
+          className="relative mx-auto hidden h-[430px] w-full max-w-[600px] overflow-hidden sm:h-[520px] lg:block lg:overflow-visible"
           onMouseMove={handleMouseMove}
           onMouseEnter={() => setIsHovering(true)}
           onMouseLeave={() => setIsHovering(false)}
