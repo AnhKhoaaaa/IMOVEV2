@@ -6,13 +6,17 @@ import { buildOrderedPlaces } from '../../lib/tripUtils'
 import { normalizeTransportMode, transportMeta } from '../../lib/transport'
 import { useT } from '../../contexts/LanguageContext'
 
+// Polyline colours mirror the locked design-system mode tokens (index.css --color-mode-*):
+// rail=brand blue, bus=cyan, walk=slate, cycle=orange, taxi/Grab=green. outline = darker shade
+// for legibility on the light basemap. Keep in sync with transport.js TRANSPORT_META.
 const MODE_STYLE = {
-  METRO: { color: '#1d4ed8', halo: '#eff6ff', outline: '#172554', dashArray: null },
-  MRT:   { color: '#4f46e5', halo: '#eef2ff', outline: '#312e81', dashArray: null },
-  LRT:   { color: '#7c3aed', halo: '#f5f3ff', outline: '#4c1d95', dashArray: null },
-  BUS:   { color: '#059669', halo: '#ecfdf5', outline: '#064e3b', dashArray: null },
-  WALK:  { color: '#ea580c', halo: '#fff7ed', outline: '#7c2d12', dashArray: '8,8' },
-  CYCLE: { color: '#0f766e', halo: '#f0fdfa', outline: '#134e4a', dashArray: '10,6' },
+  METRO: { color: '#2563eb', halo: '#eff6ff', outline: '#1e3a8a', dashArray: null },
+  MRT:   { color: '#2563eb', halo: '#eff6ff', outline: '#1e3a8a', dashArray: null },
+  LRT:   { color: '#3b82f6', halo: '#eff6ff', outline: '#1e40af', dashArray: null },
+  BUS:   { color: '#06b6d4', halo: '#ecfeff', outline: '#155e75', dashArray: null },
+  WALK:  { color: '#64748b', halo: '#f1f5f9', outline: '#334155', dashArray: '8,8' },
+  CYCLE: { color: '#f97316', halo: '#fff7ed', outline: '#9a3412', dashArray: '10,6' },
+  GRAB:  { color: '#00b14f', halo: '#ecfdf5', outline: '#065f46', dashArray: null },
 }
 const FALLBACK_ROUTE_STYLE = { color: '#2563eb', halo: '#eff6ff', outline: '#1e3a8a', dashArray: null }
 
@@ -344,11 +348,12 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
           </Marker>
         )}
 
-        {/* Task 8c: live GPS trail for WALK/CYCLE legs */}
+        {/* Task 8c: live GPS trail for WALK/CYCLE legs. Indigo "you" colour — deliberately not a
+            mode token (rail is now brand blue) so the user's path stays distinct from route lines. */}
         {trackingPath.length >= 2 && (
           <Polyline
             positions={trackingPath}
-            color="#2563eb"
+            color="#6366f1"
             weight={5}
             opacity={0.9}
             lineCap="round"
