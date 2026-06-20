@@ -27,6 +27,8 @@ import {
   Minus,
   PencilLine,
   Wallet,
+  ArrowRight,
+  Sparkles,
 } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -34,7 +36,7 @@ import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import PlaceBrowser from '../components/planner/PlaceBrowser'
 import AuroraBackground from '../components/planner/AuroraBackground'
-import AnimatedGenerateButton from '../components/ui/animated-generate-button-shadcn-tailwind'
+import { Button } from '../components/ui/button'
 import DateRangePicker, { isoToDate, dateToIso, daysBetweenInclusive } from '../components/ui/DateRangePicker'
 import TimePicker from '../components/ui/TimePicker'
 
@@ -840,24 +842,18 @@ export default function Planner() {
 
               {/* Navigation buttons */}
               {currentStep !== 4 && (
-                <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-6">
-                  <button
+                <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4">
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={handlePrev}
                     disabled={currentStep === 1}
-                    className="h-10 px-4 rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
                   >
-                    <ArrowLeft size={14} /> {t('tripBack')}
-                  </button>
-                  <AnimatedGenerateButton
-                    key={currentStep}
-                    onClick={handleNext}
-                    disabled={creating}
-                    labelIdle={t('plnNextIdle')}
-                    labelActive={t('plnNext')}
-                    ariaLabel={t('plnNextIdle')}
-                    highlightHueDeg={215}
-                  />
+                    <ArrowLeft size={15} /> {t('tripBack')}
+                  </Button>
+                  <Button type="button" onClick={handleNext} disabled={creating} className="px-6">
+                    {t('plnNextIdle')} <ArrowRight size={15} />
+                  </Button>
                 </div>
               )}
 
@@ -941,23 +937,19 @@ export default function Planner() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <AnimatedGenerateButton
+                    <Button
+                      type="button"
+                      size="lg"
                       onClick={createPlan}
                       disabled={creating || selected.length < 2}
-                      generating={creating}
-                      labelIdle={t('plnGeneratePlan')}
-                      labelActive={t('plnGenerating')}
-                      ariaLabel={creating ? t('plnGenerating') : t('plnGeneratePlan')}
                       className="w-full"
-                      highlightHueDeg={215}
-                    />
-                    <button
-                      type="button"
-                      onClick={handlePrev}
-                      className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-slate-200 text-[13px] font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-800"
                     >
-                      <ArrowLeft size={14} /> {t('tripBack')}
-                    </button>
+                      {creating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                      {creating ? t('plnGenerating') : t('plnGeneratePlan')}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handlePrev} className="w-full">
+                      <ArrowLeft size={15} /> {t('tripBack')}
+                    </Button>
                   </div>
                 </>
               )}

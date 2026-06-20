@@ -29,6 +29,12 @@ export default function AuroraBackground({ children }) {
           opacity: 0.72;
           mask-image: radial-gradient(ellipse at 100% 0%, black 10%, transparent 70%);
           -webkit-mask-image: radial-gradient(ellipse at 100% 0%, black 10%, transparent 70%);
+          /* Pin this expensive blur+blend layer onto its own cached GPU layer so page
+             updates (scroll, slider drag, re-renders) re-composite the cached texture
+             instead of repainting the whole aurora every frame (dev30 jank fix). */
+          transform: translateZ(0);
+          will-change: transform;
+          backface-visibility: hidden;
         }
 
         .planner-aurora-layer::after {
