@@ -13,6 +13,7 @@ const buttonVariants = cva(
         outline: 'btn-lift hover:shadow-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900',
         ghost: 'btn-lift text-slate-700 hover:bg-slate-100 hover:text-slate-900',
         destructive: 'btn-lift shadow-btn-danger bg-red-500 text-white hover:bg-red-600',
+        success: 'btn-lift shadow-btn-success bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800',
         secondary: 'btn-lift shadow-sm hover:shadow-md bg-slate-100 text-slate-700 hover:bg-slate-200',
         link: 'transition-colors text-blue-600 underline-offset-4 hover:underline',
       },

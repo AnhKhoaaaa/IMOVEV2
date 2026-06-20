@@ -47,6 +47,7 @@ import SummaryTab from '../components/planner/SummaryTab'
 import PlaceSearch from '../components/planner/PlaceSearch'
 import BusArrivalPanel from '../components/transit/BusArrivalPanel'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import { Button } from '../components/ui/button'
 
 // DEV25-BANNER-RETAINED: as of dev25 Phase 1, live alerts surface through the ChatWidget for
 // logged-in users and guests get no alerts, so the on-page AlertBanner is not mounted. The
@@ -519,15 +520,14 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
           <div className="flex items-center gap-2">
             {needsRouteUpdate ? (
               <div className="relative">
-                <button
+                <Button
                   onClick={() => setRouteDropdownOpen((v) => !v)}
-                  className="flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700 disabled:opacity-60"
                   disabled={mutating}
                 >
                   {mutating ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
                   {t('tripUpdateRoute')}
                   <ChevronDown size={13} className={cn('ml-1 transition-transform', routeDropdownOpen && 'rotate-180')} />
-                </button>
+                </Button>
                 {routeDropdownOpen && (
                   <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-md border border-slate-200 bg-white shadow-pop">
                     <button
@@ -554,21 +554,19 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 )}
               </div>
             ) : (
-              <button
+              <Button
+                variant="outline"
                 onClick={onOptimiseOrder}
                 disabled={mutating}
-                className="flex h-10 items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 text-[13px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                className="border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-700"
               >
                 <Sparkles size={15} /> {t('tripOptimiseOrder')}
-              </button>
+              </Button>
             )}
             {onStartTrip && (
-              <button
-                onClick={onStartTrip}
-                className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-bold text-white hover:bg-emerald-500"
-              >
+              <Button variant="success" onClick={onStartTrip}>
                 <Navigation2 size={15} /> {t('tripStartTrip')}
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -764,28 +762,16 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
           </div>
           <div className="flex items-center gap-2">
             {canGoBack && (
-              <button
-                onClick={onGoBack}
-                title={t('tripGoBackTitle')}
-                className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-600 transition-colors duration-300 hover:bg-slate-50"
-              >
+              <Button variant="outline" onClick={onGoBack} title={t('tripGoBackTitle')}>
                 <ArrowLeft size={15} /> {t('tripBack')}
-              </button>
+              </Button>
             )}
             <div className="relative">
-              <button
-                onClick={arrivedPending ? onContinue : onMarkArrived}
-                className={cn(
-                  'flex h-10 items-center gap-2 rounded-md px-4 text-[13px] font-bold text-white transition-colors duration-300',
-                  arrivedPending
-                    ? 'bg-teal-600 hover:bg-teal-500'
-                    : 'bg-emerald-600 hover:bg-emerald-500',
-                )}
-              >
+              <Button variant="success" onClick={arrivedPending ? onContinue : onMarkArrived}>
                 {arrivedPending
                   ? <><Navigation2 size={15} /> {t('tripContinue')}</>
                   : <><CheckCircle size={15} /> {t('tripArrived')}</>}
-              </button>
+              </Button>
               {arrivedPending && (
                 <span className="absolute -right-1 -top-1 flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
@@ -818,12 +804,13 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
           <h2 className="font-display text-[24px] font-extrabold text-slate-950">{t('tripDay', day.day)}</h2>
           <p className="mt-1 text-[13px] text-slate-500">{t('tripDayDesc')}</p>
         </div>
-        <button
+        <Button
+          variant="outline"
           onClick={() => onAddPlace(day.day)}
-          className="flex h-10 items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-4 text-[13px] font-bold text-blue-700 hover:bg-blue-100"
+          className="border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-700"
         >
           <Plus size={15} /> {t('tripAddPlace')}
-        </button>
+        </Button>
       </div>
 
       {items.length ? (
@@ -864,12 +851,9 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
           <MapPin className="mx-auto h-7 w-7 text-slate-300" />
           <p className="mt-2 text-[14px] font-bold text-slate-600">{t('tripNoLegs')}</p>
-          <button
-            onClick={() => onAddPlace(day.day)}
-            className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
-          >
+          <Button onClick={() => onAddPlace(day.day)} className="mt-4">
             <Plus size={15} /> {t('tripAddPlace')}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1493,20 +1477,14 @@ export default function Trip() {
             {t('tripUnavailableBody', message)}
           </p>
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            <button
-              onClick={() => navigate('/')}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-            >
+            <Button variant="outline" size="lg" onClick={() => navigate('/')} className="w-full">
               <Home className="h-4 w-4" aria-hidden="true" />
               {t('tripBackHome')}
-            </button>
-            <button
-              onClick={() => navigate('/plan')}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
-            >
+            </Button>
+            <Button size="lg" onClick={() => navigate('/plan')} className="w-full">
               <Plus className="h-4 w-4" aria-hidden="true" />
               {t('tripStartNew')}
-            </button>
+            </Button>
           </div>
         </div>
       </main>
@@ -1585,12 +1563,9 @@ export default function Trip() {
               </>
             )}
             {tripStarted && editMode && (
-              <button
-                onClick={resumeNavigation}
-                className="flex h-9 items-center gap-2 rounded-md bg-emerald-600 px-3 text-[13px] font-bold text-white hover:bg-emerald-500"
-              >
+              <Button variant="success" size="sm" onClick={resumeNavigation} className="h-9">
                 <Navigation2 size={14} /> {t('tripResumeTrip')}
-              </button>
+              </Button>
             )}
             {isLive && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-[12px] font-bold text-emerald-700">
@@ -1812,18 +1787,12 @@ export default function Trip() {
               {t('tripOptimiseDesc')}
             </p>
             <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => setConfirmOptimise(false)}
-                className="flex-1 h-10 rounded-md border border-slate-200 text-[13px] font-bold text-slate-700 hover:bg-slate-50"
-              >
+              <Button variant="outline" onClick={() => setConfirmOptimise(false)} className="flex-1">
                 {t('tripCancel')}
-              </button>
-              <button
-                onClick={handleConfirmOptimise}
-                className="flex-1 h-10 rounded-md bg-blue-600 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
-              >
+              </Button>
+              <Button onClick={handleConfirmOptimise} className="flex-1">
                 {t('tripConfirm')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
