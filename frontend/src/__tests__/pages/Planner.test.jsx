@@ -60,7 +60,9 @@ describe('Planner', () => {
     expect(screen.getByText('General settings')).toBeInTheDocument()
     expect(screen.getAllByText('Trip Name')[0]).toBeInTheDocument()
     expect(screen.getByText('Transit Budget (SGD)')).toBeInTheDocument()
-    expect(screen.getByText('Days')).toBeInTheDocument()
+    // Days are now chosen via the Dates-mode stepper (Flexible) instead of a bare "Days" field
+    expect(screen.getByText('Dates mode')).toBeInTheDocument()
+    expect(screen.getByText('Flexible')).toBeInTheDocument()
   })
 
   it('can navigate to Step 2 (Hotel Location) and search for hotels', async () => {

@@ -132,7 +132,7 @@
     box-shadow: 0 12px 32px -10px rgb(15 23 42 / 0.18), 0 6px 16px -6px rgb(15 23 42 / 0.1);
   }
   .font-display {
-    font-family: 'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, sans-serif;
+    font-family: 'Space Grotesk', Inter, ui-sans-serif, system-ui, sans-serif;
   }
   .font-mono-code {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -242,7 +242,7 @@
   --rdp-font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
-.imove-rdp .rdp-month_caption { font-family: 'Plus Jakarta Sans', Inter, sans-serif; font-weight: 800; font-size: 14px; color: #0f172a; }
+.imove-rdp .rdp-month_caption { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 14px; color: #0f172a; }
 .imove-rdp .rdp-weekday { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: none; }
 .imove-rdp .rdp-day_button { font-size: 13px; font-weight: 600; color: #0f172a; }
 .imove-rdp .rdp-day_button:hover { background: var(--rdp-accent-background-color); }
