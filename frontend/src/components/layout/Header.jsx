@@ -36,7 +36,7 @@ export default function Header() {
             <img
               src="/imove-logo-transparent.png"
               alt=""
-              className="h-10 w-auto max-w-[190px] object-contain"
+              className="h-8 w-auto max-w-[136px] object-contain sm:h-10 sm:max-w-[190px]"
             />
             <span className="sr-only">IMOVE</span>
           </Link>
