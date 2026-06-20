@@ -22,6 +22,11 @@ import {
   ArrowLeft,
   ArrowUp,
   HelpCircle,
+  SlidersHorizontal,
+  Route,
+  Minus,
+  PencilLine,
+  Wallet,
 } from 'lucide-react'
 import { api } from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -132,6 +137,24 @@ function SelectedList({ places, onRemove }) {
   )
 }
 
+// Editorial step header: brand icon chip + title + description (replaces plain "1/2/3/4")
+function StepHeader({ Icon, title, desc, badge }) {
+  return (
+    <div className="mb-5 flex items-center gap-3">
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600">
+        <Icon size={20} />
+      </span>
+      <div>
+        <h2 className="font-display flex items-center gap-2 text-[19px] font-bold leading-tight text-slate-900">
+          {title}
+          {badge && <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{badge}</span>}
+        </h2>
+        {desc && <p className="text-[12.5px] text-slate-500">{desc}</p>}
+      </div>
+    </div>
+  )
+}
+
 export default function Planner() {
   const navigate = useNavigate()
   const auth = useAuth()
@@ -153,6 +176,8 @@ export default function Planner() {
   const [startDate, setStartDate] = useState('')
   const [optimizeOrder, setOptimizeOrder] = useState(true)
   const [dayStartTimes, setDayStartTimes] = useState(() => Array(3).fill('09:00'))
+  // Daily-start mode: true = one time for every day (synced), false = per-day pickers
+  const [syncDailyStart, setSyncDailyStart] = useState(true)
 
   // Sidebar states
 
@@ -189,14 +214,18 @@ export default function Planner() {
       .finally(() => setPlacesLoading(false))
   }, [])
 
-  // Sync dayStartTimes array length when numDays changes
+  // Sync dayStartTimes array length when numDays changes (or when switching to synced mode)
   useEffect(() => {
     setDayStartTimes((prev) => {
+      if (syncDailyStart) return Array(numDays).fill(prev[0] ?? '09:00')
       const next = Array(numDays).fill('09:00')
       for (let i = 0; i < Math.min(prev.length, numDays); i++) next[i] = prev[i]
       return next
     })
-  }, [numDays])
+  }, [numDays, syncDailyStart])
+
+  // Apply one time to every day (used by the synced daily-start picker)
+  const setAllDayStart = (val) => setDayStartTimes(Array(numDays).fill(val))
 
   // Geocoding debounce for hotel search
   useEffect(() => {
@@ -365,10 +394,10 @@ export default function Planner() {
                   />
 
                   {[
-                    { label: t('plnStep1'), num: 1 },
-                    { label: t('plnStep2'), num: 2 },
-                    { label: t('plnStep3'), num: 3 },
-                    { label: t('plnStep4'), num: 4 },
+                    { label: t('plnStep1'), num: 1, Icon: SlidersHorizontal },
+                    { label: t('plnStep2'), num: 2, Icon: Building2 },
+                    { label: t('plnStep3'), num: 3, Icon: Route },
+                    { label: t('plnStep4'), num: 4, Icon: MapPin },
                   ].map((s) => (
                     <button
                       key={s.num}
@@ -378,15 +407,15 @@ export default function Planner() {
                     >
                       <div
                         className={cn(
-                          'flex h-10 w-10 items-center justify-center rounded-full border font-bold text-sm transition',
+                          'flex h-10 w-10 items-center justify-center rounded-full border transition',
                           currentStep === s.num
                             ? 'border-blue-600 bg-blue-600 text-white shadow-card ring-2 ring-blue-100'
                             : currentStep > s.num
-                              ? 'border-emerald-600 bg-emerald-600 text-white'
+                              ? 'border-emerald-500 bg-emerald-500 text-white'
                               : 'border-slate-200 bg-white text-slate-400'
                         )}
                       >
-                        {currentStep > s.num ? <Check size={16} /> : s.num}
+                        {currentStep > s.num ? <Check size={16} /> : <s.Icon size={16} />}
                       </div>
                       <span
                         className={cn(
@@ -405,145 +434,184 @@ export default function Planner() {
 
                   {/* STEP 1: Essentials */}
                   {currentStep === 1 && (
-                    <div className="space-y-4 animate-fade-in">
-                      <div>
-                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnGeneralSettings')}</h2>
-                        <p className="text-[12.5px] text-slate-500">{t('plnGeneralDesc')}</p>
+                    <div className="animate-fade-in">
+                      <StepHeader Icon={SlidersHorizontal} title={t('plnGeneralSettings')} desc={t('plnGeneralDesc')} />
+
+                      {/* Trip name — hero */}
+                      <div className="border-t border-slate-100 py-4">
+                        <label className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-slate-500">
+                          <PencilLine size={14} className="text-slate-400" /> {t('plnTripName')}
+                        </label>
+                        <input
+                          value={tripName}
+                          onChange={(e) => setTripName(e.target.value)}
+                          style={{ height: 52 }}
+                          className="font-display w-full rounded-[10px] border border-slate-200 bg-white px-4 text-[17px] font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnTripName')}</label>
-                          <input
-                            value={tripName}
-                            onChange={(e) => setTripName(e.target.value)}
-                            className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
-                          />
+                      {/* Budget — slider + presets */}
+                      <div className="border-t border-slate-100 py-4">
+                        <label className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-slate-500">
+                          <Wallet size={14} className="text-slate-400" /> {t('plnBudget')}
+                        </label>
+                        <div className="font-display text-[24px] font-bold text-slate-900">
+                          S${budget} <span className="text-[13px] font-semibold text-slate-400">{t('plnBudgetPerDay')}</span>
                         </div>
-                        <div>
-                          <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnBudget')}</label>
-                          <input
-                            type="number"
-                            min="0"
-                            value={budget}
-                            onChange={(e) => {
-                              const n = Number(e.target.value)
-                              setBudget(Number.isNaN(n) ? 0 : Math.max(0, n))
-                            }}
-                            className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
-                          />
+                        <input
+                          type="range"
+                          min="10"
+                          max="150"
+                          step="5"
+                          value={Math.min(150, Math.max(10, budget))}
+                          onChange={(e) => setBudget(Number(e.target.value))}
+                          className="mt-3 w-full accent-blue-600"
+                          aria-label={t('plnBudget')}
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {[30, 50, 80, 120].map((v) => (
+                            <button
+                              key={v}
+                              type="button"
+                              onClick={() => setBudget(v)}
+                              className={cn(
+                                'rounded-full border px-4 py-1.5 text-[13px] font-semibold transition',
+                                budget === v
+                                  ? 'border-blue-600 bg-blue-50 text-blue-700'
+                                  : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                              )}
+                            >
+                              S${v}
+                            </button>
+                          ))}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnDays')}</label>
-                          <input
-                            type="number"
-                            min="1"
-                            max="14"
-                            value={numDays}
-                            onChange={(e) => {
-                              // parseInt strips leading zeros ("001" → 1); clamp to 1–14, never empty/0
-                              const n = parseInt(e.target.value, 10)
-                              setNumDays(Number.isNaN(n) ? 1 : Math.min(14, Math.max(1, n)))
-                            }}
-                            className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-900 outline-none focus:border-blue-400 transition"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnDatesMode')}</label>
-                          <div className="flex h-10 rounded-lg border border-slate-200 p-0.5 bg-slate-50 gap-0.5">
+                      {/* Dates — segmented + stepper / calendar */}
+                      <div className="border-t border-slate-100 py-4">
+                        <label className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-slate-500">
+                          <Calendar size={14} className="text-slate-400" /> {t('plnDatesMode')}
+                        </label>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
                             <button
                               type="button"
                               onClick={() => setFlexible(true)}
                               className={cn(
-                                'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
-                                flexible
-                                  ? 'bg-slate-950 text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.85)]'
-                                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
+                                'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-semibold transition',
+                                flexible ? 'btn-lift bg-blue-600 text-white shadow-btn' : 'text-slate-500 hover:text-slate-900'
                               )}
                             >
-                              <Clock size={12} /> {t('plnFlexible')}
+                              <Clock size={13} /> {t('plnFlexible')}
                             </button>
                             <button
                               type="button"
                               onClick={() => setFlexible(false)}
                               className={cn(
-                                'flex-1 rounded-md text-[12.5px] font-bold transition inline-flex items-center justify-center gap-1',
-                                !flexible
-                                  ? 'bg-slate-950 text-white shadow-[0_8px_18px_-10px_rgba(15,23,42,0.85)]'
-                                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950'
+                                'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[12.5px] font-semibold transition',
+                                !flexible ? 'btn-lift bg-blue-600 text-white shadow-btn' : 'text-slate-500 hover:text-slate-900'
                               )}
                             >
-                              <Calendar size={12} /> {t('plnCalendar')}
+                              <Calendar size={13} /> {t('plnCalendar')}
                             </button>
                           </div>
-                        </div>
-                      </div>
-
-                      {!flexible && (
-                        <div className="animate-fade-in">
-                          <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnStartDate')}</label>
-                          <DateRangePicker
-                            appearance="scheduler"
-                            from={isoToDate(startDate)}
-                            to={isoToDate(endDate(startDate, numDays))}
-                            onSelect={(range) => {
-                              setStartDate(dateToIso(range.from))
-                              if (range.from && range.to) setNumDays(daysBetweenInclusive(range.from, range.to))
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      <div className="animate-fade-in">
-                        <label className="text-[12px] font-bold text-slate-500 block mb-2">
-                          <Clock size={11} className="inline mr-1" />
-                          {t('plnDailyStart')}
-                        </label>
-                        <div className={cn('grid gap-2', numDays > 4 ? 'grid-cols-3' : 'grid-cols-2')}>
-                          {Array.from({ length: numDays }, (_, i) => (
-                            <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2">
-                              <span className="text-[11px] font-bold text-slate-400 w-9 shrink-0">{t('tripDay', i + 1)}</span>
-                              <TimePicker
-                                appearance="scheduler"
-                                value={dayStartTimes[i] ?? '09:00'}
-                                onChange={(val) => {
-                                  const next = [...dayStartTimes]
-                                  next[i] = val
-                                  setDayStartTimes(next)
-                                }}
-                                ariaLabel={`${t('tripDay', i + 1)} ${t('plnDailyStart')}`}
-                                className="flex-1 min-w-0"
-                              />
+                          {flexible && (
+                            <div className="inline-flex items-center overflow-hidden rounded-full border border-slate-200">
+                              <button
+                                type="button"
+                                onClick={() => setNumDays(Math.max(1, numDays - 1))}
+                                disabled={numDays <= 1}
+                                className="grid h-11 w-11 place-items-center text-blue-600 transition hover:bg-slate-50 disabled:opacity-30"
+                                aria-label="-1"
+                              >
+                                <Minus size={16} />
+                              </button>
+                              <span className="font-display min-w-[96px] text-center text-[15px] font-bold text-slate-900">{t('plnDaysValue', numDays)}</span>
+                              <button
+                                type="button"
+                                onClick={() => setNumDays(Math.min(14, numDays + 1))}
+                                disabled={numDays >= 14}
+                                className="grid h-11 w-11 place-items-center text-blue-600 transition hover:bg-slate-50 disabled:opacity-30"
+                                aria-label="+1"
+                              >
+                                <Plus size={16} />
+                              </button>
                             </div>
-                          ))}
+                          )}
                         </div>
+                        {!flexible && (
+                          <div className="mt-3 animate-fade-in">
+                            <DateRangePicker
+                              appearance="scheduler"
+                              from={isoToDate(startDate)}
+                              to={isoToDate(endDate(startDate, numDays))}
+                              onSelect={(range) => {
+                                setStartDate(dateToIso(range.from))
+                                if (range.from && range.to) setNumDays(daysBetweenInclusive(range.from, range.to))
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
 
-                      <div className="border-t border-slate-100 pt-4 mt-2">
-                        <div className="flex items-center justify-between bg-slate-50/50 rounded-xl border border-slate-200 p-3 shadow-sm">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-[13px] font-bold text-slate-900">{t('plnAutoOptimize')}</span>
-                            <span className="text-[11.5px] text-slate-400">{t('plnAutoOptimizeDesc')}</span>
-                          </div>
+                      {/* Daily start — synced / per-day */}
+                      <div className="border-t border-slate-100 py-4">
+                        <label className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-slate-500">
+                          <Clock size={14} className="text-slate-400" /> {t('plnDailyStart')}
+                        </label>
+                        <div className="mb-3 inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
                           <button
                             type="button"
-                            onClick={() => setOptimizeOrder(!optimizeOrder)}
+                            onClick={() => setSyncDailyStart(true)}
                             className={cn(
-                              'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                              optimizeOrder ? 'bg-blue-600' : 'bg-slate-200'
+                              'rounded-full px-4 py-2 text-[12.5px] font-semibold transition',
+                              syncDailyStart ? 'btn-lift bg-blue-600 text-white shadow-btn' : 'text-slate-500 hover:text-slate-900'
                             )}
                           >
-                            <span
-                              className={cn(
-                                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                                optimizeOrder ? 'translate-x-5' : 'translate-x-0'
-                              )}
-                            />
+                            {t('plnSyncSame')}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSyncDailyStart(false)}
+                            className={cn(
+                              'rounded-full px-4 py-2 text-[12.5px] font-semibold transition',
+                              !syncDailyStart ? 'btn-lift bg-blue-600 text-white shadow-btn' : 'text-slate-500 hover:text-slate-900'
+                            )}
+                          >
+                            {t('plnSyncPer')}
                           </button>
                         </div>
+                        {syncDailyStart ? (
+                          <div className="flex max-w-[260px] items-center gap-2 rounded-[10px] border border-slate-200 bg-slate-50/50 px-3 py-2">
+                            <Clock size={14} className="shrink-0 text-blue-600" />
+                            <TimePicker
+                              appearance="scheduler"
+                              value={dayStartTimes[0] ?? '09:00'}
+                              onChange={setAllDayStart}
+                              ariaLabel={t('plnDailyStart')}
+                              className="min-w-0 flex-1"
+                            />
+                          </div>
+                        ) : (
+                          <div className={cn('grid gap-2', numDays > 4 ? 'grid-cols-3' : 'grid-cols-2')}>
+                            {Array.from({ length: numDays }, (_, i) => (
+                              <div key={i} className="flex items-center gap-2 rounded-[10px] border border-slate-200 bg-slate-50/50 px-3 py-2">
+                                <span className="w-9 shrink-0 text-[11px] font-bold text-slate-400">{t('tripDay', i + 1)}</span>
+                                <TimePicker
+                                  appearance="scheduler"
+                                  value={dayStartTimes[i] ?? '09:00'}
+                                  onChange={(val) => {
+                                    const next = [...dayStartTimes]
+                                    next[i] = val
+                                    setDayStartTimes(next)
+                                  }}
+                                  ariaLabel={`${t('tripDay', i + 1)} ${t('plnDailyStart')}`}
+                                  className="min-w-0 flex-1"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -551,13 +619,7 @@ export default function Planner() {
                   {/* STEP 2: Hotel Setup (Optional) */}
                   {currentStep === 2 && (
                     <div className="space-y-4 animate-fade-in">
-                      <div>
-                        <div className="flex items-baseline justify-between">
-                          <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnHotelTitle')}</h2>
-                          <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">{t('plnOptional')}</span>
-                        </div>
-                        <p className="text-[12.5px] text-slate-500">{t('plnHotelDesc')}</p>
-                      </div>
+                      <StepHeader Icon={Building2} title={t('plnHotelTitle')} desc={t('plnHotelDesc')} badge={t('plnOptional')} />
 
                       {hotel ? (
                         <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm animate-pop-in">
@@ -576,17 +638,17 @@ export default function Planner() {
                         </div>
                       ) : (
                         <div className="relative">
-                          <label className="text-[12px] font-bold text-slate-500 block mb-1">{t('plnHotelSearch')}</label>
+                          <label className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-slate-500"><Search size={14} className="text-slate-400" />{t('plnHotelSearch')}</label>
                           <div className="relative">
-                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                            <MapPin className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                             <input
                               value={hotelQuery}
                               onChange={(e) => setHotelQuery(e.target.value)}
                               placeholder={t('plnHotelPlaceholder')}
-                              className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-8 text-[13px] text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-400 transition"
+                              className="font-display h-12 w-full rounded-[10px] border border-slate-200 bg-white pl-10 pr-9 text-[15px] font-medium text-slate-900 placeholder:font-normal placeholder:text-slate-400 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                             />
                             {hotelLoading && (
-                              <Loader2 size={14} className="absolute right-3 top-3 animate-spin text-slate-400" />
+                              <Loader2 size={16} className="absolute right-3.5 top-3.5 animate-spin text-slate-400" />
                             )}
                           </div>
 
@@ -622,10 +684,7 @@ export default function Planner() {
                   {/* STEP 3: Travel Style Presets */}
                   {currentStep === 3 && (
                     <div className="space-y-4 animate-fade-in">
-                      <div>
-                        <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnTransitWeights')}</h2>
-                        <p className="text-[12.5px] text-slate-500">{t('plnTransitDesc')}</p>
-                      </div>
+                      <StepHeader Icon={Route} title={t('plnTransitWeights')} desc={t('plnTransitDesc')} />
 
                       <div className="grid grid-cols-2 gap-3">
                         <motion.button
@@ -763,59 +822,16 @@ export default function Planner() {
                     </div>
                   )}
 
-                  {/* STEP 4: Places Selection */}
+                  {/* STEP 4: Places Selection — full-width browser; selected + actions live in the sidebar */}
                   {currentStep === 4 && (
                     <div className="space-y-4 animate-fade-in">
-                      <div>
-                        <div className="flex justify-between items-baseline">
-                          <h2 className="font-display font-extrabold text-[18px] text-slate-900">{t('plnAttractions')}</h2>
-                          <span className="text-[11.5px] font-semibold text-slate-400">{t('plnStep4of4')}</span>
-                        </div>
-                        <p className="text-[12.5px] text-slate-500">{t('plnPickSights')}</p>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_230px]">
-                        {/* Left: Place Browser */}
-                        <div className="min-w-0 xl:border-r xl:border-slate-100 xl:pr-5">
-                          <div className="mb-2 flex items-center">
-                            <span className="text-[12px] font-bold text-slate-500">{t('plnCuratedSearch')}</span>
-                          </div>
-
-                          <PlaceBrowser
-                            selectedIds={selectedIds}
-                            onToggle={togglePlace}
-                            places={curatedPlaces}
-                            loading={placesLoading}
-                          />
-                        </div>
-
-                        {/* Right: Selected List */}
-                        <div className="flex flex-col self-start xl:sticky xl:top-4">
-                          <div>
-                            <span className="text-[12px] font-bold text-slate-500 block mb-2">{t('plnSelectedShortlist', selected.length)}</span>
-                            <SelectedList places={selected} onRemove={removePlace} />
-                          </div>
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col gap-2">
-                            <AnimatedGenerateButton
-                              onClick={createPlan}
-                              disabled={creating || selected.length < 2}
-                              generating={creating}
-                              labelIdle={t('plnGeneratePlan')}
-                              labelActive={t('plnGenerating')}
-                              ariaLabel={creating ? t('plnGenerating') : t('plnGeneratePlan')}
-                              className="w-full"
-                              highlightHueDeg={215}
-                            />
-                            <button
-                              type="button"
-                              onClick={handlePrev}
-                              className="h-10 w-full rounded-lg border border-slate-200 text-slate-600 text-[13px] font-bold hover:bg-slate-50 hover:text-slate-800 transition inline-flex items-center justify-center gap-1.5"
-                            >
-                              <ArrowLeft size={14} /> {t('tripBack')}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                      <StepHeader Icon={MapPin} title={t('plnAttractions')} desc={t('plnPickSights')} badge={t('plnStep4of4')} />
+                      <PlaceBrowser
+                        selectedIds={selectedIds}
+                        onToggle={togglePlace}
+                        places={curatedPlaces}
+                        loading={placesLoading}
+                      />
                     </div>
                   )}
 
@@ -876,8 +892,7 @@ export default function Planner() {
                   <div className="flex justify-between border-b border-slate-100/50 pb-2">
                     <span className="text-[12px] text-slate-400 font-medium">{t('plnHotelStart')}</span>
                     <span
-                      className="text-[12.5px] font-bold max-w-[180px] truncate"
-                      style={{ color: hotel ? '#2563eb' : '#94a3b8' }}
+                      className={cn('text-[12.5px] font-bold max-w-[180px] truncate', hotel ? 'text-blue-600' : 'text-slate-400')}
                       title={hotel ? hotel.name : t('plnStartsFirstStop')}
                     >
                       {hotel ? hotel.name : t('plnNotSet')}
@@ -895,6 +910,57 @@ export default function Planner() {
                   </div>
                 </div>
               </section>
+
+              {/* Step 4 — selected shortlist, auto-optimize, and the generate action live here */}
+              {currentStep === 4 && (
+                <>
+                  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="font-display text-[14px] font-bold text-slate-900">{t('plnSelectedShortlist', selected.length)}</h3>
+                      <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-bold text-white">{selected.length}</span>
+                    </div>
+                    <SelectedList places={selected} onRemove={removePlace} />
+                  </section>
+
+                  <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-0.5 pr-3">
+                      <span className="text-[13px] font-bold text-slate-900">{t('plnAutoOptimize')}</span>
+                      <span className="text-[11.5px] text-slate-400">{t('plnAutoOptimizeDesc')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setOptimizeOrder(!optimizeOrder)}
+                      aria-pressed={optimizeOrder}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none',
+                        optimizeOrder ? 'bg-blue-600' : 'bg-slate-200'
+                      )}
+                    >
+                      <span className={cn('pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', optimizeOrder ? 'translate-x-5' : 'translate-x-0')} />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <AnimatedGenerateButton
+                      onClick={createPlan}
+                      disabled={creating || selected.length < 2}
+                      generating={creating}
+                      labelIdle={t('plnGeneratePlan')}
+                      labelActive={t('plnGenerating')}
+                      ariaLabel={creating ? t('plnGenerating') : t('plnGeneratePlan')}
+                      className="w-full"
+                      highlightHueDeg={215}
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePrev}
+                      className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-full border border-slate-200 text-[13px] font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-800"
+                    >
+                      <ArrowLeft size={14} /> {t('tripBack')}
+                    </button>
+                  </div>
+                </>
+              )}
 
               {error && (
                 <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 shadow-sm animate-pop-in">
