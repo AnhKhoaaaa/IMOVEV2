@@ -34,7 +34,7 @@ import { useGeolocation } from '../hooks/useGeolocation'
 import { useAuth } from '../contexts/AuthContext'
 import { buildPlacesById, computePlaceTimes, haversineMeters, parseHHMM, toHHMM } from '../lib/tripUtils'
 import { allModesWithAvailability, normalizeTransportMode, transportMeta } from '../lib/transport'
-import { categoryChip } from '../lib/categories'
+import { categoryChip, categoryHex } from '../lib/categories'
 import { useT } from '../contexts/LanguageContext'
 
 // Maps a transport mode to its i18n label key for the mode picker.
@@ -164,9 +164,9 @@ function CompactPlaceCard({ place, role, onRemove }) {
 function PlaceCard({ place, onRemove, arriveAt, departAt }) {
   const { t } = useT()
   return (
-    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
       <div className="flex gap-4">
-        <div className="h-24 w-28 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+        <div className="h-24 w-28 shrink-0 overflow-hidden rounded-[10px] bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
           {place.image_url ? (
             <img
               src={place.image_url}
@@ -836,41 +836,66 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
         </Button>
       </div>
 
-      {items.length ? (
-        <div className="space-y-3">
-          {items.map((item, index) => item.type === 'place' ? (
-            <PlaceCard
-              key={`place-${item.place.id}`}
-              place={item.place}
-              arriveAt={placeTimes[item.place.id]?.arrive}
-              departAt={placeTimes[item.place.id]?.depart}
-              onRemove={item.place.id === 'hotel' ? undefined : () => onRemovePlace(item.place.id)}
-            />
-          ) : (
-            <LegCard
-              key={`leg-${item.leg.id}-${index}`}
-              leg={item.leg}
-              from={item.from}
-              to={item.to}
-              tripId={tripId}
-              tripStarted={false}
-              position={position}
-              onUpdated={onUpdated}
-              onWarning={onWarning}
-              open={openLegId === item.leg.id}
-              onOpenChange={(next) => setOpenLegId(next ? item.leg.id : null)}
-            />
-          ))}
-          {hasReturnToHotel && (
-            <PlaceCard
-              key="hotel-return"
-              place={placesById['hotel']}
-              arriveAt={placeTimes['hotel']?.arrive}
-              departAt={undefined}
-            />
-          )}
-        </div>
-      ) : (
+      {items.length ? (() => {
+        // Citymapper timeline: continuous left rail; place nodes coloured by category
+        // (hotel = amber), transit cards sit indented between them.
+        const rows = hasReturnToHotel
+          ? [...items, { type: 'place', place: placesById['hotel'], _return: true }]
+          : items
+        const lastIdx = rows.length - 1
+        return (
+          <div>
+            {rows.map((item, index) => {
+              const isPlace = item.type === 'place'
+              const isLast = index === lastIdx
+              const dotColor = isPlace
+                ? (item.place.id === 'hotel' ? '#d97706' : categoryHex(item.place.category))
+                : null
+              return (
+                <div
+                  key={isPlace ? `place-${item.place.id}${item._return ? '-ret' : ''}` : `leg-${item.leg.id}-${index}`}
+                  className="flex gap-3"
+                >
+                  <div className="flex w-[18px] shrink-0 flex-col items-center pt-5">
+                    {isPlace ? (
+                      <span
+                        className="h-[18px] w-[18px] shrink-0 rounded-full border-[3px] border-white shadow-[0_1px_4px_rgba(0,0,0,0.18)]"
+                        style={{ background: dotColor }}
+                      />
+                    ) : (
+                      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                    )}
+                    {!isLast && <span className="mt-1 w-0.5 flex-1 bg-slate-200" />}
+                  </div>
+                  <div className="min-w-0 flex-1 pb-3">
+                    {isPlace ? (
+                      <PlaceCard
+                        place={item.place}
+                        arriveAt={placeTimes[item.place.id]?.arrive}
+                        departAt={item._return ? undefined : placeTimes[item.place.id]?.depart}
+                        onRemove={item.place.id === 'hotel' ? undefined : () => onRemovePlace(item.place.id)}
+                      />
+                    ) : (
+                      <LegCard
+                        leg={item.leg}
+                        from={item.from}
+                        to={item.to}
+                        tripId={tripId}
+                        tripStarted={false}
+                        position={position}
+                        onUpdated={onUpdated}
+                        onWarning={onWarning}
+                        open={openLegId === item.leg.id}
+                        onOpenChange={(next) => setOpenLegId(next ? item.leg.id : null)}
+                      />
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })() : (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
           <MapPin className="mx-auto h-7 w-7 text-slate-300" />
           <p className="mt-2 text-[14px] font-bold text-slate-600">{t('tripNoLegs')}</p>
