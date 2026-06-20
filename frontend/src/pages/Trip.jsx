@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Building2,
+  Calendar,
   Car,
   CheckCircle,
   ChevronDown,
@@ -650,11 +651,13 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
             : (visitPlaces.at(-1) ? placeTimes[visitPlaces.at(-1).id]?.depart : null)
 
           return (
-            <section key={day.day} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
+            <section key={day.day} className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <button onClick={() => onSelectDay(day.day)} className="text-left">
-                  <h3 className="font-display text-[18px] font-extrabold text-slate-950">{t('tripDay', day.day)}</h3>
-                  <p className="mt-1 text-[12px] text-slate-500">
+                  <span className="inline-flex items-center gap-1.5 rounded-[9px] bg-info-50 px-2.5 py-1 font-display text-[13px] font-bold text-blue-600">
+                    <Calendar size={14} /> {t('tripDay', day.day)}
+                  </span>
+                  <p className="mt-2 text-[12px] text-slate-500">
                     {t('tripStopsCount', visitPlaces.length)} · {formatCost(stats.cost)}
                   </p>
                   {firstTime && lastTime && (
@@ -666,7 +669,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 {!tripStarted && (
                   <button
                     onClick={() => onAddPlace(day.day)}
-                    className="grid h-8 w-8 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    className="grid h-8 w-8 place-items-center rounded-[10px] border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
                     title={t('tripAddPlace')}
                   >
                     <Plus size={14} />
@@ -1551,10 +1554,10 @@ export default function Trip() {
               <h1 className="truncate font-display text-[22px] font-extrabold text-slate-950">
                 {effectiveMeta?.name ?? t('tripDefaultName')}
               </h1>
+              {/* Live/Paused state moved to the single status bar below + header Live chip
+                  (was duplicated here) — Phase 3D status consolidation. */}
               <p className="mt-1 text-[12px] font-semibold text-slate-400">
                 {t('tripDaysCount', trip.days?.length ?? 0)} · {t('tripPlacesCount', trip.places?.length ?? 0)}
-                {isLive && <span className="ml-2 text-emerald-600">{t('tripLive')}</span>}
-                {tripStarted && editMode && <span className="ml-2 text-amber-500">{t('tripPaused')}</span>}
               </p>
             </div>
           </div>
