@@ -34,6 +34,7 @@ import { useGeolocation } from '../hooks/useGeolocation'
 import { useAuth } from '../contexts/AuthContext'
 import { buildPlacesById, computePlaceTimes, haversineMeters, parseHHMM, toHHMM } from '../lib/tripUtils'
 import { allModesWithAvailability, normalizeTransportMode, transportMeta } from '../lib/transport'
+import { categoryChip } from '../lib/categories'
 import { useT } from '../contexts/LanguageContext'
 
 // Maps a transport mode to its i18n label key for the mode picker.
@@ -184,7 +185,7 @@ function PlaceCard({ place, onRemove, arriveAt, departAt }) {
             <div className="min-w-0">
               <p className="truncate font-display text-[17px] font-extrabold text-slate-950">{place.name}</p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="rounded-md bg-blue-50 px-2 py-1 text-[11px] font-bold capitalize text-blue-700">
+                <span className={cn('rounded-md px-2 py-1 text-[11px] font-bold capitalize', categoryChip(place.category))}>
                   {place.category || t('tripCategoryFallback')}
                 </span>
                 <span className="rounded-md bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-500">

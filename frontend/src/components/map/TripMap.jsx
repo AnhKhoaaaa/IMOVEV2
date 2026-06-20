@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
 import { normalizeTransportMode, transportMeta } from '../../lib/transport'
+import { categoryHex } from '../../lib/categories'
 import { useT } from '../../contexts/LanguageContext'
 
 // Polyline colours mirror the locked design-system mode tokens (index.css --color-mode-*):
@@ -20,28 +21,13 @@ const MODE_STYLE = {
 }
 const FALLBACK_ROUTE_STYLE = { color: '#2563eb', halo: '#eff6ff', outline: '#1e3a8a', dashArray: null }
 
-const CATEGORY_DOT_COLORS = {
-  food:          '#f97316',
-  dining:        '#f97316',
-  nature:        '#10b981',
-  park:          '#10b981',
-  culture:       '#7c3aed',
-  heritage:      '#7c3aed',
-  museum:        '#7c3aed',
-  shopping:      '#3b82f6',
-  landmark:      '#6366f1',
-  attraction:    '#6366f1',
-  entertainment: '#f43f5e',
-  beach:         '#0d9488',
-}
-
 // dev17 E3: one distinct hue per day so overlapping multi-day routes/markers stay legible
 const DAY_PALETTE = ['#4f46e5', '#059669', '#ea580c', '#db2777', '#0891b2', '#ca8a04', '#9333ea']
 const dayColorFor = (day) => DAY_PALETTE[(((day ?? 1) - 1) % DAY_PALETTE.length + DAY_PALETTE.length) % DAY_PALETTE.length]
 
 // Task 3b + 4b: numbered dot with optional 50% dimming. colorOverride wins (e.g. day colour).
 function placeIcon(category, num, dimmed = false, colorOverride = null) {
-  const color = colorOverride ?? CATEGORY_DOT_COLORS[category?.toLowerCase()] ?? '#64748b'
+  const color = colorOverride ?? categoryHex(category)
   const numLabel = num != null
     ? `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;line-height:1">${num}</span>`
     : ''
