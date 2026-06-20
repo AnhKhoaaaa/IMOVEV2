@@ -103,6 +103,13 @@
   .shadow-btn-danger:hover {
     box-shadow: 0 8px 18px -4px rgb(239 68 68 / 0.48), 0 3px 6px -3px rgb(239 68 68 / 0.3);
   }
+  /* Phase 3 — success action shadow, tinted emerald (Start / Arrived / live navigation). */
+  .shadow-btn-success {
+    box-shadow: 0 4px 12px -3px rgb(5 150 105 / 0.40), 0 2px 4px -2px rgb(5 150 105 / 0.25);
+  }
+  .shadow-btn-success:hover {
+    box-shadow: 0 8px 18px -4px rgb(5 150 105 / 0.48), 0 3px 6px -3px rgb(5 150 105 / 0.3);
+  }
   /* dev30 — header show/hide toggle: slides in sync with the header (top), subtle lift on hover */
   .nav-toggle {
     transition: top .42s cubic-bezier(.2,.7,.2,1),
