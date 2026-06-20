@@ -50,3 +50,24 @@ CitymapperTransitCard.test) updated to new tokens — intentional color change.
 
 Open question for user: scope (A+B+C vs +D), and whether to build a visual mockup first (like
 Planner) or apply directly since Trip's layout is largely sound.
+
+## Decisions taken
+- Scope: A+B+C+D. Method: code directly, user runs the app to review (no screenshots).
+- A committed dc0d6bb, B committed d9ab7c1, C committed 57acd90.
+- D: build mockup first (docs/design/trip-redesign-mockup.html), then code. Overview = keep
+  2-col, polish cards. Remove the "Start trip" button from Overview.
+- Transit card: the design-system-preview "transit card" sample === CitymapperTransitCard pattern.
+  Apply it to the Trip Day tab by **restyling the inline LegCard** to that pattern (mode icon chip
+  + line badge + leg-dot sub-leg timeline + pill Change), keeping ALL LegCard logic
+  (mode-change dropdown, switchLegNow/updateLeg, compare modes, bus arrivals, Grab, estimated).
+
+## Orphaned components — DELETION PROPOSAL (do separately, not mixed with redesign)
+Verified via full-src grep (incl tests): the components/planner "DayPlan" family is wired only to
+itself and its own tests — no page (App/Trip/Home/Planner/Settings) imports any of them. Trip.jsx
+imports only SummaryTab (live, NOT orphaned). Safe to delete:
+- Components: OverviewTab.jsx, DayPlan.jsx, RouteCard.jsx, ActiveLegFocus.jsx, TransitSegment.jsx,
+  CitymapperTransitCard.jsx
+- Tests: DayPlan.test.jsx, RouteCard.test.jsx, CitymapperTransitCard.test.jsx
+- Leftover after deletion: a few unused i18n keys (ct*, DayPlan group) — harmless, leave for now.
+NOTE: copy CitymapperTransitCard's sub-leg/timeline markup as the reference when restyling LegCard
+BEFORE deleting it.

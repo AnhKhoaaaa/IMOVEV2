@@ -298,104 +298,115 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
     }
   }
 
+  const modeKey = normalizeTransportMode(leg.transport_mode)
+  // Citymapper-style line badge: first non-walk transit sub-leg's service number (e.g. "97", "EW")
+  const lineBadge = (leg.sub_legs ?? []).find((s) => s.mode !== 'WALK' && s.route)?.route ?? null
+
   return (
-    <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-2">
-            <TransportBadge mode={leg.transport_mode} />
-            <span className="text-[12px] font-semibold text-slate-400">
-              {t('tripRoute', from?.name ?? t('tripOrigin'), to?.name ?? t('tripDestination'))}
-            </span>
-          </div>
+    <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-card">
+      <div className="flex items-center gap-3">
+        {/* mode icon chip — tinted with the mode token */}
+        <div className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-[10px] border', meta.tone)}>
+          <meta.Icon size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
-              <Clock size={12} /> {formatDuration(leg.duration_minutes)}
+            <span className="font-display text-[14px] font-bold text-slate-900">
+              {MODE_LABEL_KEY[modeKey] ? t(MODE_LABEL_KEY[modeKey]) : meta.label}
             </span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
-              <Wallet size={12} /> {formatCost(leg.cost_sgd)}
-            </span>
-            {leg.distance_km != null && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
-                <Route size={12} /> {Number(leg.distance_km).toFixed(1)} km
+            {lineBadge && (
+              <span
+                className="inline-flex h-[17px] items-center rounded px-1.5 text-[10px] font-extrabold text-white"
+                style={{ background: meta.color }}
+              >
+                {lineBadge}
               </span>
             )}
             {leg.is_estimated && (
-              <span className="rounded-md bg-amber-50 px-2 py-1 text-[12px] font-bold text-amber-700">
+              <span className="rounded-md bg-warning-50 px-1.5 py-0.5 text-[10px] font-bold text-warning-600">
                 {t('tripEstimated')}
               </span>
             )}
-            {tripStarted && normalizeTransportMode(leg.transport_mode) === 'GRAB' && (
-              <button
-                onClick={() => {
-                  const pickup   = position ? { lat: position.lat, lng: position.lng } : { lat: from?.lat, lng: from?.lng }
-                  const fromName = position ? t('tripYourLocation') : (from?.name ?? '')
-                  const toName   = to?.name ?? ''
-                  openGrab(
-                    { fromLat: pickup.lat, fromLng: pickup.lng, toLat: to?.lat, toLng: to?.lng, fromName, toName },
-                    ({ appOpened }) => onWarning?.(appOpened
-                      ? t('tripGrabOpened', fromName, toName)
-                      : t('tripGrabNotFound', fromName, toName)
-                    ),
-                  )
-                }}
-                className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-[12px] font-bold text-white hover:bg-green-500"
-              >
-                <Car size={12} /> {t('tripOpenGrab')}
-              </button>
-            )}
           </div>
+          <p className="mt-0.5 truncate text-[12px] text-slate-500 tabular-nums">
+            {formatDuration(leg.duration_minutes)} · {formatCost(leg.cost_sgd)}
+            {leg.distance_km != null ? ` · ${Number(leg.distance_km).toFixed(1)} km` : ''}
+          </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setOpen((value) => !value)}
-              className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700"
-            >
-              {savingMode ? <Loader2 size={13} className="animate-spin" /> : <meta.Icon size={13} />}
-              {t('tripChange')}
-              <ChevronDown size={12} />
-            </button>
-            {open && (
-              <div className="absolute right-0 top-10 z-30 w-44 overflow-hidden rounded-md border border-slate-200 bg-white shadow-pop">
-                {allModesWithAvailability(leg).map((option) => (
-                  <button
-                    key={option.mode}
-                    onClick={() => { if (!option.available) return; setOpen(false); changeMode(option.mode) }}
-                    disabled={!option.available}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-bold',
-                      option.available
-                        ? 'text-slate-700 hover:bg-blue-50 hover:text-blue-700'
-                        : 'cursor-not-allowed text-slate-300 opacity-50'
-                    )}
-                  >
-                    <option.Icon size={14} />
-                    {MODE_LABEL_KEY[option.mode] ? t(MODE_LABEL_KEY[option.mode]) : option.label}
-                    {!option.available && (
-                      <span className="ml-auto text-[10px] font-medium text-slate-300">N/A</span>
-                    )}
-                    {option.available
-                      && normalizeTransportMode(leg.transport_mode) !== option.mode
-                      && leg.alternatives?.[option.mode]?.is_estimated && (
-                      <span
-                        className="ml-auto text-[9px] font-semibold uppercase tracking-wide text-amber-500"
-                        title={t('tripEstimated')}
-                      >
-                        ~{t('tripEstimated')}
-                      </span>
-                    )}
-                    {option.available && normalizeTransportMode(leg.transport_mode) === option.mode && (
-                      <CheckCircle size={13} className="ml-auto text-emerald-600" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* Change dropdown — pill trigger, logic unchanged */}
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            onClick={() => setOpen((value) => !value)}
+            className="flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 text-[12px] font-bold text-slate-700 transition-colors hover:border-blue-200 hover:text-blue-700"
+          >
+            {savingMode ? <Loader2 size={13} className="animate-spin" /> : <meta.Icon size={13} />}
+            {t('tripChange')}
+            <ChevronDown size={12} />
+          </button>
+          {open && (
+            <div className="absolute right-0 top-11 z-30 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-pop">
+              {allModesWithAvailability(leg).map((option) => (
+                <button
+                  key={option.mode}
+                  onClick={() => { if (!option.available) return; setOpen(false); changeMode(option.mode) }}
+                  disabled={!option.available}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-bold',
+                    option.available
+                      ? 'text-slate-700 hover:bg-blue-50 hover:text-blue-700'
+                      : 'cursor-not-allowed text-slate-300 opacity-50'
+                  )}
+                >
+                  <option.Icon size={14} />
+                  {MODE_LABEL_KEY[option.mode] ? t(MODE_LABEL_KEY[option.mode]) : option.label}
+                  {!option.available && (
+                    <span className="ml-auto text-[10px] font-medium text-slate-300">N/A</span>
+                  )}
+                  {option.available
+                    && normalizeTransportMode(leg.transport_mode) !== option.mode
+                    && leg.alternatives?.[option.mode]?.is_estimated && (
+                    <span
+                      className="ml-auto text-[9px] font-semibold uppercase tracking-wide text-amber-500"
+                      title={t('tripEstimated')}
+                    >
+                      ~{t('tripEstimated')}
+                    </span>
+                  )}
+                  {option.available && normalizeTransportMode(leg.transport_mode) === option.mode && (
+                    <CheckCircle size={13} className="ml-auto text-emerald-600" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* route from → to */}
+      <p className="mt-2 truncate text-[11.5px] text-slate-400">
+        {t('tripRoute', from?.name ?? t('tripOrigin'), to?.name ?? t('tripDestination'))}
+      </p>
+
+      {tripStarted && modeKey === 'GRAB' && (
+        <button
+          onClick={() => {
+            const pickup   = position ? { lat: position.lat, lng: position.lng } : { lat: from?.lat, lng: from?.lng }
+            const fromName = position ? t('tripYourLocation') : (from?.name ?? '')
+            const toName   = to?.name ?? ''
+            openGrab(
+              { fromLat: pickup.lat, fromLng: pickup.lng, toLat: to?.lat, toLng: to?.lng, fromName, toName },
+              ({ appOpened }) => onWarning?.(appOpened
+                ? t('tripGrabOpened', fromName, toName)
+                : t('tripGrabNotFound', fromName, toName)
+              ),
+            )
+          }}
+          className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-mode-taxi px-3.5 py-1.5 text-[12px] font-bold text-white transition-opacity hover:opacity-90"
+        >
+          <Car size={13} /> {t('tripOpenGrab')}
+        </button>
+      )}
 
       {tripStarted && (
         <>
@@ -403,7 +414,7 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
             <button
               onClick={loadCompare}
               disabled={compareLoading}
-              className="rounded-md border border-blue-100 bg-blue-50 px-3 py-1.5 text-[12px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+              className="rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-[12px] font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
             >
               {compareLoading ? t('tripComparing') : t('tripCompareModes')}
             </button>
@@ -412,18 +423,29 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
           {(leg.sub_legs?.length > 0 || compare || leg.first_bus_stop_code) && (
             <div className="mt-3 space-y-3">
               {leg.sub_legs?.length > 0 && (
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripTransitDetails')}</p>
-                  <div className="space-y-2">
-                    {leg.sub_legs.map((sub, index) => (
-                      <div key={index} className="flex items-center gap-2 text-[12px] text-slate-600">
-                        <TransportBadge mode={sub.mode} />
-                        <span className="min-w-0 flex-1 truncate">
-                          {sub.route ? `${sub.route}: ` : ''}{t('tripRoute', sub.from_name, sub.to_name)}
-                        </span>
-                        <span className="shrink-0 font-bold">{t('tripMinShort', sub.duration_minutes)}</span>
-                      </div>
-                    ))}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripTransitDetails')}</p>
+                  <div>
+                    {leg.sub_legs.map((sub, index) => {
+                      const subMeta = transportMeta(sub.mode)
+                      const isLast = index === leg.sub_legs.length - 1
+                      return (
+                        <div key={index} className="flex gap-2.5">
+                          <div className="flex flex-col items-center">
+                            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-white" style={{ borderColor: subMeta.color }}>
+                              <subMeta.Icon size={9} style={{ color: subMeta.color }} />
+                            </span>
+                            {!isLast && <span className="my-0.5 w-px flex-1 bg-slate-200" style={{ minHeight: 12 }} />}
+                          </div>
+                          <div className="min-w-0 flex-1 pb-2.5">
+                            <p className="text-[12px] leading-snug text-slate-700">
+                              {sub.route ? `[${sub.route}] ` : ''}{t('tripRoute', sub.from_name, sub.to_name)}
+                            </p>
+                            <p className="text-[11px] text-slate-400">{t('tripMinShort', sub.duration_minutes)}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -451,7 +473,7 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
               {compare && (
                 <div className="grid grid-cols-3 gap-2">
                   {Object.entries(compare).map(([key, value]) => (
-                    <div key={key} className="rounded-md border border-slate-200 bg-white p-3">
+                    <div key={key} className="rounded-lg border border-slate-200 bg-white p-3">
                       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
                       <p className="mt-1 text-[13px] font-extrabold text-slate-900">
                         {value.available ? formatDuration(value.duration_minutes) : t('tripUnavailable')}
@@ -460,13 +482,13 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
                     </div>
                   ))}
                   {/* Grab card — always shown in compare, data from leg.alternatives */}
-                  <div className="rounded-md border border-green-100 bg-green-50 p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-green-600">Grab</p>
-                    <p className="mt-1 text-[13px] font-extrabold text-green-900">
+                  <div className="rounded-lg border border-mode-taxi/20 bg-mode-taxi-50 p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-mode-taxi">Grab</p>
+                    <p className="mt-1 text-[13px] font-extrabold text-slate-900">
                       {leg.alternatives?.GRAB ? formatDuration(leg.alternatives.GRAB.duration_minutes) : '—'}
                     </p>
                     {leg.alternatives?.GRAB && (
-                      <p className="text-[11px] text-green-600">
+                      <p className="text-[11px] text-mode-taxi">
                         {formatCost(leg.alternatives.GRAB.fare_sgd)} · {t('tripEstimated')}
                       </p>
                     )}
