@@ -677,6 +677,33 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 )}
               </div>
 
+              {/* Photo strip — gives each day card life (place imagery), like Wanderlog day cards */}
+              {visitPlaces.length > 0 && (
+                <div className="mb-3 flex gap-1 overflow-hidden rounded-[10px]">
+                  {visitPlaces.slice(0, 4).map((p) => (
+                    <div key={p.id} className="h-[58px] flex-1 overflow-hidden bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+                      {p.image_url ? (
+                        <img
+                          src={p.image_url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          onError={(event) => { event.currentTarget.style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center" style={{ color: categoryHex(p.category) }}>
+                          <MapPin size={16} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {visitPlaces.length > 4 && (
+                    <div className="grid h-[58px] w-11 shrink-0 place-items-center bg-slate-900/80 text-[12px] font-bold text-white">
+                      +{visitPlaces.length - 4}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 {/* Hotel start pin — always first, not reorderable */}
                 {hotelPlace && (
