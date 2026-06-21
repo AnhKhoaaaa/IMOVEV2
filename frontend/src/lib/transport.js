@@ -10,7 +10,7 @@ export const TRANSPORT_OPTIONS = [
 
 // Single source of truth for transit-mode colour. `tone` = Tailwind classes for badges/chips,
 // `color` = hex for Leaflet polylines / inline SVG. Both mirror the locked design-system mode
-// tokens in index.css (--color-mode-*), so CitymapperTransitCard + TripMap stay in sync.
+// tokens in index.css (--color-mode-*), so the Trip transit cards + TripMap stay in sync.
 export const TRANSPORT_META = {
   METRO: { label: 'MRT',   Icon: Train,      tone: 'bg-mode-mrt-50 text-mode-mrt border-mode-mrt/20',     color: '#2563eb' },
   MRT:   { label: 'MRT',   Icon: Train,      tone: 'bg-mode-mrt-50 text-mode-mrt border-mode-mrt/20',     color: '#2563eb' },
