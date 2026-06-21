@@ -1594,6 +1594,17 @@ export default function Trip() {
                 )}
               </div>
             ))}
+            {/* Add day — co-located with the day tabs (browser-tab "+" pattern), not by settings */}
+            {!isLive && (
+              <button
+                onClick={addDay}
+                disabled={mutating}
+                title={t('tripAddDay')}
+                className="grid h-9 w-8 shrink-0 place-items-center rounded-md text-slate-400 hover:bg-white hover:text-blue-600 disabled:opacity-50"
+              >
+                {mutating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} />}
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('summary')}
               className={cn('h-9 rounded-md px-3 text-[13px] font-bold', activeTab === 'summary' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
@@ -1604,14 +1615,9 @@ export default function Trip() {
 
           <div className="flex shrink-0 items-center gap-2">
             {!isLive && (
-              <>
-                <button onClick={addDay} disabled={mutating} className="grid h-9 w-9 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" title={t('tripAddDay')}>
-                  {mutating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-                </button>
-                <button onClick={() => setSetupOpen(true)} className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50" title={t('tripEditSetup')}>
-                  <Settings size={15} />
-                </button>
-              </>
+              <button onClick={() => setSetupOpen(true)} className="grid h-9 w-9 place-items-center rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50" title={t('tripEditSetup')}>
+                <Settings size={15} />
+              </button>
             )}
             {tripStarted && editMode && (
               <Button variant="success" size="sm" onClick={resumeNavigation} className="h-9">
