@@ -8,6 +8,9 @@ import Planner from './pages/Planner'
 import Trip from './pages/Trip'
 import Settings from './pages/Settings'
 import HomePreview from './pages/HomePreview'
+import Privacy from './pages/Privacy'
+import Terms from './pages/Terms'
+import Support from './pages/Support'
 import Header from './components/layout/Header'
 import ChatWidget from './components/chat/ChatWidget'
 
@@ -25,6 +28,9 @@ export default function App() {
           <Route path="/trip/:id" element={<Trip />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/home-preview" element={<HomePreview />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/support" element={<Support />} />
         </Routes>
       </AuthProvider>
     </LanguageProvider>
