@@ -5,6 +5,54 @@ import { useT } from '../../contexts/LanguageContext'
 import DateRangePicker, { isoToDate, dateToIso } from '../ui/DateRangePicker'
 import TimePicker from '../ui/TimePicker'
 
+const STYLE_LABEL_KEY = {
+  fastest: 'plnFastest',
+  cheapest: 'plnCheapest',
+  leisure: 'plnLeastWalking',
+  direct: 'plnLeastTransfers',
+  user: 'plnUseProfile',
+}
+
+const WEIGHT_LABEL_KEY = {
+  duration_w: 'plnDimDuration',
+  cost_w: 'plnDimCost',
+  walking_w: 'plnDimWalking',
+  transfers_w: 'plnDimTransfers',
+}
+
+function alignStartTimes(times, numDays, fallback = '09:00') {
+  const count = Math.max(1, Number(numDays) || 1)
+  const source = Array.isArray(times) ? times : []
+  return Array.from({ length: count }, (_, index) => source[index] ?? fallback)
+}
+
+function normalizeMeta(savedMeta, tripHotel) {
+  const startDate = savedMeta?.startDate ?? savedMeta?.start_date ?? ''
+  const endDate = savedMeta?.endDate ?? savedMeta?.end_date ?? ''
+  const numDays = savedMeta?.numDays ?? savedMeta?.num_days ?? 3
+  const fallbackStartTime = savedMeta?.startTime ?? '09:00'
+  return {
+    name: savedMeta?.name ?? '',
+    budget_sgd: savedMeta?.budget_sgd ?? 50,
+    origin: savedMeta?.origin ?? '',
+    destination: savedMeta?.destination ?? 'Singapore',
+    dateMode: startDate ? 'specific' : 'flexible',
+    startDate,
+    endDate,
+    numDays,
+    dayStartTimes: alignStartTimes(savedMeta?.dayStartTimes ?? savedMeta?.day_start_times, numDays, fallbackStartTime),
+    companion: savedMeta?.companion ?? 'solo',
+    styles: savedMeta?.styles ?? [],
+    pace: savedMeta?.pace ?? 'moderate',
+    startTime: fallbackStartTime,
+    travelStyle: savedMeta?.travelStyle ?? savedMeta?.travel_style ?? null,
+    routeWeights: savedMeta?.routeWeights ?? savedMeta?.route_weights ?? {},
+    hotelName: savedMeta?.hotelName ?? savedMeta?.hotel_name ?? tripHotel?.name ?? '',
+    hotelLat: savedMeta?.hotelLat ?? savedMeta?.hotel_lat ?? tripHotel?.lat ?? null,
+    hotelLng: savedMeta?.hotelLng ?? savedMeta?.hotel_lng ?? tripHotel?.lng ?? null,
+  }
+}
+
 export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, onSave }) {
   const { t } = useT()
   const [draft, setDraft] = useState({
@@ -20,6 +68,9 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
     styles: [],
     pace: 'moderate',
     startTime: '09:00',
+    dayStartTimes: ['09:00', '09:00', '09:00'],
+    travelStyle: null,
+    routeWeights: {},
     hotelName: '',
     hotelLat: null,
     hotelLng: null,
@@ -32,26 +83,7 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
 
   useEffect(() => {
     if (open) {
-      const hotelName = savedMeta?.hotelName ?? tripHotel?.name ?? ''
-      const hotelLat = savedMeta?.hotelLat ?? tripHotel?.lat ?? null
-      const hotelLng = savedMeta?.hotelLng ?? tripHotel?.lng ?? null
-      setDraft({
-        name: savedMeta?.name ?? '',
-        budget_sgd: savedMeta?.budget_sgd ?? 50,
-        origin: savedMeta?.origin ?? '',
-        destination: savedMeta?.destination ?? 'Singapore',
-        dateMode: savedMeta?.startDate ? 'specific' : 'flexible',
-        startDate: savedMeta?.startDate ?? '',
-        endDate: savedMeta?.endDate ?? '',
-        numDays: savedMeta?.numDays ?? 3,
-        companion: savedMeta?.companion ?? 'solo',
-        styles: savedMeta?.styles ?? [],
-        pace: savedMeta?.pace ?? 'moderate',
-        startTime: savedMeta?.startTime ?? '09:00',
-        hotelName,
-        hotelLat,
-        hotelLng,
-      })
+      setDraft(normalizeMeta(savedMeta, tripHotel))
       setHotelQuery('')
       setHotelResult(null)
       setHotelNotFound(false)
@@ -85,31 +117,49 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
   if (!open) return null
 
   const set = (key, val) => setDraft((d) => ({ ...d, [key]: val }))
+  const setDayStartTime = (index, val) => {
+    setDraft((d) => {
+      const dayStartTimes = alignStartTimes(d.dayStartTimes, d.numDays, d.startTime)
+      dayStartTimes[index] = val
+      return { ...d, dayStartTimes, startTime: index === 0 ? val : d.startTime }
+    })
+  }
 
   const handleSave = () => {
+    const dayStartTimes = alignStartTimes(draft.dayStartTimes, draft.numDays, draft.startTime)
     const computed = {
       ...draft,
       name: draft.name.trim() || t('tripDefaultName'),
       budget_sgd: Math.max(0, Number(draft.budget_sgd) || 0),
       dateMode: draft.startDate ? 'specific' : 'flexible',
+      start_date: draft.startDate || null,
+      end_date: draft.endDate || null,
+      dayStartTimes,
+      startTime: dayStartTimes[0] ?? '09:00',
+      travel_style: draft.travelStyle,
+      route_weights: draft.routeWeights,
     }
     if (computed.startDate && computed.endDate) {
       const ms = new Date(computed.endDate) - new Date(computed.startDate)
       computed.numDays = Math.max(1, Math.round(ms / 86400000) + 1)
+      computed.dayStartTimes = alignStartTimes(dayStartTimes, computed.numDays, computed.startTime)
     }
     onSave(computed)
     onClose()
   }
 
-  const routeSettingsChanged = draft.dateMode !== (savedMeta?.startDate ? 'specific' : 'flexible') ||
-    draft.startDate !== (savedMeta?.startDate ?? '') ||
-    draft.endDate !== (savedMeta?.endDate ?? '') ||
-    draft.numDays !== (savedMeta?.numDays ?? 3) ||
-    draft.startTime !== (savedMeta?.startTime ?? '09:00') ||
-    Number(draft.budget_sgd) !== Number(savedMeta?.budget_sgd ?? 50) ||
-    draft.hotelName !== (savedMeta?.hotelName ?? tripHotel?.name ?? '') ||
-    draft.hotelLat !== (savedMeta?.hotelLat ?? tripHotel?.lat ?? null) ||
-    draft.hotelLng !== (savedMeta?.hotelLng ?? tripHotel?.lng ?? null)
+  const normalizedMeta = normalizeMeta(savedMeta, tripHotel)
+  const normalizedDraftTimes = alignStartTimes(draft.dayStartTimes, draft.numDays, draft.startTime)
+  const routeSettingsChanged = draft.dateMode !== normalizedMeta.dateMode ||
+    draft.startDate !== normalizedMeta.startDate ||
+    draft.endDate !== normalizedMeta.endDate ||
+    draft.numDays !== normalizedMeta.numDays ||
+    normalizedDraftTimes.join('|') !== normalizedMeta.dayStartTimes.join('|') ||
+    Number(draft.budget_sgd) !== Number(normalizedMeta.budget_sgd) ||
+    draft.hotelName !== normalizedMeta.hotelName ||
+    draft.hotelLat !== normalizedMeta.hotelLat ||
+    draft.hotelLng !== normalizedMeta.hotelLng
+  const routeWeightEntries = Object.entries(draft.routeWeights ?? {}).filter(([key]) => WEIGHT_LABEL_KEY[key])
 
   return (
     <div
@@ -184,10 +234,19 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
               from={isoToDate(draft.startDate)}
               to={isoToDate(draft.endDate)}
               onSelect={(range) => {
+                const nextStartDate = dateToIso(range.from)
+                const nextEndDate = dateToIso(range.to)
+                let nextNumDays = draft.numDays
+                if (range.from && range.to) {
+                  const ms = range.to - range.from
+                  nextNumDays = Math.max(1, Math.round(ms / 86400000) + 1)
+                }
                 setDraft((d) => ({
                   ...d,
-                  startDate: dateToIso(range.from),
-                  endDate: dateToIso(range.to),
+                  startDate: nextStartDate,
+                  endDate: nextEndDate,
+                  numDays: nextNumDays,
+                  dayStartTimes: alignStartTimes(d.dayStartTimes, nextNumDays, d.startTime),
                   dateMode: range.from ? 'specific' : 'flexible',
                 }))
               }}
@@ -199,17 +258,44 @@ export default function TripSetupModal({ open, savedMeta, tripHotel, onClose, on
             <label className="text-[11.5px] font-semibold uppercase tracking-wide text-slate-500 block mb-1.5">
               {t('tsmDailyStart')}
             </label>
-            <div className="flex items-center gap-2">
-              <AlarmClock size={14} className="shrink-0 text-slate-400" />
-              <TimePicker
-                value={draft.startTime}
-                onChange={(val) => set('startTime', val)}
-                ariaLabel={t('tsmDailyStart')}
-                className="w-36"
-              />
-              <span className="text-[12px] text-slate-400">{t('tsmEachDay')}</span>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {alignStartTimes(draft.dayStartTimes, draft.numDays, draft.startTime).map((time, index) => (
+                <div key={index} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                  <AlarmClock size={14} className="shrink-0 text-slate-400" />
+                  <span className="w-12 text-[12px] font-semibold text-slate-500">{t('tripDay', index + 1)}</span>
+                  <TimePicker
+                    value={time}
+                    onChange={(val) => setDayStartTime(index, val)}
+                    ariaLabel={`${t('tsmDailyStart')} ${t('tripDay', index + 1)}`}
+                    className="w-28"
+                  />
+                </div>
+              ))}
             </div>
           </div>
+
+          {draft.travelStyle && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11.5px] font-semibold uppercase tracking-wide text-blue-500">
+                  {t('plnTravelStyle')}
+                </span>
+                <span className="text-[13px] font-bold text-blue-800">
+                  {t(STYLE_LABEL_KEY[draft.travelStyle] ?? 'plnFastest')}
+                </span>
+              </div>
+              {routeWeightEntries.length > 0 && (
+                <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {routeWeightEntries.map(([key, value]) => (
+                    <div key={key} className="flex items-center justify-between rounded-lg bg-white/70 px-2 py-1.5">
+                      <span className="text-[11.5px] font-medium text-slate-500">{t(WEIGHT_LABEL_KEY[key])}</span>
+                      <span className="text-[12px] font-bold text-slate-800">{Math.round(Number(value) * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Hotel / start location */}
           <div>
