@@ -168,16 +168,23 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
 
   const center = [ordered[0].lat, ordered[0].lng]
 
-  // E3: in multi-day views (overview/summary) colour each leg by its day; otherwise by transport mode
+  // E3: in multi-day views (overview/summary) colour each leg by its day; otherwise by transport mode.
+  // Resolve a leg's day from its id, falling back to the day of its endpoints — estimated/haversine
+  // legs can lack an id, and without this fallback they'd slip through to mode colour, making the
+  // overview map show BOTH day and mode colours at once.
+  const dayOfLeg = (leg) => legDays[leg.id] ?? placeDays[leg.from_place_id] ?? placeDays[leg.to_place_id] ?? null
   const styleForLeg = (leg) => {
-    if (colorByDay && legDays[leg.id] != null) {
-      const c = dayColorFor(legDays[leg.id])
-      return { color: c, halo: '#ffffff', outline: c, dashArray: null }
+    if (colorByDay) {
+      const d = dayOfLeg(leg)
+      if (d != null) {
+        const c = dayColorFor(d)
+        return { color: c, halo: '#ffffff', outline: c, dashArray: null }
+      }
     }
     return routeStyleFor(leg)
   }
   const presentDays = colorByDay
-    ? [...new Set((legs ?? []).map((l) => legDays[l.id]).filter((d) => d != null))].sort((a, b) => a - b)
+    ? [...new Set((legs ?? []).map((l) => dayOfLeg(l)).filter((d) => d != null))].sort((a, b) => a - b)
     : []
 
   return (
