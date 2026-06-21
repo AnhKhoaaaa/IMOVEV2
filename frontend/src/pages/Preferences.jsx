@@ -52,7 +52,7 @@ function weightsFromLevels(levels) {
   return out
 }
 
-export default function Settings() {
+export default function Preferences() {
   const { user } = useAuth()
   const { t } = useT()
   const [levels, setLevels] = useState(() => levelsFromProfile(DEFAULT_PROFILE))

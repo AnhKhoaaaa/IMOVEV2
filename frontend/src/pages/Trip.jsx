@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
   Clock,
   CloudRain,
   FileText,
+  GripVertical,
   Home,
   Loader2,
   Lock,
@@ -27,6 +28,9 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
+import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { api } from '../services/api'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
@@ -530,9 +534,56 @@ function computeHaversineTimes(places, hotel, startTimeStr) {
   return times
 }
 
-function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTimeForDay, needsRouteUpdate, mutating }) {
+function SortablePlaceItem({ place, visitIndex, times, tripStarted, onRemovePlace, dayNum }) {
+  const { t } = useT()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: place.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  }
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
+      {!tripStarted && (
+        <button {...attributes} {...listeners} className="shrink-0 cursor-grab touch-none text-slate-300 hover:text-slate-500 active:cursor-grabbing" aria-label="Drag to reorder">
+          <GripVertical size={14} />
+        </button>
+      )}
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
+        {visitIndex + 1}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-bold text-slate-700">{place.name}</p>
+        {times && (
+          <p className="text-[10.5px] text-slate-400 tabular-nums">{times.arrive} – {times.depart}</p>
+        )}
+      </div>
+      <span className={cn('shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold capitalize', categoryChip(place.category))}>
+        {place.category || t('tripCategoryFallback')}
+      </span>
+      {!tripStarted && (
+        <button
+          onClick={() => onRemovePlace(place.id, dayNum)}
+          className="shrink-0 text-slate-300 hover:text-red-500"
+          title={t('tripRemove')}
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onDragReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTimeForDay, needsRouteUpdate, mutating }) {
   const { t } = useT()
   const [routeDropdownOpen, setRouteDropdownOpen] = useState(false)
+  const [activeDragId, setActiveDragId] = useState(null)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(KeyboardSensor)
+  )
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -716,44 +767,59 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                   </div>
                 )}
 
-                {/* Reorderable sightseeing places */}
-                {visitPlaces.length > 0 ? visitPlaces.map((place, visitIndex) => {
-                  const times = placeTimes[place.id]
-                  return (
-                    <div key={place.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
-                        {visitIndex + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-bold text-slate-700">{place.name}</p>
-                        {times && (
-                          <p className="text-[10.5px] text-slate-400 tabular-nums">{times.arrive} – {times.depart}</p>
-                        )}
-                      </div>
-                      {!tripStarted && (
-                        <>
-                          <button
-                            onClick={() => onReorder(day.day, visitPlaces.map((p) => p.id), visitIndex, -1)}
-                            disabled={visitIndex === 0}
-                            className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                          >{t('tripUp')}</button>
-                          <button
-                            onClick={() => onReorder(day.day, visitPlaces.map((p) => p.id), visitIndex, 1)}
-                            disabled={visitIndex === visitPlaces.length - 1}
-                            className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                          >{t('tripDown')}</button>
-                          <button
-                            onClick={() => onRemovePlace(place.id, day.day)}
-                            className="text-slate-300 hover:text-red-500"
-                            title={t('tripRemove')}
-                          >
-                            <X size={13} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )
-                }) : !hotelPlace && (
+                {/* Reorderable sightseeing places — drag-and-drop */}
+                {visitPlaces.length > 0 ? (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragStart={({ active }) => setActiveDragId(active.id)}
+                    onDragEnd={({ active, over }) => {
+                      setActiveDragId(null)
+                      if (!over || active.id === over.id) return
+                      const ids = visitPlaces.map((p) => p.id)
+                      const oldIdx = ids.indexOf(active.id)
+                      const newIdx = ids.indexOf(over.id)
+                      if (oldIdx === -1 || newIdx === -1) return
+                      onDragReorder(day.day, arrayMove(ids, oldIdx, newIdx))
+                    }}
+                    onDragCancel={() => setActiveDragId(null)}
+                  >
+                    <SortableContext items={visitPlaces.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                      {visitPlaces.map((place, visitIndex) => (
+                        <SortablePlaceItem
+                          key={place.id}
+                          place={place}
+                          visitIndex={visitIndex}
+                          times={placeTimes[place.id]}
+                          tripStarted={tripStarted}
+                          onRemovePlace={onRemovePlace}
+                          dayNum={day.day}
+                        />
+                      ))}
+                    </SortableContext>
+                    <DragOverlay>
+                      {activeDragId ? (() => {
+                        const dragPlace = visitPlaces.find((p) => p.id === activeDragId)
+                        if (!dragPlace) return null
+                        const dragIdx = visitPlaces.indexOf(dragPlace)
+                        return (
+                          <div className="flex items-center gap-2 rounded-md bg-white px-3 py-2 shadow-lg border border-blue-200 ring-2 ring-blue-100">
+                            <GripVertical size={14} className="shrink-0 text-blue-400" />
+                            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-[11px] font-extrabold text-blue-600">
+                              {dragIdx + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[13px] font-bold text-slate-700">{dragPlace.name}</p>
+                            </div>
+                            <span className={cn('shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold capitalize', categoryChip(dragPlace.category))}>
+                              {dragPlace.category || t('tripCategoryFallback')}
+                            </span>
+                          </div>
+                        )
+                      })() : null}
+                    </DragOverlay>
+                  </DndContext>
+                ) : !hotelPlace && (
                   <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-[13px] text-slate-400">
                     {t('tripEmptyDay')}
                   </div>
@@ -776,11 +842,18 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 )}
               </div>
 
-              {isDirty && (
-                <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-center text-[11.5px] font-semibold text-amber-700">
-                  ⚡ {t('tripEstimatedHint')}
-                </p>
-              )}
+              {/* Transport mode badges — shows which modes are used this day */}
+              {(() => {
+                const dayModes = [...new Set((day.legs ?? []).map((l) => normalizeTransportMode(l.transport_mode)))]
+                return dayModes.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {dayModes.map((mode) => (
+                      <TransportBadge key={mode} mode={mode} />
+                    ))}
+                  </div>
+                ) : null
+              })()}
+
             </section>
           )
         })}
@@ -1448,6 +1521,11 @@ export default function Trip() {
     setPendingByDay((prev) => ({ ...prev, [dayNum]: next }))
   }
 
+  // Drag-and-drop reorder — accepts the full new order array from @dnd-kit
+  const dragReorder = useCallback((dayNum, newIds) => {
+    setPendingByDay((prev) => ({ ...prev, [dayNum]: newIds }))
+  }, [])
+
   const startDay = (dayNum) => {
     setTripStarted(true)
     setSelectedDay(dayNum)
@@ -1578,11 +1656,44 @@ export default function Trip() {
               <ArrowLeft size={17} />
             </button>
             <div className="min-w-0">
-              <h1 className="truncate font-display text-[22px] font-extrabold text-slate-950">
-                {effectiveMeta?.name ?? t('tripDefaultName')}
-              </h1>
-              {/* Live/Paused state moved to the single status bar below + header Live chip
-                  (was duplicated here) — Phase 3D status consolidation. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate font-display text-[22px] font-extrabold text-slate-950">
+                  {effectiveMeta?.name ?? t('tripDefaultName')}
+                </h1>
+                {/* Status Badges integrated directly into header */}
+                <span className={cn(
+                  'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold border shrink-0',
+                  isLive
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : tripStarted && editMode
+                      ? 'border-amber-200 bg-amber-50 text-amber-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                )}>
+                  {isLive ? (
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  ) : tripStarted && editMode ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  )}
+                  {isLive
+                    ? t('tripBannerLive', selectedDay)
+                    : tripStarted && editMode
+                      ? t('tripBannerEdit')
+                      : t('tripBannerPlanning')}
+                </span>
+                {!isLive && (
+                  <span className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold border shrink-0',
+                    needsRouteUpdate
+                      ? 'border-amber-200 bg-amber-50 text-amber-700'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  )}>
+                    <span className={cn('h-1.5 w-1.5 rounded-full', needsRouteUpdate ? 'bg-amber-500' : 'bg-emerald-500')} />
+                    {needsRouteUpdate ? t('tripEstimated') : t('tripGoodToGo')}
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-[12px] font-semibold text-slate-400">
                 {t('tripDaysCount', trip.days?.length ?? 0)} · {t('tripPlacesCount', trip.places?.length ?? 0)}
               </p>
@@ -1660,96 +1771,68 @@ export default function Trip() {
         </div>
       </header>
 
-      {/* Mode banner */}
-      <div className={cn(
-        'shrink-0 border-b px-6 py-2 text-[12.5px] font-semibold flex items-center gap-2',
-        isLive
-          ? 'border-emerald-100 bg-emerald-50 text-emerald-800'
-          : tripStarted && editMode
-            ? 'border-amber-100 bg-amber-50 text-amber-800'
-            : 'border-slate-100 bg-slate-50 text-slate-500'
-      )}>
-        {isLive
-          ? <><Navigation2 size={13} /> {t('tripBannerLive', selectedDay)}</>
-          : tripStarted && editMode
-            ? <><Settings size={13} /> {t('tripBannerEdit')}</>
-            : <>
-                <FileText size={13} /> {t('tripBannerPlanning')}
-                <span className={cn(
-                  'ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold',
-                  needsRouteUpdate
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-emerald-100 text-emerald-700'
-                )}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', needsRouteUpdate ? 'bg-amber-500' : 'bg-emerald-500')} />
-                  {needsRouteUpdate ? t('tripEstimated') : t('tripGoodToGo')}
-                </span>
-              </>
-        }
-      </div>
-
-      {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
-        <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
-          {isLive && geoError && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
-              <MapPin size={15} className="shrink-0" />
-              {t('tripGpsOff')}
-            </div>
-          )}
-          {todayBanner && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-800">
-              <Navigation2 size={15} /> {t('tripStartsToday')}
-              <button onClick={() => setTodayBanner(false)} className="ml-auto"><X size={14} /></button>
-            </div>
-          )}
-          {optimizeMsg && (
-            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] font-semibold text-blue-800">
-              <Sparkles size={15} /> {optimizeMsg}
-              <button onClick={() => setOptimizeMsg(null)} className="ml-auto"><X size={14} /></button>
-            </div>
-          )}
-          {isOffline && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
-              <WifiOff size={15} /> {t('tripOffline')}
-            </div>
-          )}
-          {uiWarning && (
-            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-700">
-              <AlertCircle size={15} /> {uiWarning}
-              <button onClick={() => setUiWarning(null)} className="ml-auto"><X size={14} /></button>
-            </div>
-          )}
-          {/* DEV25-BANNER-RETAINED: gated off — alerts now reach users via the ChatWidget. */}
-          {ENABLE_TRIP_BANNERS && otherAlerts.map((alert) => (
-            <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
-          ))}
-          {ENABLE_TRIP_BANNERS && weatherAlertsToShow.map((alert) => (
-            <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
-          ))}
-          {ENABLE_TRIP_BANNERS && weatherAlertsCollapsed.length > 0 && (
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3.5">
-              <button
-                onClick={() => setShowAllWeatherAlerts((v) => !v)}
-                className="flex w-full items-center gap-2 text-left text-[13px] font-semibold text-sky-900"
-              >
-                <CloudRain size={15} className="shrink-0 text-sky-500" />
-                {t('tripRainMore', weatherAlertsCollapsed.length)}
-                <ChevronDown size={14} className={cn('ml-auto shrink-0 transition-transform', showAllWeatherAlerts && 'rotate-180')} />
-              </button>
-              {showAllWeatherAlerts && (
-                <div className="mt-3 space-y-2">
-                  {weatherAlertsCollapsed.map((alert) => (
-                    <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
-                  ))}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] overflow-hidden">
+        <section className="relative isolate min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
+          {/* Warnings & Alerts placed inside the sidebar to connect map directly with toolbar */}
+          {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
+            <div className="mb-4 space-y-2">
+              {isLive && geoError && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
+                  <MapPin size={15} className="shrink-0" />
+                  {t('tripGpsOff')}
+                </div>
+              )}
+              {todayBanner && (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-800">
+                  <Navigation2 size={15} /> {t('tripStartsToday')}
+                  <button onClick={() => setTodayBanner(false)} className="ml-auto"><X size={14} /></button>
+                </div>
+              )}
+              {optimizeMsg && (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] font-semibold text-blue-800">
+                  <Sparkles size={15} /> {optimizeMsg}
+                  <button onClick={() => setOptimizeMsg(null)} className="ml-auto"><X size={14} /></button>
+                </div>
+              )}
+              {isOffline && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
+                  <WifiOff size={15} /> {t('tripOffline')}
+                </div>
+              )}
+              {uiWarning && (
+                <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-700">
+                  <AlertCircle size={15} /> {uiWarning}
+                  <button onClick={() => setUiWarning(null)} className="ml-auto"><X size={14} /></button>
+                </div>
+              )}
+              {ENABLE_TRIP_BANNERS && otherAlerts.map((alert) => (
+                <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+              ))}
+              {ENABLE_TRIP_BANNERS && weatherAlertsToShow.map((alert) => (
+                <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+              ))}
+              {ENABLE_TRIP_BANNERS && weatherAlertsCollapsed.length > 0 && (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3.5">
+                  <button
+                    onClick={() => setShowAllWeatherAlerts((v) => !v)}
+                    className="flex w-full items-center gap-2 text-left text-[13px] font-semibold text-sky-900"
+                  >
+                    <CloudRain size={15} className="shrink-0 text-sky-500" />
+                    {t('tripRainMore', weatherAlertsCollapsed.length)}
+                    <ChevronDown size={14} className={cn('ml-auto shrink-0 transition-transform', showAllWeatherAlerts && 'rotate-180')} />
+                  </button>
+                  {showAllWeatherAlerts && (
+                    <div className="mt-3 space-y-2">
+                      {weatherAlertsCollapsed.map((alert) => (
+                        <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
-        </section>
-      )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] overflow-hidden">
-        <section className="relative isolate min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
           {activeTab === 'overview' && (
             <Overview
               trip={trip}
@@ -1760,6 +1843,7 @@ export default function Trip() {
               onAddPlace={setAddDayFor}
               onRemovePlace={removePlace}
               onReorder={reorderLocal}
+              onDragReorder={dragReorder}
               onUpdateRoute={handleUpdateRoute}
               onOptimiseOrder={() => setConfirmOptimise(true)}
               onStartTrip={null}
@@ -1796,7 +1880,6 @@ export default function Trip() {
             <SummaryTab
               trip={trip}
               pendingSave={pendingSave}
-              optimizationLog={(trip.warnings ?? []).map((warning) => ({ title: warning, type: 'mode_change' }))}
               onSave={(name) => {
                 const meta = { ...effectiveMeta, name, confirmed: true }
                 saveTrip(id, meta)
@@ -1808,8 +1891,8 @@ export default function Trip() {
           )}
         </section>
 
-        <aside className="relative isolate min-h-0 bg-slate-100 p-4">
-          <div className="h-full overflow-hidden rounded-lg border border-slate-200 bg-white p-3 shadow-card">
+        <aside className="relative isolate min-h-0 bg-white">
+          <div className="h-full w-full overflow-hidden">
             <TripMap
               places={mapPlaces}
               legs={mapLegs}

@@ -24,7 +24,7 @@ export default function Privacy() {
                 <strong className="text-slate-800">Vị trí GPS:</strong> Chúng tôi truy cập vị trí thiết bị của bạn để xác định điểm xuất phát, hiển thị vị trí của bạn trên bản đồ và kích hoạt các cảnh báo giao thông dựa trên khoảng cách.
               </li>
               <li>
-                <strong className="text-slate-800">Tuyến đường & Sở thích:</strong> Chúng tôi lưu trữ các lịch trình bạn đã chọn, phương tiện ưu tiên (xe buýt, MRT, đi bộ) và các cài đặt tùy chỉnh (ví dụ: "ít đi bộ nhất" hoặc "giá vé rẻ nhất").
+                <strong className="text-slate-800">Tuyến đường & Sở thích:</strong> Chúng tôi lưu trữ các lịch trình bạn đã chọn, phương tiện ưu tiên (xe buýt, MRT, đi bộ) và các sở thích tùy chỉnh (ví dụ: "ít đi bộ nhất" hoặc "giá vé rẻ nhất").
               </li>
             </ul>
           </section>
@@ -76,7 +76,7 @@ export default function Privacy() {
               <strong className="text-slate-800">GPS Location:</strong> We access your device's location to determine your starting point, show your position on the map, and trigger proximity-based transit alerts.
             </li>
             <li>
-              <strong className="text-slate-800">Transit Routes & Preferences:</strong> We store your chosen itineraries, preferred transport modes (bus, MRT, walking), and custom settings (e.g., "least walking" or "cheapest fare").
+              <strong className="text-slate-800">Transit Routes & Preferences:</strong> We store your chosen itineraries, preferred transport modes (bus, MRT, walking), and custom preferences (e.g., "least walking" or "cheapest fare").
             </li>
           </ul>
         </section>

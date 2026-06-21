@@ -120,7 +120,7 @@ function Tab({ item, active, open, setActiveKey, setOpenMenu, setPosition }) {
   return (
     <li ref={ref} onMouseEnter={updatePosition} onFocus={updatePosition}>
       {item.to ? (
-        <Link to={item.to} className={className}>
+        <Link to={item.to} className={className} onClick={item.onClick}>
           <TabLabel label={item.label} labelAlt={item.labelAlt} />
         </Link>
       ) : item.menu ? (
