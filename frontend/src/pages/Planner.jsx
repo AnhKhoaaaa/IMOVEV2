@@ -372,7 +372,7 @@ export default function Planner() {
 
   return (
     <AuroraBackground>
-      <div className="py-8 px-6">
+      <div className="px-4 py-6 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl">
         
         {/* Header section */}
@@ -391,16 +391,16 @@ export default function Planner() {
         </div>
 
         {/* 2-Panel Layout */}
-        <div className="grid grid-cols-[1fr_360px] gap-6 items-start">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 items-start">
           
           {/* Main Wizard Form Card (Left) */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm min-h-[500px] flex flex-col justify-between">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm min-h-[500px] flex flex-col justify-between sm:p-6">
             <div>
               {/* Steps Dot Indicator */}
-              <div className="relative flex justify-between mb-8 px-6">
-                <div className="absolute top-[21px] left-10 right-10 h-0.5 bg-slate-100 -z-10" />
+              <div className="relative mb-6 grid grid-cols-4 gap-1 sm:mb-8 sm:px-6">
+                <div className="absolute top-[21px] left-10 right-10 hidden h-0.5 bg-slate-100 -z-10 sm:block" />
                 <div 
-                  className="absolute top-[21px] left-10 h-0.5 bg-blue-600 -z-10 transition-all duration-300"
+                  className="absolute top-[21px] left-10 hidden h-0.5 bg-blue-600 -z-10 transition-all duration-300 sm:block"
                   style={{ width: `${((currentStep - 1) / 3) * 82}%` }}
                 />
                 
@@ -414,7 +414,7 @@ export default function Planner() {
                     key={s.num}
                     type="button"
                     onClick={() => goToStep(s.num)}
-                    className="flex flex-col items-center focus:outline-none"
+                    className="flex min-w-0 flex-col items-center focus:outline-none"
                   >
                     <div
                       className={cn(
@@ -430,7 +430,7 @@ export default function Planner() {
                     </div>
                     <span
                       className={cn(
-                        'text-[12px] font-semibold mt-1.5 transition',
+                        'mt-1.5 max-w-full text-center text-[11px] font-semibold leading-tight transition sm:text-[12px]',
                         currentStep >= s.num ? 'text-slate-900' : 'text-slate-400'
                       )}
                     >
@@ -912,7 +912,7 @@ export default function Planner() {
           </div>
 
           {/* Sidebar Info/JSON Panel (Right) */}
-          <aside className="space-y-4">
+          <aside className="hidden space-y-4 lg:block">
             
             {/* Summary Info */}
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
