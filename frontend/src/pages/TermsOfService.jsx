@@ -1,6 +1,6 @@
 import { useLang } from '../contexts/LanguageContext'
 
-export default function Terms() {
+export default function TermsOfService() {
   const { lang } = useLang()
 
   const policies = {

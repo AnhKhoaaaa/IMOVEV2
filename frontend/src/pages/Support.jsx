@@ -1,133 +1,130 @@
-import { Mail } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, Mail, Phone, LifeBuoy } from 'lucide-react'
 import { useLang } from '../contexts/LanguageContext'
+
+function AccordionItem({ question, answer, isOpen, onClick }) {
+  return (
+    <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white mb-4 transition-all duration-200 hover:border-slate-300">
+      <button 
+        className="w-full text-left px-6 py-5 flex items-center justify-between bg-white focus:outline-none cursor-pointer"
+        onClick={onClick}
+      >
+        <span className="font-semibold text-slate-900 text-lg pr-4">{question}</span>
+        <ChevronDown 
+          className={`shrink-0 w-6 h-6 text-slate-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} 
+        />
+      </button>
+      <div 
+        className={`px-6 overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96 pb-5 opacity-100' : 'max-h-0 opacity-0'}`}
+      >
+        <p className="text-slate-600 leading-relaxed pt-3 border-t border-slate-100">{answer}</p>
+      </div>
+    </div>
+  )
+}
 
 export default function Support() {
   const { lang } = useLang()
+  const [openIndex, setOpenIndex] = useState(0)
 
-  if (lang === 'vi') {
-    return (
-      <div className="pt-32 px-6 max-w-3xl mx-auto pb-24 animate-slide-up">
-        <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-display font-black tracking-tight text-slate-950 mb-4">
-            Hỗ trợ & Câu hỏi thường gặp
-          </h1>
-          <p className="text-slate-500 text-lg">
-            Cần giúp đỡ khi di chuyển tại Singapore? Chúng tôi luôn sẵn sàng.
-          </p>
-        </div>
-
-        <div className="card p-6 md:p-10 space-y-10">
-          <section>
-            <h2 className="text-2xl font-bold text-slate-900 mb-6">Câu hỏi thường gặp</h2>
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Làm thế nào để tìm tuyến MRT hoặc Bus tốt nhất?</h3>
-                <p className="text-slate-600 leading-relaxed">
-                  Chỉ cần nhập điểm xuất phát và điểm đến của bạn vào Planner. Các agent thông minh của IMOVE sẽ tính toán sự kết hợp hiệu quả nhất giữa MRT và xe buýt, cân bằng giữa thời gian di chuyển, khoảng cách đi bộ và chi phí dựa trên dữ liệu thời gian thực.
-                </p>
-              </div>
-              
-              <hr className="border-slate-100" />
-              
-              <div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Chuyện gì xảy ra nếu tàu hoặc xe buýt của tôi bị trễ?</h3>
-                <p className="text-slate-600 leading-relaxed">
-                  IMOVE giám sát dữ liệu trực tiếp từ LTA DataMall. Nếu có sự cố gián đoạn trên tuyến đường bạn đã chọn, Adaptation Agent của chúng tôi sẽ tự động cảnh báo và đề xuất các phương án thay thế để đưa bạn đến nơi an toàn.
-                </p>
-              </div>
-              
-              <hr className="border-slate-100" />
-              
-              <div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">Tôi có thể tùy chỉnh phương tiện ưu tiên không?</h3>
-                <p className="text-slate-600 leading-relaxed">
-                  Có! Trong phần Cài đặt tài khoản, bạn có thể thiết lập các ưu tiên định tuyến, chẳng hạn như "Nhanh nhất", "Rẻ nhất" hoặc "Ít đi bộ nhất". Planner sẽ ưu tiên các tuyến đường phù hợp với hồ sơ du lịch cụ thể của bạn.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="text-center bg-slate-50 rounded-xl p-8 border border-slate-100">
-            <h2 className="text-2xl font-bold text-slate-900 mb-3">Vẫn cần hỗ trợ?</h2>
-            <p className="text-slate-600 mb-6">
-              Nếu bạn gặp sự cố chưa được đề cập ở trên, đội ngũ hỗ trợ của chúng tôi luôn sẵn sàng giúp đỡ.
-            </p>
-            <a
-              href="mailto:support@imove.example.com"
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-8 py-3.5 rounded-xl btn-lift"
-            >
-              <Mail className="w-5 h-5" />
-              Liên hệ Hỗ trợ
-            </a>
-            <p className="text-slate-400 text-sm mt-4">support@imove.example.com</p>
-          </section>
-        </div>
-      </div>
-    )
+  const content = {
+    vi: {
+      title: "Trung tâm Hỗ trợ IMOVE",
+      subtitle: "Cần giúp đỡ khi di chuyển tại Singapore? Chúng tôi luôn sẵn sàng.",
+      faqTitle: "1. Xem câu hỏi phổ biến",
+      contactTitle: "2. Vẫn cần trợ giúp?",
+      contactDesc: "Nếu bạn có bất kỳ câu hỏi nào khác hoặc cần hỗ trợ kỹ thuật về ứng dụng, đừng ngần ngại liên hệ với đội ngũ phát triển IMOVE qua:",
+      faqs: [
+        { q: "Làm sao để tìm trạm MRT/Bus gần tôi nhất?", a: "Rất đơn giản! Chỉ cần cấp quyền truy cập vị trí (GPS) cho IMOVE, hệ thống sẽ tự động quét và hiển thị các trạm MRT hoặc trạm xe bus gần nhất trên bản đồ cùng thời gian tàu chạy dự kiến." },
+        { q: "Ứng dụng có hoạt động khi mất mạng (xuống hầm MRT) không?", a: "Có nhé! IMOVE được trang bị tính năng lưu trữ ngoại tuyến (Offline). Bạn vẫn có thể xem lại lịch trình đã lưu và bản đồ tuyến đường ngay cả khi rớt mạng dưới hầm tàu điện ngầm." },
+        { q: "Tôi có cần mua vé tàu trực tiếp trên IMOVE không?", a: "Không. IMOVE là ứng dụng hỗ trợ điều hướng và lên lịch trình. Để đi tàu MRT hoặc xe Bus tại Singapore, bạn chỉ cần dùng thẻ EZ-Link, thẻ Singapore Tourist Pass, hoặc chạm thẻ tín dụng (Visa/Mastercard) trực tiếp tại cổng soát vé." },
+        { q: "Nếu trời đột ngột đổ mưa thì lịch trình của tôi tính sao?", a: "Đừng lo! IMOVE có tính năng cảnh báo thời tiết theo thời gian thực. Nếu phát hiện trời mưa, trợ lý AI sẽ tự động đề xuất các địa điểm tham quan trong nhà (như bảo tàng, trung tâm thương mại) gần bạn nhất để điều chỉnh lộ trình cho phù hợp." },
+        { q: "Các số điện thoại khẩn cấp tại Singapore là gì?", a: "Hãy lưu lại ngay các số này: Cảnh sát (999), Cứu thương & Cứu hỏa (995). Nếu cần hỗ trợ về lãnh sự, hãy gọi Đại sứ quán Việt Nam tại Singapore: +65 6462 5938." }
+      ],
+      hotlineTime: "(Hoạt động từ 8:00 - 20:00 mỗi ngày)"
+    },
+    en: {
+      title: "IMOVE Support Center",
+      subtitle: "Need help navigating Singapore? We are always ready.",
+      faqTitle: "1. Frequently Asked Questions",
+      contactTitle: "2. Still need help?",
+      contactDesc: "If you have any other questions or need technical support regarding the app, don't hesitate to contact the IMOVE development team via:",
+      faqs: [
+        { q: "How do I find the nearest MRT/Bus station?", a: "Very simple! Just grant location access (GPS) to IMOVE, and the system will automatically scan and display the nearest MRT or bus stations on the map along with estimated arrival times." },
+        { q: "Does the app work offline (in MRT tunnels)?", a: "Yes! IMOVE is equipped with offline storage. You can still review your saved itineraries and route maps even when losing internet connection underground." },
+        { q: "Do I need to buy train tickets directly on IMOVE?", a: "No. IMOVE is a navigation and itinerary planning app. To take the MRT or Bus in Singapore, you just need to use an EZ-Link card, Singapore Tourist Pass, or tap your credit card (Visa/Mastercard) directly at the fare gates." },
+        { q: "What happens to my itinerary if it suddenly rains?", a: "Don't worry! IMOVE has a real-time weather alert feature. If rain is detected, the AI assistant will automatically suggest the nearest indoor attractions (like museums, shopping malls) to adjust your route accordingly." },
+        { q: "What are the emergency numbers in Singapore?", a: "Save these numbers immediately: Police (999), Ambulance & Fire (995). If you need consular assistance, call the Vietnam Embassy in Singapore: +65 6462 5938." }
+      ],
+      hotlineTime: "(Operating from 8:00 - 20:00 everyday)"
+    }
   }
 
+  const current = content[lang] || content['en']
+
   return (
-    <div className="pt-32 px-6 max-w-3xl mx-auto pb-24 animate-slide-up">
-      <div className="mb-10">
-        <h1 className="text-4xl md:text-5xl font-display font-black tracking-tight text-slate-950 mb-4">
-          Support & FAQ
+    <div className="pt-24 px-6 max-w-3xl mx-auto pb-32 animate-slide-up">
+      <div className="mb-14 text-center">
+        <div className="inline-flex items-center justify-center p-3 bg-blue-100 text-blue-600 rounded-2xl mb-6 shadow-sm">
+          <LifeBuoy className="w-8 h-8" />
+        </div>
+        <h1 className="text-4xl md:text-5xl font-display font-black tracking-tight text-slate-900 mb-4">
+          {current.title}
         </h1>
         <p className="text-slate-500 text-lg">
-          Need help navigating Singapore? We're here for you.
+          {current.subtitle}
         </p>
       </div>
 
-      <div className="card p-6 md:p-10 space-y-10">
-        <section>
-          <h2 className="text-2xl font-bold text-slate-900 mb-6">
-            Frequently Asked Questions
-          </h2>
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-bold text-slate-800 mb-2">How do I find the best MRT or Bus route?</h3>
-              <p className="text-slate-600 leading-relaxed">
-                Simply enter your starting point and destination in the Planner. IMOVE's intelligent agents will calculate the most efficient combinations of MRT and buses, balancing travel time, walking distance, and cost based on real-time data.
-              </p>
+      <div className="mb-16">
+        <h2 className="text-2xl font-display font-bold text-slate-900 mb-6">{current.faqTitle}</h2>
+        <div className="space-y-4">
+          {current.faqs.map((faq, index) => (
+            <AccordionItem 
+              key={index} 
+              question={faq.q} 
+              answer={faq.a} 
+              isOpen={openIndex === index}
+              onClick={() => setOpenIndex(openIndex === index ? -1 : index)}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-2xl font-display font-bold text-slate-900 mb-6">{current.contactTitle}</h2>
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100/50 rounded-3xl p-8 md:p-10 shadow-xl shadow-blue-900/5">
+          <p className="text-slate-600 text-lg mb-8 leading-relaxed">
+            {current.contactDesc}
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100/80 flex items-start gap-4 transition-transform hover:-translate-y-1 hover:shadow-md duration-300">
+              <div className="bg-blue-100 text-blue-600 p-3 rounded-xl shrink-0">
+                <Mail className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-500 font-medium mb-1">Email</p>
+                <a href="mailto:hoangkyanh012006@gmail.com" className="text-slate-900 font-semibold hover:text-blue-600 transition-colors break-all">
+                  hoangkyanh012006@gmail.com
+                </a>
+              </div>
             </div>
-            
-            <hr className="border-slate-100" />
-            
-            <div>
-              <h3 className="text-lg font-bold text-slate-800 mb-2">What happens if my train or bus is delayed?</h3>
-              <p className="text-slate-600 leading-relaxed">
-                IMOVE monitors live data from the LTA DataMall. If a disruption occurs on your planned route, our Adaptation Agent will automatically alert you and suggest alternative options to get you to your destination safely.
-              </p>
-            </div>
-            
-            <hr className="border-slate-100" />
-            
-            <div>
-              <h3 className="text-lg font-bold text-slate-800 mb-2">Can I customize my preferred transport mode?</h3>
-              <p className="text-slate-600 leading-relaxed">
-                Yes! In your Account Settings, you can set your routing priorities, such as "Fastest", "Cheapest", or "Least Walking". The planner will prioritize routes that match your specific travel profile.
-              </p>
+
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100/80 flex items-start gap-4 transition-transform hover:-translate-y-1 hover:shadow-md duration-300">
+              <div className="bg-indigo-100 text-indigo-600 p-3 rounded-xl shrink-0">
+                <Phone className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-500 font-medium mb-1">Hotline</p>
+                <a href="tel:0942063227" className="text-slate-900 font-semibold hover:text-indigo-600 transition-colors">
+                  0942 063 227
+                </a>
+                <p className="text-xs text-slate-400 mt-1">{current.hotlineTime}</p>
+              </div>
             </div>
           </div>
-        </section>
-
-        <section className="text-center bg-slate-50 rounded-xl p-8 border border-slate-100">
-          <h2 className="text-2xl font-bold text-slate-900 mb-3">
-            Still need assistance?
-          </h2>
-          <p className="text-slate-600 mb-6">
-            If you have an issue that isn't covered above, our support team is ready to help you out.
-          </p>
-          <a
-            href="mailto:support@imove.example.com"
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-8 py-3.5 rounded-xl btn-lift"
-          >
-            <Mail className="w-5 h-5" />
-            Contact Support
-          </a>
-          <p className="text-slate-400 text-sm mt-4">
-            support@imove.example.com
-          </p>
-        </section>
+        </div>
       </div>
     </div>
   )

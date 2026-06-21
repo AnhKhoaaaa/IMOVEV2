@@ -1,4 +1,5 @@
-const STATIC_CACHE = 'imove-static-v1'
+
+const STATIC_CACHE = 'imove-static-v2'
 const DYNAMIC_CACHE = 'imove-dynamic-v1'
 
 const STATIC_ASSETS = [

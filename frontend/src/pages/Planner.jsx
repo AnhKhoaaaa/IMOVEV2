@@ -251,24 +251,42 @@ export default function Planner() {
       const sessionId = localStorage.getItem('session_id') ?? generateId()
       localStorage.setItem('session_id', sessionId)
 
-      const body = {
-        session_id: sessionId,
-        num_days: numDays,
-        budget_sgd: Number(budget),
-        start_date: flexible ? null : startDate || null,
-        end_date: flexible || !startDate ? null : endDate(startDate, numDays),
-        day_start_times: dayStartTimes,
-        name: tripName.trim() || 'Singapore Trip',
-      }
-
-      const trip = await api.createTrip(body)
-
-      // Calculate weights payload based on selected Preset
+      const planStartDate = flexible ? null : startDate || null
+      const planEndDate = flexible || !startDate ? null : endDate(startDate, numDays)
       const weightsObj = selectedPreset === 'user' ? {} : PRESETS[selectedPreset]
       const preferencesObj = {
         budget_sgd: Number(budget),
         ...weightsObj,
       }
+      const tripMeta = {
+        name: tripName.trim() || 'Singapore Trip',
+        budget_sgd: Number(budget),
+        startDate: planStartDate,
+        start_date: planStartDate,
+        endDate: planEndDate,
+        end_date: planEndDate,
+        numDays,
+        dayStartTimes,
+        startTime: dayStartTimes[0] ?? '09:00',
+        travelStyle: selectedPreset,
+        routeWeights: weightsObj,
+        optimizeOrder,
+        hotelName: hotel?.name ?? null,
+        hotelLat: hotel?.lat ?? null,
+        hotelLng: hotel?.lng ?? null,
+      }
+
+      const body = {
+        session_id: sessionId,
+        num_days: numDays,
+        budget_sgd: Number(budget),
+        start_date: planStartDate,
+        end_date: planEndDate,
+        day_start_times: dayStartTimes,
+        name: tripMeta.name,
+      }
+
+      const trip = await api.createTrip(body)
 
       await api.planTrip(trip.trip_id, {
         place_ids: selected.map((place) => place.id),
@@ -280,14 +298,6 @@ export default function Planner() {
         day_start_times: dayStartTimes,
       })
 
-      const tripMeta = {
-        name: tripName.trim() || 'Singapore Trip',
-        startDate: flexible ? null : startDate || null,
-        numDays,
-        hotelName: hotel?.name ?? null,
-        hotelLat: hotel?.lat ?? null,
-        hotelLng: hotel?.lng ?? null,
-      }
       // Auto-persist as unconfirmed draft so the trip survives navigation away from the planner
       api.saveTrip(trip.trip_id, { ...tripMeta, confirmed: false }, user?.id ?? null)
 
