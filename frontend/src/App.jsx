@@ -6,7 +6,7 @@ import { migrateLocalStorage } from './lib/migrate'
 import Home from './pages/Home'
 import Planner from './pages/Planner'
 import Trip from './pages/Trip'
-import Settings from './pages/Settings'
+import Preferences from './pages/Preferences'
 import HomePreview from './pages/HomePreview'
 import Privacy from './pages/Privacy'
 import Terms from './pages/Terms'
@@ -26,7 +26,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/plan" element={<Planner />} />
           <Route path="/trip/:id" element={<Trip />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/preferences" element={<Preferences />} />
           <Route path="/home-preview" element={<HomePreview />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />

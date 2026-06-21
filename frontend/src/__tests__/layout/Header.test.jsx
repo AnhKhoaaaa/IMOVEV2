@@ -51,11 +51,11 @@ describe('Header', () => {
     fireEvent.click(screen.getByRole('button', { name: /language/i }))
     fireEvent.click(screen.getByRole('menuitem', { name: /tiếng việt/i }))
     expect(localStorage.getItem('imove_lang')).toBe('vi')
-    expect(screen.getByText('Trang chủ')).toBeInTheDocument()
+    expect(screen.getByText('Chuyến đi')).toBeInTheDocument()
     expect(screen.getByText('Đăng nhập')).toBeInTheDocument()
     expect(screen.getByText('Chuyến mới')).toBeInTheDocument()
-    expect(screen.getByText('Cài đặt')).toBeInTheDocument()
-    expect(screen.getByText('Ngôn ngữ')).toBeInTheDocument()
+    expect(screen.getByText('Sở thích đi lại')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /ngôn ngữ/i })).toBeInTheDocument()
   })
 
   it('AuthModal hidden by default', () => {

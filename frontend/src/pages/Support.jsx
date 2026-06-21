@@ -41,7 +41,7 @@ export default function Support() {
               <div>
                 <h3 className="text-lg font-bold text-slate-800 mb-2">Tôi có thể tùy chỉnh phương tiện ưu tiên không?</h3>
                 <p className="text-slate-600 leading-relaxed">
-                  Có! Trong phần Cài đặt tài khoản, bạn có thể thiết lập các ưu tiên định tuyến, chẳng hạn như "Nhanh nhất", "Rẻ nhất" hoặc "Ít đi bộ nhất". Planner sẽ ưu tiên các tuyến đường phù hợp với hồ sơ du lịch cụ thể của bạn.
+                  Có! Trong phần Sở thích đi lại, bạn có thể thiết lập các ưu tiên định tuyến, chẳng hạn như "Nhanh nhất", "Rẻ nhất" hoặc "Ít đi bộ nhất". Planner sẽ ưu tiên các tuyến đường phù hợp với hồ sơ du lịch cụ thể của bạn.
                 </p>
               </div>
             </div>
@@ -104,7 +104,7 @@ export default function Support() {
             <div>
               <h3 className="text-lg font-bold text-slate-800 mb-2">Can I customize my preferred transport mode?</h3>
               <p className="text-slate-600 leading-relaxed">
-                Yes! In your Account Settings, you can set your routing priorities, such as "Fastest", "Cheapest", or "Least Walking". The planner will prioritize routes that match your specific travel profile.
+                Yes! In your Travel Preferences, you can set your routing priorities, such as "Fastest", "Cheapest", or "Least Walking". The planner will prioritize routes that match your specific travel profile.
               </p>
             </div>
           </div>

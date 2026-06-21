@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowRight,
@@ -172,6 +172,7 @@ function ScrollReveal({ children, className = '', delay = 0 }) {
 
 export default function Home() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const { t } = useT()
   const { trips, remove } = useSavedTrips(user?.id)
@@ -194,6 +195,20 @@ export default function Home() {
     inFlightRef.current.clear()
     setLoadingIds(new Set())
   }, [user?.id])
+
+
+
+  useEffect(() => {
+    if (location.search.includes('scroll=my-trips')) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('my-trips')
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' })
+        }
+      }, 150)
+      return () => clearTimeout(timer)
+    }
+  }, [location.search])
 
   useEffect(() => {
     trips.forEach((trip) => {
@@ -261,7 +276,7 @@ export default function Home() {
         ctaText={t('homeHeroCta')}
         secondaryCtaText={t('homeHeroSecondaryCta')}
         onCtaClick={() => navigate('/plan')}
-        onSecondaryCtaClick={() => navigate('/settings')}
+        onSecondaryCtaClick={() => navigate('/preferences')}
         images={HERO_IMAGES}
         features={heroFeatures}
       />
@@ -320,7 +335,7 @@ export default function Home() {
         )
       })()}
 
-      <section className="mx-auto max-w-7xl px-6 py-6">
+      <section id="my-trips" className="mx-auto max-w-7xl px-6 py-6">
         <ScrollReveal>
           <div className="mb-5 flex items-center justify-between gap-4">
             <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-card">

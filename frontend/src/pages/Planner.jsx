@@ -56,7 +56,7 @@ const PRESETS = {
   direct: { duration_w: 0.20, cost_w: 0.20, walking_w: 0.10, transfers_w: 0.50 },
 }
 
-// Qualitative priority shown to users instead of raw percentages (matches Settings).
+// Qualitative priority shown to users instead of raw percentages (matches Preferences).
 const LEVEL_META = {
   high: { labelKey: 'lvlHigh', segs: 3 },
   med: { labelKey: 'lvlMed', segs: 2 },

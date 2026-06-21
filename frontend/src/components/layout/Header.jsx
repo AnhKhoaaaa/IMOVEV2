@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { User, LogOut } from 'lucide-react'
+import { User, LogOut, Globe } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useLang, useT, tFor } from '../../contexts/LanguageContext'
+import { cn } from '../../lib/utils'
 import AuthModal from '../auth/AuthModal'
 import NavHeader from '../ui/nav-header'
+import ConfirmDialog from '../ui/ConfirmDialog'
 
 export default function Header() {
   const navigate = useNavigate()
@@ -14,12 +16,55 @@ export default function Header() {
   const { t } = useT()
   const { pathname } = useLocation()
   const isHome = pathname === '/'
-  const [navHidden, setNavHidden] = useState(false)
+  const [navHidden, setNavHidden] = useState(() => pathname !== '/')
   const [peek, setPeek] = useState(false) // nút toggle ẩn mặc định, chỉ hiện khi con trỏ lại gần đỉnh
+  const [showLangMenu, setShowLangMenu] = useState(false)
+  const langRef = useRef(null)
+  const [pendingNav, setPendingNav] = useState(null)
   const headerHidden = !isHome && navHidden
 
-  // Trang chủ luôn hiện header (và không có nút toggle) — reset khi quay về '/'
-  useEffect(() => { if (isHome) setNavHidden(false) }, [isHome])
+  // Ngoài ở home thì ở các trang khác navigate bar tự giấu đi
+  useEffect(() => {
+    setNavHidden(!isHome)
+  }, [isHome])
+
+  // Đóng menu ngôn ngữ khi bấm ngoài vùng
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (!langRef.current?.contains(e.target)) {
+        setShowLangMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const handleNavClick = (e, to, scroll = false) => {
+    if (pathname === to) {
+      if (scroll && to === '/') {
+        const el = document.getElementById('my-trips')
+        if (el) el.scrollIntoView({ behavior: 'smooth' })
+      }
+      return
+    }
+    if (isHome) {
+      return
+    }
+    e.preventDefault()
+    setPendingNav({ to, scroll })
+  }
+
+  const handleConfirmNav = () => {
+    const target = pendingNav
+    setPendingNav(null)
+    if (!target) return
+
+    if (target.scroll && target.to === '/') {
+      navigate('/?scroll=my-trips')
+    } else {
+      navigate(target.to)
+    }
+  }
 
   // Hiện tab toggle khi con trỏ lại gần đỉnh trang (gần header); ẩn khi rời xa.
   useEffect(() => {
@@ -48,41 +93,16 @@ export default function Header() {
   // Giữ bề rộng mỗi tab theo bản dài hơn giữa EN/VI để thanh nav không co giãn khi đổi ngôn ngữ.
   const altLang = lang === 'vi' ? 'en' : 'vi'
   const navItems = [
-    { key: 'home', label: t('home'), labelAlt: tFor(altLang, 'home'), to: '/' },
-    { key: 'new-trip', label: t('newTrip'), labelAlt: tFor(altLang, 'newTrip'), to: '/plan' },
-    { key: 'setting', label: t('setting'), labelAlt: tFor(altLang, 'setting'), to: '/settings' },
-    {
-      key: 'language',
-      label: t('language'),
-      labelAlt: tFor(altLang, 'language'),
-      menu: {
-        options: [
-          {
-            label: 'English',
-            value: 'en',
-            selected: lang === 'en',
-            onSelect: () => handleLanguageSelect('en'),
-          },
-          {
-            label: 'Tiếng Việt',
-            value: 'vi',
-            selected: lang === 'vi',
-            onSelect: () => handleLanguageSelect('vi'),
-          },
-        ],
-      },
-    },
+    { key: 'home', label: t('home'), labelAlt: tFor(altLang, 'home'), to: '/', onClick: (e) => handleNavClick(e, '/', true) },
+    { key: 'new-trip', label: t('newTrip'), labelAlt: tFor(altLang, 'newTrip'), to: '/plan', onClick: (e) => handleNavClick(e, '/plan') },
+    { key: 'preferences', label: t('preferences'), labelAlt: tFor(altLang, 'preferences'), to: '/preferences', onClick: (e) => handleNavClick(e, '/preferences') },
   ]
 
   return (
     <>
       <header
         id="app-header"
-        aria-hidden={headerHidden}
-        inert={headerHidden ? '' : undefined}
-        className={`sticky top-0 z-40 w-full transition-[transform,margin-bottom,opacity] duration-[420ms] ease-[cubic-bezier(.2,.7,.2,1)] motion-reduce:transition-none ${
-          headerHidden ? '-translate-y-full -mb-14 opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
+        className="sticky top-0 z-40 w-full bg-white border-b border-slate-200"
       >
         <div className="relative mx-auto flex h-14 max-w-7xl items-center justify-center px-4 sm:px-6">
 
@@ -96,10 +116,61 @@ export default function Header() {
             <span className="sr-only">IMOVE</span>
           </Link>
 
-          <NavHeader items={navItems} className="hidden sm:block" />
+          {/* Center Navigation Links (Toggleable) */}
+          <div className={`transition-all duration-300 ${headerHidden ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'}`}>
+            <NavHeader items={navItems} className="hidden sm:block" />
+          </div>
 
           {/* Right side */}
-          <div className="absolute right-4 flex items-center gap-2 sm:right-6">
+          <div className="absolute right-4 flex items-center gap-3 sm:right-6">
+            {/* Globe Language Switcher */}
+            <div className="relative" ref={langRef}>
+              <button
+                type="button"
+                onClick={() => setShowLangMenu((v) => !v)}
+                aria-label={t('language')}
+                title={t('language')}
+                className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+              >
+                <Globe className="h-4 w-4" />
+              </button>
+              {showLangMenu && (
+                <div
+                  className="absolute right-0 top-[calc(100%+0.5rem)] z-50 grid min-w-[140px] gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-[0_12px_28px_rgba(15,23,42,0.12)]"
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      handleLanguageSelect('en')
+                      setShowLangMenu(false)
+                    }}
+                    className={cn(
+                      'w-full rounded-md px-3 py-1.5 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-600',
+                      lang === 'en' && 'bg-blue-50 text-blue-600'
+                    )}
+                  >
+                    English
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      handleLanguageSelect('vi')
+                      setShowLangMenu(false)
+                    }}
+                    className={cn(
+                      'w-full rounded-md px-3 py-1.5 text-left text-xs font-semibold text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-600',
+                      lang === 'vi' && 'bg-blue-50 text-blue-600'
+                    )}
+                  >
+                    Tiếng Việt
+                  </button>
+                </div>
+              )}
+            </div>
+
             {user ? (
               <div className="flex items-center gap-2">
                 <span className="hidden sm:block text-[13px] font-medium text-slate-700 max-w-[120px] truncate">
@@ -142,14 +213,14 @@ export default function Header() {
         </div>
       </header>
 
-      {/* Nút bật/tắt header — "tab" giữa đỉnh, ẩn mặc định, chỉ hiện khi con trỏ lại gần header.
+      {/* Nút bật/tắt menu ở giữa — "tab" giữa đỉnh, ẩn mặc định, chỉ hiện khi con trỏ lại gần header.
           Đặt ở giữa để KHÔNG che cụm nút góc phải (gear "Edit setup") của Trip/Planner.
-          Đang hiện → ↑ (nhấn để ẩn header); đang ẩn → ↓ (nhấn để hiện lại). */}
+          Đang hiện → ↑ (nhấn để ẩn menu); đang ẩn → ↓ (nhấn để hiện lại). */}
       {!isHome && (
         <div
-          className={`fixed left-1/2 z-30 -translate-x-1/2 transition-[top,opacity] duration-300 ease-[cubic-bezier(.2,.7,.2,1)] focus-within:pointer-events-auto focus-within:opacity-100 ${
+          className={`fixed left-1/2 z-30 -translate-x-1/2 transition-[opacity] duration-300 ease-[cubic-bezier(.2,.7,.2,1)] focus-within:pointer-events-auto focus-within:opacity-100 ${
             peek ? 'opacity-100' : 'pointer-events-none opacity-0'
-          } ${headerHidden ? 'top-2' : 'top-[58px]'}`}
+          } top-[58px]`}
         >
           <button
             type="button"
@@ -168,6 +239,16 @@ export default function Header() {
       )}
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      <ConfirmDialog
+        open={!!pendingNav}
+        title={t('confirmNavTitle')}
+        message={t('confirmNav')}
+        confirmLabel={t('confirmLeaveBtn')}
+        cancelLabel={t('cancelBtn')}
+        tone="danger"
+        onConfirm={handleConfirmNav}
+        onCancel={() => setPendingNav(null)}
+      />
     </>
   )
 }
