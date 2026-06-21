@@ -1,6 +1,39 @@
 import { useMemo, useState } from 'react'
-import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap, Navigation2, Save, Trash2 } from 'lucide-react'
+import { Clock, Wallet, Footprints, ArrowLeftRight, Sparkles, Share2, FileDown, Zap, Navigation2, Save, Trash2, CloudRain, TrainFront, Repeat, PieChart } from 'lucide-react'
 import { useT } from '../../contexts/LanguageContext'
+import { transportMeta, normalizeTransportMode } from '../../lib/transport'
+import { Button } from '../ui/button'
+
+// Mode-token donut (no chart lib): each segment is an arc of a stroked circle.
+function Donut({ segments, total }) {
+  const r = 42
+  const C = 2 * Math.PI * r
+  let offset = 0
+  return (
+    <div className="relative h-32 w-32 shrink-0">
+      <svg viewBox="0 0 100 100" className="h-32 w-32 -rotate-90">
+        <circle cx="50" cy="50" r={r} fill="none" stroke="#eef2f7" strokeWidth="13" />
+        {total > 0 && segments.map((s, i) => {
+          const dash = (s.value / total) * C
+          const el = (
+            <circle
+              key={i} cx="50" cy="50" r={r} fill="none" stroke={s.color} strokeWidth="13"
+              strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={-offset}
+            />
+          )
+          offset += dash
+          return el
+        })}
+      </svg>
+      <div className="absolute inset-0 grid place-items-center">
+        <div className="text-center leading-none">
+          <div className="font-display text-[20px] font-extrabold text-slate-900">{segments.length}</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">modes</div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function StatCard({ label, value, Icon }) {
   return (
@@ -20,16 +53,16 @@ function fmtMin(m) {
 }
 
 const LOG_TYPE_CONFIG = {
-  weather_swap: { emoji: '☔', color: 'bg-sky-50 border-sky-200 text-sky-700' },
-  transit_reroute: { emoji: '🚇', color: 'bg-red-50 border-red-200 text-red-700' },
-  mode_change: { emoji: '🔄', color: 'bg-slate-50 border-slate-200 text-slate-600' },
+  weather_swap:    { Icon: CloudRain, color: 'border-info-500/25 bg-info-50 text-info-600' },
+  transit_reroute: { Icon: TrainFront, color: 'border-danger-500/25 bg-danger-50 text-danger-600' },
+  mode_change:     { Icon: Repeat, color: 'border-slate-200 bg-slate-50 text-slate-600' },
 }
 
 function LogBadge({ entry }) {
   const cfg = LOG_TYPE_CONFIG[entry.type] ?? LOG_TYPE_CONFIG.mode_change
   return (
     <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${cfg.color}`}>
-      <span className="text-[14px] shrink-0">{cfg.emoji}</span>
+      <cfg.Icon size={15} className="shrink-0" />
       <div className="min-w-0">
         <p className="text-[12.5px] font-semibold leading-snug">{entry.title}</p>
         {entry.detail && (
@@ -62,6 +95,34 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
     s + (l.distance_km != null ? Math.round(l.distance_km * 1000) : (l.duration_minutes ?? 0) * 80), 0)
   const transfers = allLegs.filter((l) => !['WALK'].includes((l.transport_mode ?? '').toUpperCase())).length
   const totalPlaces = trip?.places?.length ?? 0
+
+  // Transport-mode breakdown (km, count) for the donut — uses mode tokens for colour
+  const modeStats = useMemo(() => {
+    const acc = {}
+    for (const l of allLegs) {
+      const m = normalizeTransportMode(l.transport_mode)
+      const km = l.distance_km != null
+        ? l.distance_km
+        : ((l.duration_minutes ?? 0) * (m === 'WALK' ? 0.08 : 0.5)) // rough fallback
+      acc[m] = acc[m] ?? { mode: m, km: 0, count: 0 }
+      acc[m].km += km
+      acc[m].count += 1
+    }
+    return Object.values(acc)
+      .map((s) => ({ ...s, color: transportMeta(s.mode).color, label: transportMeta(s.mode).label }))
+      .sort((a, b) => b.km - a.km)
+  }, [allLegs])
+  const totalKm = modeStats.reduce((s, m) => s + m.km, 0)
+  const donutSegments = modeStats.map((m) => ({ value: m.km, color: m.color }))
+
+  // Per-day active minutes (transit + dwell), for the bar chart
+  const dayMinutes = days.map((d) => {
+    const tMin = (d.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
+    const ids = new Set((d.legs ?? []).flatMap((l) => [l.from_place_id, l.to_place_id]))
+    const dMin = (trip?.places ?? []).filter((p) => ids.has(p.id)).reduce((s, p) => s + (p.dwell_minutes ?? 0), 0)
+    return { day: d.day, min: tMin + dMin }
+  })
+  const maxDayMin = Math.max(...dayMinutes.map((d) => d.min), 1)
 
   const cards = [
     { label: t('sumActiveTime'),  value: fmtMin(totalMin),     Icon: Clock },
@@ -96,12 +157,9 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
               className="flex h-10 w-full rounded-xl border border-emerald-200 bg-white px-3 text-[13px] text-slate-900 focus:outline-none focus:border-emerald-400"
             />
           </div>
-          <button
-            onClick={() => onSave?.(tripName || pendingSave.name)}
-            className="w-full h-11 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-display font-bold text-[14px] shadow-card inline-flex items-center justify-center gap-2 hover:opacity-90 transition"
-          >
+          <Button variant="success" onClick={() => onSave?.(tripName || pendingSave.name)} className="w-full">
             <Save size={15} /> {t('sumSaveBtn')}
-          </button>
+          </Button>
         </div>
       )}
       <div>
@@ -118,27 +176,51 @@ export default function SummaryTab({ trip, optimizationLog = [], pendingSave = n
         ))}
       </div>
 
-      {/* By day */}
+      {/* Transport breakdown — donut by distance per mode */}
+      {modeStats.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <PieChart size={13} className="text-blue-600" />
+            <div className="font-display font-bold text-[14px] text-slate-900">{t('sumModeSplit')}</div>
+          </div>
+          <div className="flex items-center gap-5">
+            <Donut segments={donutSegments} total={totalKm} />
+            <div className="min-w-0 flex-1 space-y-2">
+              {modeStats.map((m) => (
+                <div key={m.mode} className="flex items-center gap-2 text-[12.5px]">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: m.color }} />
+                  <span className="font-semibold text-slate-700">{m.label}</span>
+                  <span className="ml-auto tabular-nums text-slate-500">
+                    {m.km >= 1 ? `${m.km.toFixed(1)} km` : `${Math.round(m.km * 1000)} m`}
+                    <span className="text-slate-300"> · </span>
+                    {totalKm > 0 ? Math.round((m.km / totalKm) * 100) : 0}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* By day — active-time bars */}
       {days.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white shadow-card p-4">
           <div className="font-display font-bold text-[14px] text-slate-900 mb-3">{t('sumByDay')}</div>
-          <div className="space-y-3">
-            {days.map((d) => {
-              const m = (d.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
-              const stops = (d.legs ?? []).length + (d.legs?.length > 0 ? 1 : 0)
-              return (
-                <div key={d.day} className="flex items-center justify-between text-[13px]">
-                  <span className="inline-flex items-center gap-2">
-                    <span className="grid h-6 w-6 place-items-center rounded-md bg-blue-50 text-blue-700 font-display font-bold text-[11px]">
-                      D{d.day}
-                    </span>
-                    <span className="font-medium text-slate-900">{t('tripDay', d.day)}</span>
-                    <span className="text-slate-400">· {t('tripStopsCount', stops)}</span>
-                  </span>
-                  <span className="tabular-nums text-slate-600">{fmtMin(m)}</span>
+          <div className="space-y-2.5">
+            {dayMinutes.map((d) => (
+              <div key={d.day} className="flex items-center gap-3">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-700 font-display font-bold text-[11px]">
+                  D{d.day}
+                </span>
+                <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-blue-500 transition-all"
+                    style={{ width: `${Math.max(4, (d.min / maxDayMin) * 100)}%` }}
+                  />
                 </div>
-              )
-            })}
+                <span className="w-14 shrink-0 text-right text-[12px] tabular-nums text-slate-600">{fmtMin(d.min)}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
