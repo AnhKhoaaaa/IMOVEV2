@@ -81,6 +81,21 @@ function NavHeader({ items, className }) {
   )
 }
 
+/* Width sizer: overlay the current label and the other-language label (invisible) in the
+   same grid cell, so each tab is as wide as the longer of EN/VI — the bar never resizes
+   when switching language, and the moving cursor stops jumping too. */
+function TabLabel({ label, labelAlt }) {
+  if (!labelAlt || labelAlt === label) return label
+  return (
+    <span className="grid justify-items-center">
+      <span className="col-start-1 row-start-1">{label}</span>
+      <span aria-hidden="true" className="col-start-1 row-start-1 invisible">
+        {labelAlt}
+      </span>
+    </span>
+  )
+}
+
 function Tab({ item, active, open, setActiveKey, setOpenMenu, setPosition }) {
   const ref = useRef(null)
   const itemKey = item.key ?? item.label
@@ -106,7 +121,7 @@ function Tab({ item, active, open, setActiveKey, setOpenMenu, setPosition }) {
     <li ref={ref} onMouseEnter={updatePosition} onFocus={updatePosition}>
       {item.to ? (
         <Link to={item.to} className={className}>
-          {item.label}
+          <TabLabel label={item.label} labelAlt={item.labelAlt} />
         </Link>
       ) : item.menu ? (
         <button
@@ -119,7 +134,7 @@ function Tab({ item, active, open, setActiveKey, setOpenMenu, setPosition }) {
           }}
           className={cn(className, 'bg-transparent')}
         >
-          {item.label}
+          <TabLabel label={item.label} labelAlt={item.labelAlt} />
         </button>
       ) : (
         <button
@@ -127,7 +142,7 @@ function Tab({ item, active, open, setActiveKey, setOpenMenu, setPosition }) {
           onClick={item.onClick}
           className={cn(className, 'bg-transparent')}
         >
-          {item.label}
+          <TabLabel label={item.label} labelAlt={item.labelAlt} />
         </button>
       )}
     </li>
