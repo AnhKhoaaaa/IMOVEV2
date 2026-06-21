@@ -723,6 +723,14 @@ const EN = {
   chatBusNow: 'Arriving',
   chatBusEta: (n) => `${n} min`,
   chatBusNone: 'No arrivals right now',
+
+  /* ── PWA ─────────────────────────── */
+  pwaOffline: 'Offline mode — showing your cached itinerary',
+  pwaOnline: 'Back online! Syncing data...',
+  pwaInstallTitle: 'Install IMOVE',
+  pwaInstallDesc: 'Install IMOVE to your home screen for quick offline access and real-time transit alerts.',
+  pwaInstallBtn: 'Install',
+  pwaDismissBtn: 'Later',
 }
 
 const VI = {
@@ -1409,6 +1417,14 @@ const VI = {
   chatBusNow: 'Sắp đến',
   chatBusEta: (n) => `${n} phút`,
   chatBusNone: 'Hiện chưa có chuyến nào',
+
+  /* ── PWA ─────────────────────────── */
+  pwaOffline: 'Chế độ ngoại tuyến — đang hiển thị hành trình đã lưu',
+  pwaOnline: 'Đã kết nối lại! Đang đồng bộ dữ liệu...',
+  pwaInstallTitle: 'Cài đặt IMOVE',
+  pwaInstallDesc: 'Cài đặt IMOVE vào màn hình chính để truy cập ngoại tuyến nhanh và nhận cảnh báo transit thời gian thực.',
+  pwaInstallBtn: 'Cài đặt',
+  pwaDismissBtn: 'Để sau',
 }
 
 export { EN, VI }
