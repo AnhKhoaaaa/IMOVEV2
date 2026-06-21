@@ -251,6 +251,7 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
   const [savingMode, setSavingMode] = useState(null)
   const [compare, setCompare] = useState(null)
   const [compareLoading, setCompareLoading] = useState(false)
+  const [showCompare, setShowCompare] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const meta = transportMeta(leg.transport_mode)
 
@@ -294,9 +295,14 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
 
   const loadCompare = async () => {
     if (!from || !to) return
+    if (compare) {
+      setShowCompare((prev) => !prev)
+      return
+    }
     setCompareLoading(true)
     try {
       setCompare(await api.compareRoutes(from.lat, from.lng, to.lat, to.lng))
+      setShowCompare(true)
     } catch (err) {
       onWarning?.(err.message)
     } finally {
@@ -419,9 +425,17 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
         <button
           onClick={loadCompare}
           disabled={compareLoading}
-          className="rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-[12px] font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60 animate-fade-in"
+          className={cn(
+            'inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12px] font-bold transition-colors disabled:opacity-60 animate-fade-in',
+            showCompare
+              ? 'border border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+              : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+          )}
         >
           {compareLoading ? t('tripComparing') : t('tripCompareModes')}
+          {compare && !compareLoading && (
+            <ChevronDown size={12} className={cn('transition-transform duration-200', showCompare && 'rotate-180')} />
+          )}
         </button>
 
         {leg.sub_legs?.length > 0 && (
@@ -464,29 +478,67 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
         </div>
       )}
 
-      {/* Mode Compare Results (always shown when loaded, regardless of tripStarted status) */}
-      {compare && (
-        <div className="mt-3 grid grid-cols-3 gap-2 animate-fade-in">
-          {Object.entries(compare).map(([key, value]) => (
-            <div key={key} className="rounded-lg border border-slate-200 bg-white p-3">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
-              <p className="mt-1 text-[13px] font-extrabold text-slate-900">
-                {value.available ? formatDuration(value.duration_minutes) : t('tripUnavailable')}
-              </p>
-              {value.available && <p className="text-[11px] text-slate-500">{formatCost(value.fare_sgd)}</p>}
-            </div>
-          ))}
-          {/* Grab card — always shown in compare, data from leg.alternatives */}
-          <div className="rounded-lg border border-mode-taxi/20 bg-mode-taxi-50 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-mode-taxi">Grab</p>
-            <p className="mt-1 text-[13px] font-extrabold text-slate-900">
-              {leg.alternatives?.GRAB ? formatDuration(leg.alternatives.GRAB.duration_minutes) : '—'}
-            </p>
-            {leg.alternatives?.GRAB && (
-              <p className="text-[11px] text-mode-taxi">
-                {formatCost(leg.alternatives.GRAB.fare_sgd)} · {t('tripEstimated')}
-              </p>
-            )}
+      {/* Mode Compare Results (shown when showCompare is true and data is loaded) */}
+      {showCompare && compare && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3 animate-fade-in">
+          <div className="mb-2.5 flex items-center justify-between">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripCompareModes')}</p>
+            <button
+              type="button"
+              onClick={() => setShowCompare(false)}
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+              title={t('tripHideDetails') || 'Hide'}
+            >
+              <X size={13} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(compare).map(([key, value]) => {
+              const normKey = normalizeTransportMode(key)
+              const subMeta = transportMeta(normKey)
+              return (
+                <div key={key} className={cn("rounded-xl border p-2.5 flex flex-col justify-between shadow-sm transition hover:shadow-md", subMeta.tone)}>
+                  <div className="flex items-center gap-1.5">
+                    <subMeta.Icon size={12} className="shrink-0" />
+                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-80">
+                      {MODE_LABEL_KEY[normKey] ? t(MODE_LABEL_KEY[normKey]) : subMeta.label}
+                    </p>
+                  </div>
+                  <div className="mt-1.5">
+                    <p className="text-[13px] font-extrabold leading-tight">
+                      {value.available ? formatDuration(value.duration_minutes) : t('tripUnavailable')}
+                    </p>
+                    {value.available && <p className="text-[10px] opacity-75 mt-0.5">{formatCost(value.fare_sgd)}</p>}
+                  </div>
+                </div>
+              )
+            })}
+            
+            {/* Grab card — always shown in compare, data from leg.alternatives */}
+            {(() => {
+              const grabMeta = transportMeta('GRAB')
+              return (
+                <div className={cn("rounded-xl border p-2.5 flex flex-col justify-between shadow-sm transition hover:shadow-md", grabMeta.tone)}>
+                  <div className="flex items-center gap-1.5">
+                    <grabMeta.Icon size={12} className="shrink-0" />
+                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-80">
+                      {MODE_LABEL_KEY['GRAB'] ? t(MODE_LABEL_KEY['GRAB']) : 'Grab'}
+                    </p>
+                  </div>
+                  <div className="mt-1.5">
+                    <p className="text-[13px] font-extrabold leading-tight">
+                      {leg.alternatives?.GRAB ? formatDuration(leg.alternatives.GRAB.duration_minutes) : '—'}
+                    </p>
+                    {leg.alternatives?.GRAB && (
+                      <p className="text-[10px] opacity-75 mt-0.5">
+                        {formatCost(leg.alternatives.GRAB.fare_sgd)} · {t('tripEstimated')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}
