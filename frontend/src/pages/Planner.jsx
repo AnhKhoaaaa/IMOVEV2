@@ -131,7 +131,7 @@ function SelectedList({ places, onRemove }) {
   }
 
   return (
-    <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-330px)]">
+    <div className="max-h-[240px] space-y-2 overflow-y-auto pr-1 xl:max-h-[calc(100dvh-550px)]">
       {places.map((place) => (
         <PlaceMiniCard key={place.id} place={place} onRemove={() => onRemove(place.id)} />
       ))}
