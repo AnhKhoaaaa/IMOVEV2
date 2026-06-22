@@ -586,18 +586,19 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
   )
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div>
           <h2 className="font-display text-[24px] font-extrabold text-slate-950">{t('tripOverview')}</h2>
           <p className="mt-1 text-[13px] text-slate-500">{t('tripOverviewDesc')}</p>
         </div>
         {!tripStarted && (
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             {needsRouteUpdate ? (
               <div className="relative">
                 <Button
                   onClick={() => setRouteDropdownOpen((v) => !v)}
                   disabled={mutating}
+                  className="w-full sm:w-auto"
                 >
                   {mutating ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
                   {t('tripUpdateRoute')}
@@ -633,13 +634,13 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 variant="outline"
                 onClick={onOptimiseOrder}
                 disabled={mutating}
-                className="border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-700"
+                className="w-full border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-700 sm:w-auto"
               >
                 <Sparkles size={15} /> {t('tripOptimiseOrder')}
               </Button>
             )}
             {onStartTrip && (
-              <Button variant="success" onClick={onStartTrip}>
+              <Button variant="success" onClick={onStartTrip} className="w-full sm:w-auto">
                 <Navigation2 size={15} /> {t('tripStartTrip')}
               </Button>
             )}
@@ -674,7 +675,7 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {(trip.days ?? []).map((day) => {
           const isDirty = !!pendingByDay[day.day]
           // Use pending order if available, else derive from server legs — hotel excluded
@@ -1648,10 +1649,10 @@ export default function Trip() {
   }
 
   return (
-    <main className="flex h-[calc(100dvh-56px)] flex-col overflow-hidden bg-white">
-      <header className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
-        <div className="flex items-center justify-between gap-6">
-          <div className="flex min-w-0 items-center gap-4">
+    <main className="flex min-h-[calc(100dvh-56px)] flex-col bg-white lg:h-[calc(100dvh-56px)] lg:overflow-hidden">
+      <header className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6 sm:py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <button onClick={() => navigate('/')} className="grid h-9 w-9 place-items-center rounded-md text-slate-500 hover:bg-slate-100">
               <ArrowLeft size={17} />
             </button>
@@ -1700,20 +1701,20 @@ export default function Trip() {
             </div>
           </div>
 
-          <nav className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+          <nav className="flex w-full items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 scroll-thin lg:w-auto">
             <button
               onClick={() => setActiveTab('overview')}
-              className={cn('h-9 rounded-md px-3 text-[13px] font-bold', activeTab === 'overview' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+              className={cn('h-9 shrink-0 whitespace-nowrap rounded-md px-3 text-[13px] font-bold', activeTab === 'overview' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
             >
               {t('tripOverview')}
             </button>
             {(trip.days ?? []).map((day) => (
-              <div key={day.day} className="flex items-center">
+              <div key={day.day} className="flex shrink-0 items-center">
                 <button
                   onClick={() => !needsRouteUpdate && selectDayTab(day.day)}
                   disabled={needsRouteUpdate}
                   title={needsRouteUpdate ? t('tripUpdateRoutesFirst') : undefined}
-                  className={cn('h-9 rounded-md px-3 text-[13px] font-bold',
+                  className={cn('h-9 whitespace-nowrap rounded-md px-3 text-[13px] font-bold',
                     needsRouteUpdate
                       ? 'cursor-not-allowed opacity-40 text-slate-400'
                       : selectedDay === day.day && activeTab.startsWith('day-') ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500'
@@ -1745,13 +1746,13 @@ export default function Trip() {
             )}
             <button
               onClick={() => setActiveTab('summary')}
-              className={cn('h-9 rounded-md px-3 text-[13px] font-bold', activeTab === 'summary' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
+              className={cn('h-9 shrink-0 whitespace-nowrap rounded-md px-3 text-[13px] font-bold', activeTab === 'summary' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
             >
               {t('tripSummary')}
             </button>
           </nav>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 self-end lg:self-auto">
             {!isLive && (
               <button onClick={() => setSetupOpen(true)} className="grid h-9 w-9 place-items-center rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50" title={t('tripEditSetup')}>
                 <Settings size={15} />
@@ -1771,8 +1772,8 @@ export default function Trip() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] overflow-hidden">
-        <section className="relative isolate min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
+      <div className="grid flex-1 grid-cols-1 overflow-y-auto lg:min-h-0 lg:grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] lg:overflow-hidden">
+        <section className="relative isolate min-h-0 bg-slate-50 p-4 scroll-thin sm:p-6 lg:overflow-y-auto lg:border-r lg:border-slate-200">
           {/* Warnings & Alerts placed inside the sidebar to connect map directly with toolbar */}
           {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
             <div className="mb-4 space-y-2">
@@ -1891,8 +1892,8 @@ export default function Trip() {
           )}
         </section>
 
-        <aside className="relative isolate min-h-0 bg-white">
-          <div className="h-full w-full overflow-hidden">
+        <aside className="relative isolate min-h-[320px] border-t border-slate-200 bg-white lg:min-h-0 lg:border-t-0">
+          <div className="h-[320px] w-full overflow-hidden lg:h-full">
             <TripMap
               places={mapPlaces}
               legs={mapLegs}
