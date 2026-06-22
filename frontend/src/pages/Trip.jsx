@@ -18,6 +18,8 @@ import {
   Lock,
   MapPin,
   Navigation2,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RotateCcw,
   Route,
@@ -645,6 +647,7 @@ function SortablePlaceItem({ place, visitIndex, times, tripStarted, onRemovePlac
 function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onDragReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTimeForDay, needsRouteUpdate, mutating }) {
   const { t } = useT()
   const [routeDropdownOpen, setRouteDropdownOpen] = useState(false)
+  const [warningsOpen, setWarningsOpen] = useState(false)
   const [activeDragId, setActiveDragId] = useState(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -715,15 +718,26 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
       </div>
 
       {trip.warnings?.length > 0 && (
-        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <div className="flex gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            <div className="space-y-1">
+        <div role="alert" className="overflow-hidden rounded-lg border border-amber-200 bg-amber-50">
+          {/* Collapsible: keep notices in place but let the user shrink them so a long, wordy
+              warning (e.g. "some days seem a little packed") never blocks the view. */}
+          <button
+            type="button"
+            onClick={() => setWarningsOpen((v) => !v)}
+            aria-expanded={warningsOpen}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+            <span className="text-[13px] font-bold text-amber-800">{t('tripWarningsTitle', trip.warnings.length)}</span>
+            <ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 text-amber-600 transition-transform', warningsOpen && 'rotate-180')} />
+          </button>
+          {warningsOpen && (
+            <div className="space-y-1 px-4 pb-3 pl-10">
               {trip.warnings.map((warning, index) => (
-                <p key={index} className="text-[13px] font-semibold text-amber-800">{warning}</p>
+                <p key={index} className="text-[13px] font-medium leading-relaxed text-amber-800">{warning}</p>
               ))}
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -1125,6 +1139,7 @@ export default function Trip() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [mutating, setMutating] = useState(false)
   const [optimizeMsg, setOptimizeMsg] = useState(null)
+  const [mapOpen, setMapOpen] = useState(true)   // collapse the map to give the left panel full width
   const [todayBanner, setTodayBanner] = useState(false)
   // Group multi-day weather forecast alerts: only the selected day's alert shows
   // expanded by default, the rest collapse behind a "Rain forecast for N days" toggle.
@@ -1817,7 +1832,21 @@ export default function Trip() {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] overflow-hidden">
+      <div className={cn(
+        'relative grid min-h-0 flex-1 overflow-hidden',
+        mapOpen ? 'grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)]' : 'grid-cols-1'
+      )}>
+        {/* Collapse the map to give the itinerary the full width; expand to bring it back. */}
+        <button
+          type="button"
+          onClick={() => setMapOpen((v) => !v)}
+          aria-label={mapOpen ? t('tripHideMap') : t('tripShowMap')}
+          title={mapOpen ? t('tripHideMap') : t('tripShowMap')}
+          className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[12px] font-semibold text-slate-700 shadow-card backdrop-blur transition hover:bg-slate-50"
+        >
+          {mapOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+          {mapOpen ? t('tripHideMap') : t('tripShowMap')}
+        </button>
         <section className="relative isolate min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
           {/* Warnings & Alerts placed inside the sidebar to connect map directly with toolbar */}
           {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
@@ -1937,6 +1966,7 @@ export default function Trip() {
           )}
         </section>
 
+        {mapOpen && (
         <aside className="relative isolate min-h-0 bg-white">
           <div className="h-full w-full overflow-hidden">
             <TripMap
@@ -1954,6 +1984,7 @@ export default function Trip() {
             />
           </div>
         </aside>
+        )}
       </div>
 
       <TripSetupModal
