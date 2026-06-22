@@ -90,6 +90,9 @@ class ChatConfirmRequest(BaseModel):
     session_id: str
     pending_action_id: str
     confirm: bool = True
+    # dev30 #16 — optional: the trip the client is currently viewing. When present and it differs
+    # from the proposal's target trip, /chat/confirm refuses to silently edit the other trip.
+    trip_id: Optional[str] = None
 
 
 class ChatConfirmResponse(BaseModel):

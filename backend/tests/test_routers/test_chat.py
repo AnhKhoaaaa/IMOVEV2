@@ -161,6 +161,49 @@ def test_confirm_handler_error_returns_executed_false_and_keeps_pending():
     assert "s12" in chat_agent._pending_actions  # kept for retry
 
 
+def test_confirm_mismatched_trip_does_not_apply():
+    """dev30 #16 — if the client is now on a different trip than the proposal targets,
+    /chat/confirm refuses to silently edit the old trip and keeps the pending."""
+    trip_id = "t1"
+    plan = _make_plan(trip_id)
+    _seed(trip_id, plan, user_id=None)
+    pid = _a_curated_id()
+    chat_agent._pending_actions["s14"] = {
+        "id": "p14", "tool": "add_place",
+        "args": {"place_id": pid, "day": 1}, "trip_id": trip_id, "preview": "Add place",
+    }
+    with patch("app.routers.trips.planning_agent.plan_trip", new_callable=AsyncMock) as spy:
+        with _auth_as(None):
+            resp = client.post("/chat/confirm", json={
+                "session_id": "s14", "pending_action_id": "p14", "trip_id": "DIFFERENT",
+            })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["executed"] is False
+    spy.assert_not_awaited()                          # nothing applied
+    assert "s14" in chat_agent._pending_actions       # kept for re-request
+
+
+def test_confirm_matching_trip_applies():
+    """Passing the matching trip_id must NOT block a legitimate confirm."""
+    trip_id = "t1"
+    plan = _make_plan(trip_id)
+    _seed(trip_id, plan, user_id=None)
+    pid = _a_curated_id()
+    chat_agent._pending_actions["s15"] = {
+        "id": "p15", "tool": "add_place",
+        "args": {"place_id": pid, "day": 1}, "trip_id": trip_id, "preview": "Add place",
+    }
+    with patch("app.routers.trips.planning_agent.plan_trip", new_callable=AsyncMock, return_value=plan):
+        with _auth_as(None):
+            resp = client.post("/chat/confirm", json={
+                "session_id": "s15", "pending_action_id": "p15", "trip_id": trip_id,
+            })
+    assert resp.status_code == 200
+    assert resp.json()["executed"] is True
+    assert "s15" not in chat_agent._pending_actions
+
+
 def test_confirm_cancel_discards_pending():
     chat_agent._pending_actions["s13"] = {
         "id": "p13", "tool": "add_day", "args": {}, "trip_id": "t1", "preview": "x",

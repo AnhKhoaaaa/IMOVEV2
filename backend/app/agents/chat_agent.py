@@ -32,8 +32,19 @@ _pending_actions: dict[str, dict] = {}
 _chat_ctx: dict[str, dict] = {}
 # session_id -> monotonic expiry — dev25 P5 live-companion dedupe (shares the weather_live window)
 _companion_seen: dict[str, float] = {}
+# session_id -> monotonic last-activity timestamp — dev30 idle-session GC
+_session_seen: dict[str, float] = {}
 
 _MAX_TURNS = 4
+
+# dev30 — bound the in-memory chat state so a long-lived session can't leak memory or keep
+# inflating the token cost (the whole history is re-sent to Gemini every turn). History is
+# trimmed to the last _MAX_USER_TURNS genuine user turns (keeping each round's function-call /
+# response pairing intact); idle sessions and stale unconfirmed proposals are garbage-collected.
+_MAX_HISTORY = 60          # hard cap on stored Content entries before trimming kicks in
+_MAX_USER_TURNS = 12       # how many recent user messages of context to retain
+_SESSION_TTL_S = 2 * 3600  # drop a session's history/ctx after this much idle time
+_PENDING_TTL_S = 30 * 60   # drop an unconfirmed proposal after this long
 
 _SGT = timezone(timedelta(hours=8))
 
@@ -62,16 +73,26 @@ SYSTEM_PROMPT = (
     "active trip automatically. If multiple match, ask the user to pick one. "
     "To inspect the user's itinerary, call get_current_trip (it returns leg ids and place "
     "ids you must reference in write tools). "
-    "ANY change to the itinerary MUST go through the matching write tool as a PROPOSAL — "
-    "never claim a change is done, because writes require the user to confirm. "
-    "Weather and alerts are read-only. "
+    "ADVICE vs EDIT — requests to suggest, plan or advise (e.g. 'plan a 3-day trip', 'what "
+    "should I do for 3 days', 'recommend places', 'tư vấn chuyến 3 ngày') are READ-ONLY: answer "
+    "with curated place suggestions (search_places / get_curated_places + show_places). Do NOT "
+    "call any write tool for these, and do NOT require an open trip to give advice. Only use a "
+    "write tool (add_place, add_day, reorder_places, optimize_trip, …) when the user EXPLICITLY "
+    "asks to modify an itinerary that is currently OPEN. Any such change MUST go through the "
+    "matching write tool as a PROPOSAL — never claim a change is done, because writes require "
+    "the user to confirm. "
+    "Weather and alerts are read-only. For 'weather here / near me', call get_weather WITHOUT "
+    "lat/lng — the app fills in the user's live GPS when available. "
     "PRESENTATION — whenever you recommend one or more curated places (especially if the user "
     "asks for photos/images), you MUST call show_places to display photo cards; do not just list "
     "them in text. Pass the dataset IDS — the exact `id` field from search_places / "
     "get_curated_places (e.g. 'merlion-park'), NOT the display name. If show_places returns "
-    "status 'no_match' or any unresolved ids, look up the correct id and call it again. Keep your "
-    "own text short and conversational (the cards carry the details), and separate distinct ideas "
-    "into their own paragraphs (blank line between them) so they render as separate blocks."
+    "status 'no_match' or any unresolved ids, look up the correct id and call it again. ALWAYS "
+    "include at least one short sentence of your own commentary together with the cards — never "
+    "reply with cards and no text. Put that commentary in the SAME final reply as the cards (not "
+    "only in a tool-call turn). Keep it short and conversational (the cards carry the details), "
+    "and separate distinct ideas into their own paragraphs (blank line between them) so they "
+    "render as separate blocks."
 )
 
 
@@ -281,6 +302,38 @@ def reset() -> None:
     _pending_actions.clear()
     _chat_ctx.clear()
     _companion_seen.clear()
+    _session_seen.clear()
+
+
+def _trim_history(history: list) -> None:
+    """Cap stored history in place so a long session can't grow unbounded (dev30 #12).
+
+    Trims to start at the oldest of the last _MAX_USER_TURNS *genuine* user messages (a Content
+    with a text part — not a function_response wrapper), so the kept slice always begins a clean
+    round and every function-call keeps its paired response. No-op until the hard cap is hit.
+    """
+    if len(history) <= _MAX_HISTORY:
+        return
+    starts = [
+        i for i, c in enumerate(history)
+        if getattr(c, "role", None) == "user"
+        and any(getattr(p, "text", None) for p in (getattr(c, "parts", None) or []))
+    ]
+    if len(starts) > _MAX_USER_TURNS:
+        del history[: starts[-_MAX_USER_TURNS]]
+
+
+def _gc_sessions(now: float) -> None:
+    """Drop idle sessions and expired proposals (dev30 #11/#12) — cheap, runs each turn."""
+    for s, ts in list(_session_seen.items()):
+        if now - ts > _SESSION_TTL_S:
+            _chat_history.pop(s, None)
+            _chat_ctx.pop(s, None)
+            _companion_seen.pop(s, None)
+            _session_seen.pop(s, None)
+    for s, p in list(_pending_actions.items()):
+        if now - p.get("created_at", now) > _PENDING_TTL_S:
+            _pending_actions.pop(s, None)
 
 
 async def run_chat(
@@ -290,8 +343,13 @@ async def run_chat(
     gps: Optional[Gps] = None,
     current_user: Optional[str] = None,
 ) -> ChatResponse:
+    now = time.monotonic()
+    _session_seen[session_id] = now
+    _gc_sessions(now)
+
     history = _chat_history.setdefault(session_id, [])
     history.append(types.Content(role="user", parts=[types.Part(text=message)]))
+    _trim_history(history)
 
     # Use trip_id from this request; fall back to one resolved in a previous turn
     session_ctx = _chat_ctx.setdefault(session_id, {})
@@ -422,6 +480,7 @@ async def companion_check(
     # Dedupe repeated polls: after a nudge fires, stay quiet for the shared weather_live window
     # so the companion doesn't ping every few minutes about the same shower.
     now = time.monotonic()
+    _session_seen[session_id] = now  # dev30 — keep an active companion session out of idle GC
     exp = _companion_seen.get(session_id)
     if exp and exp > now:
         return None
@@ -705,7 +764,13 @@ async def _execute_read_tool(tool, args, ctx) -> object:
             from app.services import openweather
             lat, lng = args.get("lat"), args.get("lng")
             if lat is None or lng is None:
-                return {"error": "GPS coordinates are required for weather."}
+                # dev30 #13 — "weather here" works: fall back to the user's live GPS (ctx) when
+                # the model didn't supply coordinates (it isn't told the user's position).
+                gps = ctx.get("gps")
+                if gps is not None:
+                    lat, lng = gps.lat, gps.lng
+            if lat is None or lng is None:
+                return {"error": "No location available — ask the user to share a place or enable GPS."}
             return await openweather.get_current_weather(lat, lng)
 
         if tool == "get_current_events":
@@ -823,6 +888,20 @@ async def _build_pending_action(tool, args, ctx):
         place_ids = [str(x) for x in (args.get("place_ids") or [])]
         if not place_ids:
             return ("error", "place_ids is empty.")
+        # dev30 #14 — validate at proposal time (like add/remove/change_leg): the day must exist
+        # and every place_id must actually belong to that day, so a bad reorder is caught here
+        # with a clear message instead of failing generically at confirm.
+        plan = await _load_plan(ctx)
+        if plan is None:
+            return ("error", "Could not load the current trip.")
+        day_obj = next((d for d in plan.days if d.day == day), None)
+        if day_obj is None:
+            return ("error", f"day {day} is not in the current trip.")
+        day_place_ids = {leg.from_place_id for leg in day_obj.legs} | {leg.to_place_id for leg in day_obj.legs}
+        if day_place_ids:  # only enforce when the day has legs to derive membership from
+            unknown = [pid for pid in place_ids if pid not in day_place_ids]
+            if unknown:
+                return ("error", f"these place_ids are not on day {day}: {', '.join(unknown)}")
         final_args = {"day": day, "place_ids": place_ids}
         preview = f"Reorder the places of day {day}"
 
@@ -875,6 +954,14 @@ async def _build_pending_action(tool, args, ctx):
     else:
         return ("error", f"Unknown write tool: {tool}")
 
+    # dev30 #15 — one pending per session: a new proposal replaces an unconfirmed older one,
+    # which then becomes unconfirmable (409). The client only tracks one proposal too, so this
+    # is consistent — log it so the silent drop is observable.
+    superseded = _pending_actions.get(ctx["session_id"])
+    if superseded:
+        log.info("Replacing unconfirmed proposal for session %s: %s -> %s",
+                 ctx["session_id"], superseded.get("tool"), tool)
+
     pending_id = str(uuid.uuid4())
     _pending_actions[ctx["session_id"]] = {
         "id": pending_id,
@@ -882,6 +969,7 @@ async def _build_pending_action(tool, args, ctx):
         "args": final_args,
         "trip_id": trip_id,
         "preview": preview,
+        "created_at": time.monotonic(),  # dev30 — for idle-proposal GC (_gc_sessions)
     }
     proposal = ProposedAction(tool=tool, preview=preview, args=final_args)
     return ("proposal", (proposal, pending_id, preview))
