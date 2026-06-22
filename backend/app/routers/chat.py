@@ -84,7 +84,16 @@ async def chat_confirm(
 ):
     pending = chat_agent._pending_actions.get(body.session_id)
     if pending is None:
-        raise HTTPException(status_code=404, detail="No pending action for this session")
+        # The proposal expired (idle GC) or was lost on a server restart — in-memory state is
+        # not durable. Tell the user plainly so they re-ask instead of seeing a raw 404 (dev30 #11).
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "This suggestion is no longer available — it may have expired or the server "
+                "restarted. Please ask me again. (Đề xuất không còn khả dụng — có thể đã hết hạn "
+                "hoặc máy chủ vừa khởi động lại. Bạn vui lòng yêu cầu lại nhé.)"
+            ),
+        )
     if pending["id"] != body.pending_action_id:
         raise HTTPException(status_code=409, detail="pending_action_id does not match")
 
@@ -96,6 +105,19 @@ async def chat_confirm(
         )
 
     trip_id = pending["trip_id"]
+
+    # dev30 #16 — guard against applying a proposal to the wrong trip. If the client is now
+    # viewing a different trip than the one the proposal targets, don't silently edit the old
+    # one; keep the pending and ask the user to re-request in the current context.
+    if body.trip_id and body.trip_id != trip_id:
+        return ChatConfirmResponse(
+            reply=(
+                "That suggestion was for a different trip than the one you're viewing now, so I "
+                "didn't apply it. Please ask me again here. (Đề xuất đó dành cho chuyến khác với "
+                "chuyến bạn đang xem, nên tôi chưa áp dụng. Bạn hãy yêu cầu lại ở đây nhé.)"
+            ),
+            executed=False,
+        )
 
     # Centralised ownership check for EVERY write tool — fixes the gap where
     # update_leg / switch_leg_now don't verify ownership themselves. A 403 here

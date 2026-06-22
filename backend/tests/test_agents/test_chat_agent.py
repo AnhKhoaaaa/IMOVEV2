@@ -4,6 +4,7 @@ generate_chat is patched to return canned Gemini responses, so no LLM/network is
 Read tools run for real against the curated dataset (no network); write tools must
 build a pending action WITHOUT mutating the trip store.
 """
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -504,3 +505,134 @@ async def test_companion_check_demo_flag_off_uses_real_weather(monkeypatch):
             "sd2", "trip1", Gps(lat=1.287, lng=103.854), current_user="u1")
     assert nudge is None        # dry → silent
     wx.assert_called_once()     # real weather path taken
+
+
+# ── in-memory state hardening (dev30 #11/#12) ─────────────────────────────────────
+
+def test_trim_history_caps_long_session():
+    """A long session is trimmed to the last _MAX_USER_TURNS user turns, starting on a clean
+    user message so function-call/response pairing in the kept slice stays intact."""
+    def user_text(i):
+        return SimpleNamespace(role="user", parts=[SimpleNamespace(text=f"msg {i}", function_call=None)])
+
+    def model_reply(i):
+        return SimpleNamespace(role="model", parts=[SimpleNamespace(text=f"reply {i}", function_call=None)])
+
+    history = []
+    for i in range(40):
+        history.append(user_text(i))
+        history.append(model_reply(i))
+    assert len(history) == 80
+
+    chat_agent._trim_history(history)
+
+    assert len(history) <= chat_agent._MAX_HISTORY
+    kept_user = [c for c in history if c.role == "user"]
+    assert len(kept_user) == chat_agent._MAX_USER_TURNS    # exactly the last N user turns
+    assert history[0].role == "user"                       # slice begins a clean round
+    assert history[0].parts[0].text == "msg 28"            # 40 - 12
+
+
+def test_trim_history_noop_when_short():
+    short = [SimpleNamespace(role="user", parts=[SimpleNamespace(text="hi", function_call=None)])]
+    chat_agent._trim_history(short)
+    assert len(short) == 1
+
+
+def test_gc_drops_idle_session_and_expired_pending():
+    now = time.monotonic()
+    # idle session (older than the TTL) — should be dropped wholesale
+    chat_agent._chat_history["old"] = ["x"]
+    chat_agent._chat_ctx["old"] = {"trip_id": "t"}
+    chat_agent._companion_seen["old"] = now
+    chat_agent._session_seen["old"] = now - chat_agent._SESSION_TTL_S - 1
+    # fresh session — should survive
+    chat_agent._chat_history["fresh"] = ["y"]
+    chat_agent._session_seen["fresh"] = now
+    # expired vs fresh unconfirmed proposals
+    chat_agent._pending_actions["p_old"] = {"id": "1", "created_at": now - chat_agent._PENDING_TTL_S - 1}
+    chat_agent._pending_actions["p_new"] = {"id": "2", "created_at": now}
+
+    chat_agent._gc_sessions(now)
+
+    assert "old" not in chat_agent._chat_history
+    assert "old" not in chat_agent._chat_ctx
+    assert "old" not in chat_agent._session_seen
+    assert "old" not in chat_agent._companion_seen
+    assert "fresh" in chat_agent._chat_history          # active session untouched
+    assert "p_old" not in chat_agent._pending_actions   # stale proposal expired
+    assert "p_new" in chat_agent._pending_actions       # fresh proposal kept
+
+
+@pytest.mark.asyncio
+async def test_run_chat_trims_history_across_many_turns():
+    """End-to-end: many advice-only turns must not let stored history grow without bound."""
+    cm, _ = _patch_gen(_resp([_text_part("ok")]))
+    with cm:
+        for _ in range(50):
+            await chat_agent.run_chat("long1", "gợi ý", trip_id=None)
+    assert len(chat_agent._chat_history["long1"]) <= chat_agent._MAX_HISTORY
+
+
+# ── logic correctness (dev30 #13/#14) ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_weather_falls_back_to_ctx_gps():
+    """'Weather here' works: with no lat/lng from the model, use the user's live GPS (ctx)."""
+    ctx = {"gps": Gps(lat=1.3, lng=103.8)}
+    with patch("app.services.openweather.get_current_weather",
+               new=AsyncMock(return_value={"condition": "Clear", "temp_c": 30})) as wx:
+        result = await chat_agent._execute_read_tool("get_weather", {}, ctx)
+    wx.assert_awaited_once_with(1.3, 103.8)
+    assert result["condition"] == "Clear"
+
+
+@pytest.mark.asyncio
+async def test_get_weather_errors_without_any_location():
+    result = await chat_agent._execute_read_tool("get_weather", {}, {"gps": None})
+    assert "error" in result
+
+
+def _plan_with_day1(*place_ids):
+    """Minimal plan whose day 1 legs reference the given place ids (for reorder validation)."""
+    legs = []
+    chain = list(place_ids)
+    for a, b in zip(chain, chain[1:]):
+        legs.append(SimpleNamespace(from_place_id=a, to_place_id=b))
+    return SimpleNamespace(days=[SimpleNamespace(day=1, legs=legs)])
+
+
+@pytest.mark.asyncio
+async def test_reorder_rejects_place_not_on_day():
+    plan = _plan_with_day1("a", "b", "c")
+    ctx = {"session_id": "rs1", "trip_id": "t1"}
+    with patch.object(chat_agent, "_load_plan", AsyncMock(return_value=plan)):
+        kind, payload = await chat_agent._build_pending_action(
+            "reorder_places", {"day": 1, "place_ids": ["a", "zzz"]}, ctx)
+    assert kind == "error"
+    assert "not on day 1" in payload
+    assert "rs1" not in chat_agent._pending_actions  # no proposal stored on rejection
+
+
+@pytest.mark.asyncio
+async def test_reorder_accepts_places_on_day():
+    plan = _plan_with_day1("a", "b", "c")
+    ctx = {"session_id": "rs2", "trip_id": "t1"}
+    with patch.object(chat_agent, "_load_plan", AsyncMock(return_value=plan)):
+        kind, payload = await chat_agent._build_pending_action(
+            "reorder_places", {"day": 1, "place_ids": ["c", "a", "b"]}, ctx)
+    assert kind == "proposal"
+    proposal, _pending_id, _preview = payload
+    assert proposal.tool == "reorder_places"
+    assert proposal.args == {"day": 1, "place_ids": ["c", "a", "b"]}
+
+
+@pytest.mark.asyncio
+async def test_reorder_rejects_missing_day():
+    plan = _plan_with_day1("a", "b")
+    ctx = {"session_id": "rs3", "trip_id": "t1"}
+    with patch.object(chat_agent, "_load_plan", AsyncMock(return_value=plan)):
+        kind, payload = await chat_agent._build_pending_action(
+            "reorder_places", {"day": 9, "place_ids": ["a"]}, ctx)
+    assert kind == "error"
+    assert "day 9" in payload
