@@ -97,6 +97,7 @@ export default function ChatWidget() {
   const [applying, setApplying] = useState(false)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
+  const lastMessage = messages[messages.length - 1]
 
   // dev25 P1 — proactive companion: surface live trip alerts as friendly chat messages.
   // Guests pass null (no subscription); 'chat' suffix keeps a topic distinct from the Trip page.
@@ -104,6 +105,7 @@ export default function ChatWidget() {
   const surfacedRef = useRef(new Set())              // alert ids already posted
   const [unread, setUnread] = useState(0)
   const [resolvedAlerts, setResolvedAlerts] = useState(new Set())  // alert ids dismissed/applied in chat
+  const [activeCompanionBubble, setActiveCompanionBubble] = useState(null)
 
   // Reset the widget only when the ACCOUNT changes (login/logout) — NOT on trip navigation.
   // The chat is a global companion: navigating between trips/pages must preserve the
@@ -116,11 +118,13 @@ export default function ChatWidget() {
     setUnread(0)
     setHasUserSent(false)
     setResolvedAlerts(new Set())
+    setActiveCompanionBubble(null)
   }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (open) {
       setUnread(0)
+      setActiveCompanionBubble(null)
       if (messages.length === 0) setMessages([{ role: 'assistant', text: t('chatGreeting') }])
     }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -192,7 +196,10 @@ export default function ChatWidget() {
     lang,
     onNudge: (text, id) => {
       setMessages((m) => [...m, { role: 'assistant', text, companionId: id }])
-      if (!open) setUnread((u) => u + 1)
+      if (!open) {
+        setUnread((u) => u + 1)
+        setActiveCompanionBubble({ text, id })
+      }
     },
   })
 
@@ -212,10 +219,8 @@ export default function ChatWidget() {
     })
   }
 
-  const send = async () => {
-    const text = input.trim()
-    if (!text || loading) return
-    setInput('')
+  const triggerMessage = async (text) => {
+    if (loading) return
     setPending(null)
     setHasUserSent(true)
     setMessages((m) => [...m, { role: 'user', text }])
@@ -243,6 +248,13 @@ export default function ChatWidget() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const send = async () => {
+    const text = input.trim()
+    if (!text || loading) return
+    setInput('')
+    await triggerMessage(text)
   }
 
   const useQuickAction = (text) => {
@@ -356,14 +368,39 @@ export default function ChatWidget() {
   if (!open) {
     return (
       <div className="fixed bottom-5 right-5 z-[100] flex flex-col items-center">
-        {isHome && showBubble && (
-          <div className="relative mb-4 w-52 rounded-2xl bg-white p-3 text-xs text-slate-800 shadow-xl border border-slate-100 scale-80 origin-bottom animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <button onClick={(e) => { e.stopPropagation(); setShowBubble(false); }} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 transition-colors">
-              <X className="h-3 w-3" />
+        {activeCompanionBubble ? (
+          <div
+            onClick={() => setOpen(true)}
+            className="cursor-pointer relative mb-4 w-64 rounded-2xl border border-warning-200 bg-warning-50 p-3.5 text-xs text-amber-950 shadow-xl scale-95 origin-bottom animate-in fade-in slide-in-from-bottom-4 duration-500 hover:scale-[0.98] transition-transform"
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setActiveCompanionBubble(null)
+              }}
+              className="absolute right-2.5 top-2.5 text-amber-700 hover:text-amber-900 transition-colors"
+              aria-label="Close alert bubble"
+            >
+              <X className="h-3.5 w-3.5" />
             </button>
-            <p className="pr-4 font-sans leading-relaxed">{ui.speechBubbleText}</p>
-            <div className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 bg-white border-b border-r border-slate-100"></div>
+            <span className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-warning-600">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {ui.companionLabel}
+            </span>
+            <p className="pr-4 font-sans font-medium leading-relaxed">{activeCompanionBubble.text}</p>
+            <div className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-warning-200 bg-warning-50"></div>
           </div>
+        ) : (
+          isHome && showBubble && (
+            <div className="relative mb-4 w-52 rounded-2xl bg-white p-3 text-xs text-slate-800 shadow-xl border border-slate-100 scale-80 origin-bottom animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <button onClick={(e) => { e.stopPropagation(); setShowBubble(false); }} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="h-3 w-3" />
+              </button>
+              <p className="pr-4 font-sans leading-relaxed">{ui.speechBubbleText}</p>
+              <div className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 bg-white border-b border-r border-slate-100"></div>
+            </div>
+          )
         )}
         {isHome ? (
           <button
@@ -487,7 +524,7 @@ export default function ChatWidget() {
           )
         })}
 
-        {!hasUserSent && !loading && (
+        {messages.length <= 1 && !loading && (
           <div className="mt-1 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm ml-10">
             <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
               <Sparkles className="h-3.5 w-3.5 text-primary-600" />
@@ -504,6 +541,38 @@ export default function ChatWidget() {
                   {action}
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+
+        {messages.length > 1 && lastMessage && lastMessage.role === 'assistant' && lastMessage.companionId && !loading && (
+          <div className="mt-1 rounded-2xl border border-warning-200 bg-warning-50/50 p-3 shadow-sm ml-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-warning-700">
+              <Sparkles className="h-3.5 w-3.5 text-warning-600 animate-pulse" />
+              {lang === 'vi' ? 'Xử lý nhanh' : 'Quick Actions'}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => triggerMessage(lang === 'vi' ? 'Đổi điểm tiếp theo sang điểm trong nhà' : 'Swap the nearest stop to indoor')}
+                className="rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+              >
+                🔄 {lang === 'vi' ? 'Đổi sang điểm trong nhà' : 'Swap to indoor'}
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerMessage(lang === 'vi' ? 'Tìm đường đi có mái che hoặc so sánh tuyến đường' : 'Find a covered route or compare routes')}
+                className="rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+              >
+                ☔ {lang === 'vi' ? 'Tìm đường đi có mái che' : 'Find covered route'}
+              </button>
+              <button
+                type="button"
+                onClick={() => triggerMessage(lang === 'vi' ? 'Kiểm tra thời tiết hiện tại' : 'Check the current weather')}
+                className="rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+              >
+                🌦️ {lang === 'vi' ? 'Kiểm tra thời tiết' : 'Check weather'}
+              </button>
             </div>
           </div>
         )}
