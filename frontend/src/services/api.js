@@ -83,6 +83,7 @@ export const api = {
   addDay: (tripId) => request(`/trips/${tripId}/days`, { method: 'POST' }),
   removeDay: (tripId, dayNum) => request(`/trips/${tripId}/days/${dayNum}`, { method: 'DELETE' }),
   getBusArrivals: (stopCode) => request(`/transit/bus-arrivals/${encodeURIComponent(stopCode)}`),
+  getMrtCrowd: (stationCode) => request(`/transit/mrt-crowd/${encodeURIComponent(stationCode)}`),
   compareRoutes: (fromLat, fromLng, toLat, toLng) =>
     request(`/transit/compare?from_lat=${fromLat}&from_lng=${fromLng}&to_lat=${toLat}&to_lng=${toLng}`),
   submitFeedback: (body) => request('/alerts/feedback', { method: 'POST', body: JSON.stringify(body) }),

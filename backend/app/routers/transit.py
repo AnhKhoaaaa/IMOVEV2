@@ -16,6 +16,15 @@ async def bus_arrivals(stop_code: str):
         raise HTTPException(status_code=503, detail=str(exc))
 
 
+@router.get("/mrt-crowd/{station_code}")
+async def mrt_crowd(station_code: str):
+    try:
+        result = await lta.get_mrt_crowd(station_code)
+        return result or {}
+    except LTAUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
 @router.get("/compare", response_model=RouteComparison)
 async def compare_routes(
     from_lat: float,

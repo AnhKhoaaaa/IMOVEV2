@@ -54,6 +54,7 @@ import TripSetupModal from '../components/planner/TripSetupModal'
 import SummaryTab from '../components/planner/SummaryTab'
 import PlaceSearch from '../components/planner/PlaceSearch'
 import BusArrivalPanel from '../components/transit/BusArrivalPanel'
+import MrtInfoPanel from '../components/transit/MrtInfoPanel'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
 import { Button } from '../components/ui/button'
 
@@ -553,9 +554,10 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
         </div>
       )}
 
-      {/* Live Navigation Features (Bus stop arrival panels — only shown when trip has started) */}
+      {/* Live transit panels — bus arrivals + MRT info, only when trip has started */}
       {tripStarted && (
         <>
+          {/* Bus: panel for direct BUS leg or BUS sub-legs inside intermodal routes */}
           {(leg.first_bus_stop_code || (normalizeTransportMode(leg.transport_mode) !== 'BUS' && leg.sub_legs?.some(s => s.mode === 'BUS' && s.from_stop_code))) && (
             <div className="mt-3 space-y-3 animate-fade-in">
               {leg.first_bus_stop_code && normalizeTransportMode(leg.transport_mode) === 'BUS' && (
@@ -578,6 +580,14 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
                   ))
               }
             </div>
+          )}
+
+          {/* MRT: frequency estimate + optional PCDRealtime crowd density */}
+          {(normalizeTransportMode(leg.transport_mode) === 'METRO' || leg.sub_legs?.some(s => s.mode === 'METRO')) && (
+            <MrtInfoPanel
+              stationCode={leg.sub_legs?.find((s) => s.mode === 'METRO')?.from_stop_code || null}
+              subLegs={leg.sub_legs ?? []}
+            />
           )}
         </>
       )}
@@ -1083,7 +1093,7 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
                         from={item.from}
                         to={item.to}
                         tripId={tripId}
-                        tripStarted={false}
+                        tripStarted={tripStarted}
                         position={position}
                         onUpdated={onUpdated}
                         onWarning={onWarning}

@@ -489,6 +489,14 @@ const EN = {
   busUpdated: (label) => `Updated ${label}`,
   busRefresh: 'Refresh arrivals',
 
+  /* ── MRT info panel ─────────────── */
+  mrtInfoTitle: 'MRT Info',
+  mrtFreqPeak: 'Every 2–3 min (peak)',
+  mrtFreqOffPeak: 'Every 4–7 min',
+  mrtCrowdLow: 'Low crowd',
+  mrtCrowdModerate: 'Moderate crowd',
+  mrtCrowdHigh: 'High crowd',
+
   /* ── Settings page ───────────────── */
   setEyebrow: 'Preferences',
   setTitle: 'Transport preferences',
@@ -1191,6 +1199,14 @@ const VI = {
   busAgo: (s) => `${s}s trước`,
   busUpdated: (label) => `Cập nhật ${label}`,
   busRefresh: 'Làm mới giờ xe',
+
+  /* ── MRT info panel ─────────────── */
+  mrtInfoTitle: 'Thông tin MRT',
+  mrtFreqPeak: 'Mỗi 2–3 phút (giờ cao điểm)',
+  mrtFreqOffPeak: 'Mỗi 4–7 phút',
+  mrtCrowdLow: 'Vắng',
+  mrtCrowdModerate: 'Vừa đông',
+  mrtCrowdHigh: 'Rất đông',
 
   /* ── Settings page ───────────────── */
   setEyebrow: 'Sở thích đi lại',

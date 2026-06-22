@@ -58,6 +58,34 @@ async def get_bus_arrival(bus_stop_code: str) -> list[dict]:
     ]
 
 
+async def get_mrt_crowd(station_code: str) -> dict | None:
+    """Return real-time crowd level for an MRT station via LTA PCDRealtime.
+
+    Returns dict with crowd_level ("l"|"m"|"h") or None if station not in feed.
+    Raises LTAUnavailableError on network failure.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{_BASE}/PCDRealtime",
+                headers=_headers(),
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        raise LTAUnavailableError(f"LTA PCDRealtime unavailable: {exc}") from exc
+
+    for entry in (data.get("value") or []):
+        if entry.get("Station", "").upper() == station_code.upper():
+            return {
+                "station_code": station_code,
+                "crowd_level": entry.get("CrowdLevel", ""),
+                "start_time": entry.get("StartTime", ""),
+                "end_time": entry.get("EndTime", ""),
+            }
+    return None
+
+
 async def get_train_alerts() -> list[dict]:
     """Return active train disruption alerts.
 
