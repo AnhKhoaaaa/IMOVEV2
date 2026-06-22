@@ -97,6 +97,92 @@ def _pt_summary(sub_legs: list[dict]) -> str:
     return f"via {transit['route']} line" if transit else ""
 
 
+def _itin_to_route(itin: dict) -> dict:
+    """Convert a single OTP itinerary dict into a route dict (same shape as get_route returns)."""
+    itin_legs = itin.get("legs", [])
+    legs = [
+        {
+            "mode": leg["mode"],
+            "duration_minutes": int(round(float(leg.get("duration", 0) or 0) / 60)),
+            "instruction": leg.get("route", ""),
+        }
+        for leg in itin_legs
+    ]
+    total_distance_m = sum(float(leg.get("distance", 0) or 0) for leg in itin_legs)
+    try:
+        fare_sgd = float(itin.get("fare", 0.0))
+    except (ValueError, TypeError):
+        fare_sgd = 0.0
+    return {
+        "duration_minutes": int(round(float(itin.get("duration", 0)) / 60)),
+        "fare_sgd": fare_sgd,
+        "legs": legs,
+        "geometry": _extract_pt_geometry(itin_legs),
+        "geometries": _extract_all_geometries(itin_legs),
+        "instructions": _build_pt_instructions(itin_legs),
+        "distance_km": round(total_distance_m / 1000, 2),
+        "sub_legs": _extract_sub_legs(itin_legs),
+        "is_estimated": False,
+    }
+
+
+async def get_pt_routes_by_mode(
+    from_lat: float, from_lng: float, to_lat: float, to_lng: float
+) -> dict[str, dict]:
+    """Single OTP request → best route per primary transit mode (METRO and/or BUS).
+
+    Parses all numItineraries=3 itineraries and returns the shortest-duration route
+    for each primary mode found. Returns {} when OTP finds no transit itineraries.
+    Raises NoRouteError on network/auth failure.
+    """
+    token = await _get_token()
+    now_sgt = datetime.now(tz=_SGT)
+    params = {
+        "start": f"{from_lat},{from_lng}",
+        "end": f"{to_lat},{to_lng}",
+        "routeType": "pt",
+        "date": now_sgt.strftime("%m-%d-%Y"),
+        "time": now_sgt.strftime("%H:%M:%S"),
+        "mode": "TRANSIT",
+        "numItineraries": _PT_NUM_ITINERARIES,
+    }
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        if attempt:
+            await asyncio.sleep(_ROUTE_RETRY_DELAY_S)
+        try:
+            async with _ROUTE_SEMAPHORE:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(_ROUTE_URL, params=params,
+                                            headers={"Authorization": f"Bearer {token}"})
+                    resp.raise_for_status()
+                    data = resp.json()
+            break
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            last_exc = exc
+    else:
+        raise NoRouteError(f"OneMap routing unavailable: {last_exc}") from last_exc
+
+    itineraries = data.get("plan", {}).get("itineraries", [])
+    # Group transit itineraries by their primary mode; keep the fastest per mode.
+    best_by_mode: dict[str, dict] = {}
+    for itin in itineraries:
+        if not _has_transit(itin):
+            continue
+        route = _itin_to_route(itin)
+        raw_primary = next(
+            (leg["mode"].upper() for leg in itin.get("legs", [])
+             if leg.get("mode", "").upper() not in ("WALK", "")),
+            None,
+        )
+        if raw_primary is None:
+            continue
+        primary = _MODE_REMAP.get(raw_primary, raw_primary)
+        if primary not in best_by_mode or route["duration_minutes"] < best_by_mode[primary]["duration_minutes"]:
+            best_by_mode[primary] = route
+    return best_by_mode
+
+
 async def get_all_routes(
     from_lat: float, from_lng: float, to_lat: float, to_lng: float
 ) -> dict:

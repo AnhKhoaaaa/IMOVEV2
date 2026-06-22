@@ -429,11 +429,10 @@ async def test_onemap_network_failure_raises_no_route():
     # Network errors swallowed per-mode by _fetch_all_alternatives.
     # Long-distance pair (≈5.4km ≥ 2km) with all modes failing → falls back to GRAB.
     ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
-    with patch(
-        "app.agents.planning_agent.onemap.get_route",
-        new_callable=AsyncMock,
-        side_effect=Exception("Network timeout"),
-    ):
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, side_effect=Exception("Network timeout")), \
+         patch("app.agents.planning_agent.onemap.get_pt_routes_by_mode",
+               new_callable=AsyncMock, side_effect=Exception("Network timeout")):
         result = await plan_trip("t4", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
     leg = result.days[0].legs[0]
     assert leg.transport_mode == "GRAB"
@@ -459,11 +458,10 @@ async def test_long_distance_no_transit_falls_back_to_grab():
     # gardens-by-the-bay-supertree-grove → universal-studios-singapore ≈ 5.4km ≥ 2.0km
     # When all transit fails, planning now succeeds with GRAB (estimated) instead of raising.
     ids = ["gardens-by-the-bay-supertree-grove", "universal-studios-singapore"]
-    with patch(
-        "app.agents.planning_agent.onemap.get_route",
-        new_callable=AsyncMock,
-        side_effect=NoRouteError("no pt route"),
-    ):
+    with patch("app.agents.planning_agent.onemap.get_route",
+               new_callable=AsyncMock, side_effect=NoRouteError("no pt route")), \
+         patch("app.agents.planning_agent.onemap.get_pt_routes_by_mode",
+               new_callable=AsyncMock, side_effect=NoRouteError("no pt route")):
         result = await plan_trip("t-pt-fail", ids, 1, budget_sgd=999.0, optimize_order=True, preferences=None)
     leg = result.days[0].legs[0]
     assert leg.transport_mode == "GRAB"
@@ -756,9 +754,15 @@ async def test_fetch_all_alternatives_bus_only_not_stored_when_returns_metro():
                 "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
                 "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
 
+    _subway_route = {"duration_minutes": 15, "fare_sgd": 1.80,
+                     "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
+                     "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5,
+                     "is_estimated": False}
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
-    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock), \
+         patch("app.agents.planning_agent.onemap.get_pt_routes_by_mode",
+               AsyncMock(return_value={"METRO": _subway_route})):
         alts = await _fetch_all_alternatives(from_p, to_p)
 
     assert "METRO" in alts
@@ -789,7 +793,8 @@ async def test_fetch_all_alternatives_all_fail_returns_grab_only():
     # When all OneMap modes fail, GRAB (synthetic estimate) is always returned as fallback.
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
-    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(side_effect=NoRouteError)):
+    with patch("app.agents.planning_agent.onemap.get_route", AsyncMock(side_effect=NoRouteError)), \
+         patch("app.agents.planning_agent.onemap.get_pt_routes_by_mode", AsyncMock(side_effect=NoRouteError)):
         alts = await _fetch_all_alternatives(from_p, to_p)
     assert set(alts.keys()) == {"GRAB"}
     assert alts["GRAB"]["is_estimated"] is True
@@ -1008,7 +1013,9 @@ async def test_switch_leg_mode_lazy_refetches_geometry_when_missing():
     p_b = _make_place("marina-bay-sands",   lat=1.2834, lng=103.8607)
     plan = TripPlan(id="t-lazy", days=[DayPlan(day=1, legs=[leg])], places=[p_a, p_b], warnings=[])
 
-    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock), \
+         patch("app.agents.planning_agent.onemap.get_pt_routes_by_mode",
+               AsyncMock(return_value={"METRO": metro_route})):
         result = await switch_leg_mode("METRO", leg, plan)
 
     assert result.updated_leg.transport_mode == "METRO"

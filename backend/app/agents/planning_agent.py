@@ -602,10 +602,14 @@ def estimated_alternatives_models(
 
 
 async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
-    """Fetch PT (mixed), PT bus-only, PT subway-only, Walk, and Cycle routes in parallel.
+    """Fetch PT (all modes from multi-itinerary), PT bus-only, Walk, and Cycle routes in parallel.
+
+    The multi-itinerary PT call parses OTP's 3 returned itineraries and extracts the best
+    route per primary mode (METRO and/or BUS) — replacing the previous per-mode PT calls with
+    a single request. The explicit BUS-only call is kept as a fallback guarantee for pairs
+    where all 3 mixed-PT itineraries are METRO-primary.
 
     Returns dict[TransportMode, route_dict] — only populated for modes OneMap can route.
-    PT routes where the itinerary is all-walk are excluded (WALK already covers those).
     Failures are logged at DEBUG and treated as unavailable.
     """
     async def _safe(mode: str, transit_modes: str | None = None) -> dict | None:
@@ -623,10 +627,20 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
                       mode, from_p.get("id"), to_p.get("id"), exc)
             return None
 
-    pt_route, bus_route, metro_route, walk_route, cycle_route, drive_route = await asyncio.gather(
-        _safe("pt"),
+    async def _safe_pt_by_mode() -> dict[str, dict]:
+        try:
+            return await onemap.get_pt_routes_by_mode(
+                from_p["lat"], from_p["lng"],
+                to_p["lat"], to_p["lng"],
+            )
+        except Exception as exc:
+            log.debug("OneMap pt_by_mode unavailable (%s→%s): %s",
+                      from_p.get("id"), to_p.get("id"), exc)
+            return {}
+
+    pt_by_mode, bus_route, walk_route, cycle_route, drive_route = await asyncio.gather(
+        _safe_pt_by_mode(),
         _safe("pt", transit_modes="BUS"),
-        _safe("pt", transit_modes="SUBWAY"),
         _safe("walk"),
         _safe("cycle"),
         _safe("drive"),
@@ -634,27 +648,20 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
 
     result: dict[str, dict] = {}
 
-    # PT mixed → key = primary transit mode; skip if OneMap returned an all-walk itinerary
-    if pt_route:
-        primary = _primary_mode(pt_route.get("legs", []))
-        if primary != "WALK":
-            result[primary] = pt_route
-        else:
-            log.debug("PT route %s→%s is all-walk — no transit available for this pair",
-                      from_p.get("id"), to_p.get("id"))
+    # Multi-itinerary PT → seed result with METRO and/or BUS from OTP's 3 itineraries.
+    for mode_key, route in pt_by_mode.items():
+        result[mode_key] = route
 
-    # PT bus-only → add as "BUS" only when OneMap actually routes via bus
-    if bus_route:
+    if not result:
+        log.debug("PT route %s→%s is all-walk — no transit available for this pair",
+                  from_p.get("id"), to_p.get("id"))
+
+    # Explicit BUS guarantee: add only when multi-itinerary PT missed BUS (e.g. all 3
+    # itineraries were METRO-primary). Avoids overwriting a better multi-itin BUS route.
+    if bus_route and "BUS" not in result:
         bus_primary = _primary_mode(bus_route.get("legs", []))
         if bus_primary == "BUS":
             result["BUS"] = bus_route
-
-    # PT subway-only → backfill METRO when pt_route chose BUS as primary.
-    # Ensures the Change dropdown always offers both MRT and Bus when both serve the pair.
-    if metro_route and "METRO" not in result:
-        metro_primary = _primary_mode(metro_route.get("legs", []))
-        if metro_primary == "METRO":
-            result["METRO"] = metro_route
 
     # Walk
     if walk_route:
