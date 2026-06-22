@@ -130,6 +130,8 @@ describe('Trip page', () => {
       error: null,
     })
     render(<BrowserRouter><Trip /></BrowserRouter>)
+    // Notices are collapsed by default so a wordy warning can't block the view — expand first.
+    fireEvent.click(screen.getByRole('button', { name: /planning notice/i }))
     expect(screen.getByRole('alert')).toHaveTextContent('Sentosa best time conflict')
   })
 
@@ -151,6 +153,7 @@ describe('Trip page', () => {
       error: null,
     })
     render(<BrowserRouter><Trip /></BrowserRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /planning notice/i }))
     const alert = screen.getByRole('alert')
     expect(alert).toHaveTextContent('Warning A')
     expect(alert).toHaveTextContent('Warning B')

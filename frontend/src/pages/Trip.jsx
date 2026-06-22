@@ -18,6 +18,8 @@ import {
   Lock,
   MapPin,
   Navigation2,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RotateCcw,
   Route,
@@ -251,6 +253,8 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
   const [savingMode, setSavingMode] = useState(null)
   const [compare, setCompare] = useState(null)
   const [compareLoading, setCompareLoading] = useState(false)
+  const [showCompare, setShowCompare] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const meta = transportMeta(leg.transport_mode)
 
   // Close the mode menu when clicking outside it (e.g. switching to another leg)
@@ -293,9 +297,14 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
 
   const loadCompare = async () => {
     if (!from || !to) return
+    if (compare) {
+      setShowCompare((prev) => !prev)
+      return
+    }
     setCompareLoading(true)
     try {
       setCompare(await api.compareRoutes(from.lat, from.lng, to.lat, to.lng))
+      setShowCompare(true)
     } catch (err) {
       onWarning?.(err.message)
     } finally {
@@ -413,48 +422,134 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
         </button>
       )}
 
-      {tripStarted && (
-        <>
-          <div className="mt-3 flex flex-wrap gap-2">
+      {/* Route Mode Comparison & Transit Details Toggle (always available) */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={loadCompare}
+          disabled={compareLoading}
+          className={cn(
+            'inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12px] font-bold transition-colors disabled:opacity-60 animate-fade-in',
+            showCompare
+              ? 'border border-blue-600 bg-blue-600 text-white hover:bg-blue-700'
+              : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+          )}
+        >
+          {compareLoading ? t('tripComparing') : t('tripCompareModes')}
+          {compare && !compareLoading && (
+            <ChevronDown size={12} className={cn('transition-transform duration-200', showCompare && 'rotate-180')} />
+          )}
+        </button>
+
+        {leg.sub_legs?.length > 0 && (
+          <button
+            onClick={() => setShowDetails((prev) => !prev)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 text-[12px] font-bold text-slate-700 transition-colors hover:border-blue-200 hover:text-blue-700"
+          >
+            {showDetails ? t('tripHideDetails') : t('tripShowDetails')}
+            <ChevronDown size={12} className={cn('transition-transform duration-200', showDetails && 'rotate-180')} />
+          </button>
+        )}
+      </div>
+
+      {/* Expandable Transit Sub-Legs Details (Walk -> Bus -> Walk breakdown) */}
+      {leg.sub_legs?.length > 0 && showDetails && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 animate-fade-in">
+          <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripTransitDetails')}</p>
+          <div className="space-y-2.5">
+            {leg.sub_legs.map((sub, index) => {
+              const subMeta = transportMeta(sub.mode)
+              const isLast = index === leg.sub_legs.length - 1
+              return (
+                <div key={index} className="flex gap-2.5">
+                  <div className="flex flex-col items-center">
+                    <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-white" style={{ borderColor: subMeta.color }}>
+                      <subMeta.Icon size={9} style={{ color: subMeta.color }} />
+                    </span>
+                    {!isLast && <span className="my-0.5 w-px flex-1 bg-slate-200" style={{ minHeight: 12 }} />}
+                  </div>
+                  <div className="min-w-0 flex-1 pb-2.5">
+                    <p className="text-[12px] leading-snug text-slate-700">
+                      {sub.route ? `[${sub.route}] ` : ''}{t('tripRoute', sub.from_name, sub.to_name)}
+                    </p>
+                    <p className="text-[11px] text-slate-400">{t('tripMinShort', sub.duration_minutes)}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Mode Compare Results (shown when showCompare is true and data is loaded) */}
+      {showCompare && compare && (
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3 animate-fade-in">
+          <div className="mb-2.5 flex items-center justify-between">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripCompareModes')}</p>
             <button
-              onClick={loadCompare}
-              disabled={compareLoading}
-              className="rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-[12px] font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+              type="button"
+              onClick={() => setShowCompare(false)}
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+              title={t('tripHideDetails') || 'Hide'}
             >
-              {compareLoading ? t('tripComparing') : t('tripCompareModes')}
+              <X size={13} />
             </button>
           </div>
 
-          {(leg.sub_legs?.length > 0 || compare || leg.first_bus_stop_code) && (
-            <div className="mt-3 space-y-3">
-              {leg.sub_legs?.length > 0 && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripTransitDetails')}</p>
-                  <div>
-                    {leg.sub_legs.map((sub, index) => {
-                      const subMeta = transportMeta(sub.mode)
-                      const isLast = index === leg.sub_legs.length - 1
-                      return (
-                        <div key={index} className="flex gap-2.5">
-                          <div className="flex flex-col items-center">
-                            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-white" style={{ borderColor: subMeta.color }}>
-                              <subMeta.Icon size={9} style={{ color: subMeta.color }} />
-                            </span>
-                            {!isLast && <span className="my-0.5 w-px flex-1 bg-slate-200" style={{ minHeight: 12 }} />}
-                          </div>
-                          <div className="min-w-0 flex-1 pb-2.5">
-                            <p className="text-[12px] leading-snug text-slate-700">
-                              {sub.route ? `[${sub.route}] ` : ''}{t('tripRoute', sub.from_name, sub.to_name)}
-                            </p>
-                            <p className="text-[11px] text-slate-400">{t('tripMinShort', sub.duration_minutes)}</p>
-                          </div>
-                        </div>
-                      )
-                    })}
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(compare).map(([key, value]) => {
+              const normKey = normalizeTransportMode(key)
+              const subMeta = transportMeta(normKey)
+              return (
+                <div key={key} className={cn("rounded-xl border p-2.5 flex flex-col justify-between shadow-sm transition hover:shadow-md", subMeta.tone)}>
+                  <div className="flex items-center gap-1.5">
+                    <subMeta.Icon size={12} className="shrink-0" />
+                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-80">
+                      {MODE_LABEL_KEY[normKey] ? t(MODE_LABEL_KEY[normKey]) : subMeta.label}
+                    </p>
+                  </div>
+                  <div className="mt-1.5">
+                    <p className="text-[13px] font-extrabold leading-tight">
+                      {value.available ? formatDuration(value.duration_minutes) : t('tripUnavailable')}
+                    </p>
+                    {value.available && <p className="text-[10px] opacity-75 mt-0.5">{formatCost(value.fare_sgd)}</p>}
                   </div>
                 </div>
-              )}
+              )
+            })}
+            
+            {/* Grab card — always shown in compare, data from leg.alternatives */}
+            {(() => {
+              const grabMeta = transportMeta('GRAB')
+              return (
+                <div className={cn("rounded-xl border p-2.5 flex flex-col justify-between shadow-sm transition hover:shadow-md", grabMeta.tone)}>
+                  <div className="flex items-center gap-1.5">
+                    <grabMeta.Icon size={12} className="shrink-0" />
+                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-80">
+                      {MODE_LABEL_KEY['GRAB'] ? t(MODE_LABEL_KEY['GRAB']) : 'Grab'}
+                    </p>
+                  </div>
+                  <div className="mt-1.5">
+                    <p className="text-[13px] font-extrabold leading-tight">
+                      {leg.alternatives?.GRAB ? formatDuration(leg.alternatives.GRAB.duration_minutes) : '—'}
+                    </p>
+                    {leg.alternatives?.GRAB && (
+                      <p className="text-[10px] opacity-75 mt-0.5">
+                        {formatCost(leg.alternatives.GRAB.fare_sgd)} · {t('tripEstimated')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        </div>
+      )}
 
+      {/* Live Navigation Features (Bus stop arrival panels — only shown when trip has started) */}
+      {tripStarted && (
+        <>
+          {(leg.first_bus_stop_code || (normalizeTransportMode(leg.transport_mode) !== 'BUS' && leg.sub_legs?.some(s => s.mode === 'BUS' && s.from_stop_code))) && (
+            <div className="mt-3 space-y-3 animate-fade-in">
               {leg.first_bus_stop_code && normalizeTransportMode(leg.transport_mode) === 'BUS' && (
                 <BusArrivalPanel
                   stopCode={leg.first_bus_stop_code}
@@ -474,32 +569,6 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
                     </div>
                   ))
               }
-
-              {compare && (
-                <div className="grid grid-cols-3 gap-2">
-                  {Object.entries(compare).map(([key, value]) => (
-                    <div key={key} className="rounded-lg border border-slate-200 bg-white p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
-                      <p className="mt-1 text-[13px] font-extrabold text-slate-900">
-                        {value.available ? formatDuration(value.duration_minutes) : t('tripUnavailable')}
-                      </p>
-                      {value.available && <p className="text-[11px] text-slate-500">{formatCost(value.fare_sgd)}</p>}
-                    </div>
-                  ))}
-                  {/* Grab card — always shown in compare, data from leg.alternatives */}
-                  <div className="rounded-lg border border-mode-taxi/20 bg-mode-taxi-50 p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-mode-taxi">Grab</p>
-                    <p className="mt-1 text-[13px] font-extrabold text-slate-900">
-                      {leg.alternatives?.GRAB ? formatDuration(leg.alternatives.GRAB.duration_minutes) : '—'}
-                    </p>
-                    {leg.alternatives?.GRAB && (
-                      <p className="text-[11px] text-mode-taxi">
-                        {formatCost(leg.alternatives.GRAB.fare_sgd)} · {t('tripEstimated')}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </>
@@ -578,6 +647,7 @@ function SortablePlaceItem({ place, visitIndex, times, tripStarted, onRemovePlac
 function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onDragReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTimeForDay, needsRouteUpdate, mutating }) {
   const { t } = useT()
   const [routeDropdownOpen, setRouteDropdownOpen] = useState(false)
+  const [warningsOpen, setWarningsOpen] = useState(false)
   const [activeDragId, setActiveDragId] = useState(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -649,31 +719,29 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
       </div>
 
       {trip.warnings?.length > 0 && (
-        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <div className="flex gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            <div className="space-y-1">
+        <div role="alert" className="overflow-hidden rounded-lg border border-amber-200 bg-amber-50">
+          {/* Collapsible: keep notices in place but let the user shrink them so a long, wordy
+              warning (e.g. "some days seem a little packed") never blocks the view. */}
+          <button
+            type="button"
+            onClick={() => setWarningsOpen((v) => !v)}
+            aria-expanded={warningsOpen}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+            <span className="text-[13px] font-bold text-amber-800">{t('tripWarningsTitle', trip.warnings.length)}</span>
+            <ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 text-amber-600 transition-transform', warningsOpen && 'rotate-180')} />
+          </button>
+          {warningsOpen && (
+            <div className="space-y-1 px-4 pb-3 pl-10">
               {trip.warnings.map((warning, index) => (
-                <p key={index} className="text-[13px] font-semibold text-amber-800">{warning}</p>
+                <p key={index} className="text-[13px] font-medium leading-relaxed text-amber-800">{warning}</p>
               ))}
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {trip.gap_notifications?.length > 0 && (
-        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-          <p className="mb-3 text-[12px] font-bold uppercase tracking-wide text-blue-700">{t('tripLongCommutes')}</p>
-          <div className="space-y-2">
-            {trip.gap_notifications.map((gap, index) => (
-              <div key={index} className="rounded-md bg-white px-3 py-2 text-[13px] text-blue-900 shadow-sm">
-                <span className="font-bold">{t('tripDay', gap.day_index + 1)} · {gap.gap_start}–{gap.gap_end}</span>
-                <span className="text-blue-700"> · {gap.message}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {(trip.days ?? []).map((day) => {
@@ -940,6 +1008,20 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
         </Button>
       </div>
 
+      {dayGaps.length > 0 && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 animate-fade-in">
+          <p className="mb-2.5 text-[12px] font-bold uppercase tracking-wide text-blue-700">{t('tripLongCommutes')}</p>
+          <div className="space-y-2">
+            {dayGaps.map((gap, index) => (
+              <div key={index} className="rounded-md bg-white px-3 py-2 text-[13px] text-blue-900 shadow-sm animate-fade-in">
+                <span className="font-bold">{gap.gap_start}–{gap.gap_end}</span>
+                <span className="text-blue-700"> · {gap.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {items.length ? (() => {
         // Citymapper timeline: continuous left rail; place nodes coloured by category
         // (hotel = amber), transit cards sit indented between them.
@@ -1009,29 +1091,7 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
         </div>
       )}
 
-      {dayGaps.length > 0 && (
-        <div className="rounded-lg border border-blue-100 bg-blue-50">
-          <button
-            onClick={() => setGapsOpen((v) => !v)}
-            className="flex w-full items-center gap-2 px-3 py-2.5 text-[12.5px] font-semibold text-blue-700"
-          >
-            <Route size={13} className="shrink-0" />
-            <span>{t('tripLongTransits', dayGaps.length)}</span>
-            <ChevronDown size={13} className={cn('ml-auto transition-transform', gapsOpen && 'rotate-180')} />
-          </button>
-          {gapsOpen && (
-            <div className="space-y-1.5 border-t border-blue-100 px-3 pb-3 pt-2">
-              {dayGaps.map((gap, i) => (
-                <div key={i} className="text-[12px] text-blue-800">
-                  <span className="font-bold tabular-nums">{gap.gap_start}–{gap.gap_end}</span>
-                  <span className="mx-1 text-blue-400">·</span>
-                  <span>{gap.message}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+
     </div>
   )
 }
@@ -1080,6 +1140,7 @@ export default function Trip() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [mutating, setMutating] = useState(false)
   const [optimizeMsg, setOptimizeMsg] = useState(null)
+  const [mapOpen, setMapOpen] = useState(true)   // collapse the map to give the left panel full width
   const [todayBanner, setTodayBanner] = useState(false)
   // Group multi-day weather forecast alerts: only the selected day's alert shows
   // expanded by default, the rest collapse behind a "Rain forecast for N days" toggle.
@@ -1772,8 +1833,22 @@ export default function Trip() {
         </div>
       </header>
 
-      <div className="grid flex-1 grid-cols-1 overflow-y-auto lg:min-h-0 lg:grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] lg:overflow-hidden">
-        <section className="relative isolate min-h-0 bg-slate-50 p-4 scroll-thin sm:p-6 lg:overflow-y-auto lg:border-r lg:border-slate-200">
+      <div className={cn(
+        'relative grid min-h-0 flex-1 overflow-hidden',
+        mapOpen ? 'grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)]' : 'grid-cols-1'
+      )}>
+        {/* Collapse the map to give the itinerary the full width; expand to bring it back. */}
+        <button
+          type="button"
+          onClick={() => setMapOpen((v) => !v)}
+          aria-label={mapOpen ? t('tripHideMap') : t('tripShowMap')}
+          title={mapOpen ? t('tripHideMap') : t('tripShowMap')}
+          className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-[12px] font-semibold text-slate-700 shadow-card backdrop-blur transition hover:bg-slate-50"
+        >
+          {mapOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+          {mapOpen ? t('tripHideMap') : t('tripShowMap')}
+        </button>
+        <section className="relative isolate min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
           {/* Warnings & Alerts placed inside the sidebar to connect map directly with toolbar */}
           {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
             <div className="mb-4 space-y-2">
@@ -1892,23 +1967,25 @@ export default function Trip() {
           )}
         </section>
 
-        <aside className="relative isolate min-h-[320px] border-t border-slate-200 bg-white lg:min-h-0 lg:border-t-0">
-          <div className="h-[320px] w-full overflow-hidden lg:h-full">
-            <TripMap
-              places={mapPlaces}
-              legs={mapLegs}
-              userPosition={tripStarted ? position : null}
-              activeLegId={activeLeg?.id ?? null}
-              trimActiveRoute={!!(activeLeg?.id)}
-              placeSequences={placeSequences}
-              activeDayPlaceIds={activeDayPlaceIds}
-              trackingPath={isWalkOrCycle ? trackingPath : []}
-              placeDays={placeDays}
-              legDays={legDays}
-              colorByDay={activeTab === 'overview' || activeTab === 'summary'}
-            />
-          </div>
-        </aside>
+        {mapOpen && (
+          <aside className="relative isolate min-h-0 bg-white">
+            <div className="h-full w-full overflow-hidden">
+              <TripMap
+                places={mapPlaces}
+                legs={mapLegs}
+                userPosition={tripStarted ? position : null}
+                activeLegId={activeLeg?.id ?? null}
+                trimActiveRoute={!!(activeLeg?.id)}
+                placeSequences={placeSequences}
+                activeDayPlaceIds={activeDayPlaceIds}
+                trackingPath={isWalkOrCycle ? trackingPath : []}
+                placeDays={placeDays}
+                legDays={legDays}
+                colorByDay={activeTab === 'overview' || activeTab === 'summary'}
+              />
+            </div>
+          </aside>
+        )}
       </div>
 
       <TripSetupModal
