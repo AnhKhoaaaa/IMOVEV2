@@ -100,7 +100,7 @@ export default function Preferences() {
   }
 
   return (
-    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 px-6 py-8">
+    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6">
           <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{t('setEyebrow')}</p>
@@ -131,8 +131,8 @@ export default function Preferences() {
             </div>
           </section>
         ) : (
-          <div className="grid grid-cols-[1fr_300px] gap-6">
-            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-card">
+          <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+            <section className="mx-auto w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-card sm:max-w-none sm:p-6">
               <div className="mb-5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <SlidersHorizontal className="h-5 w-5 text-blue-600" />
@@ -176,8 +176,8 @@ export default function Preferences() {
               </div>
             </section>
 
-            <aside className="space-y-4">
-              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-card">
+            <aside className="mx-auto w-full max-w-md space-y-4 sm:max-w-none">
+              <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
                 <p className="text-[12px] font-bold uppercase tracking-wide text-slate-400">{t('setHowItWorks')}</p>
                 <p className="mt-2 text-[12.5px] leading-5 text-slate-500">
                   {t('setHowItWorksDesc')}

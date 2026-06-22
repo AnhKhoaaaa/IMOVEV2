@@ -135,7 +135,7 @@ function routeStyleFor(leg) {
   return MODE_STYLE[normalizeTransportMode(leg.transport_mode)] ?? FALLBACK_ROUTE_STYLE
 }
 
-export default function TripMap({ places, legs, userPosition, activeLegId = null, trimActiveRoute = false, placeSequences = {}, activeDayPlaceIds = null, trackingPath = [], placeDays = {}, legDays = {}, colorByDay = false }) {
+export default function TripMap({ places, legs, userPosition, activeLegId = null, trimActiveRoute = false, placeSequences = {}, activeDayPlaceIds = null, trackingPath = [], placeDays = {}, legDays = {}, colorByDay = false, markerPlaceIds = null, routeStyleOverride = null, hideZoomControl = false }) {
   const { t } = useT()
   const { ordered, byId } = useMemo(
     () => places?.length ? buildOrderedPlaces(places, legs ?? []) : { ordered: [], byId: {} },
@@ -174,6 +174,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
   // overview map show BOTH day and mode colours at once.
   const dayOfLeg = (leg) => legDays[leg.id] ?? placeDays[leg.from_place_id] ?? placeDays[leg.to_place_id] ?? null
   const styleForLeg = (leg) => {
+    if (routeStyleOverride) return { ...FALLBACK_ROUTE_STYLE, ...routeStyleOverride }
     if (colorByDay) {
       const d = dayOfLeg(leg)
       if (d != null) {
@@ -186,9 +187,13 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
   const presentDays = colorByDay
     ? [...new Set((legs ?? []).map((l) => dayOfLeg(l)).filter((d) => d != null))].sort((a, b) => a - b)
     : []
+  const shellClassName = [
+    'h-full w-full rounded-2xl overflow-hidden border border-slate-200 shadow-card relative',
+    hideZoomControl ? '[&_.leaflet-control-zoom]:hidden' : '',
+  ].filter(Boolean).join(' ')
 
   return (
-    <div className="h-full w-full rounded-2xl overflow-hidden border border-slate-200 shadow-card relative">
+    <div className={shellClassName}>
       {colorByDay && presentDays.length > 0 && (
         <div className="absolute bottom-6 left-2 z-[1100] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
           {presentDays.map((day) => (
@@ -202,7 +207,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
           ))}
         </div>
       )}
-      {!colorByDay && presentModes.length > 0 && (
+      {!routeStyleOverride && !colorByDay && presentModes.length > 0 && (
         <div className="absolute bottom-6 left-2 z-[1100] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
           {presentModes.map((mode) => {
             const style = MODE_STYLE[mode]
@@ -238,43 +243,45 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
         />
         <FitBounds positions={fitPositions} />
 
-        {ordered.map((place) => (
-          <Marker
-            key={place.id}
-            position={[place.lat, place.lng]}
-            icon={placeIcon(
-              place.category,
-              placeSequences[place.id],
-              (activeDayPlaceIds != null && !activeDayPlaceIds.has(place.id)) || (place._dim ?? false),
-              colorByDay && placeDays[place.id] != null ? dayColorFor(placeDays[place.id]) : null
-            )}
-          >
-            <Popup minWidth={200} maxWidth={240}>
-              {place.image_url && (
-                <img
-                  src={place.image_url}
-                  alt=""
-                  style={{ height: 110, objectFit: 'cover', display: 'block', margin: '-13px -20px 10px', width: 'calc(100% + 40px)' }}
-                  onError={(e) => { e.currentTarget.style.display = 'none' }}
-                />
+        {ordered
+          .filter((place) => markerPlaceIds == null || markerPlaceIds.has(place.id))
+          .map((place) => (
+            <Marker
+              key={place.id}
+              position={[place.lat, place.lng]}
+              icon={placeIcon(
+                place.category,
+                placeSequences[place.id],
+                (activeDayPlaceIds != null && !activeDayPlaceIds.has(place.id)) || (place._dim ?? false),
+                colorByDay && placeDays[place.id] != null ? dayColorFor(placeDays[place.id]) : null
               )}
-              <div style={{ padding: '0 2px 2px' }}>
-                <p style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', margin: '0 0 3px' }}>{place.name}</p>
-                {place.category && (
-                  <p style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, margin: '0 0 4px', textTransform: 'capitalize' }}>
-                    {place.category}
-                  </p>
+            >
+              <Popup minWidth={200} maxWidth={240}>
+                {place.image_url && (
+                  <img
+                    src={place.image_url}
+                    alt=""
+                    style={{ height: 110, objectFit: 'cover', display: 'block', margin: '-13px -20px 10px', width: 'calc(100% + 40px)' }}
+                    onError={(e) => { e.currentTarget.style.display = 'none' }}
+                  />
                 )}
-                {place.dwell_minutes > 0 && (
-                  <p style={{ fontSize: 12, color: '#475569', margin: '0 0 2px' }}>⏱ {t('tripMinVisit', place.dwell_minutes)}</p>
-                )}
-                {place.best_time_start && (
-                  <p style={{ fontSize: 12, color: '#92400e', margin: 0 }}>☀ {t('tripBestTime', place.best_time_start, place.best_time_end)}</p>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+                <div style={{ padding: '0 2px 2px' }}>
+                  <p style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', margin: '0 0 3px' }}>{place.name}</p>
+                  {place.category && (
+                    <p style={{ fontSize: 11, color: '#6366f1', fontWeight: 600, margin: '0 0 4px', textTransform: 'capitalize' }}>
+                      {place.category}
+                    </p>
+                  )}
+                  {place.dwell_minutes > 0 && (
+                    <p style={{ fontSize: 12, color: '#475569', margin: '0 0 2px' }}>⏱ {t('tripMinVisit', place.dwell_minutes)}</p>
+                  )}
+                  {place.best_time_start && (
+                    <p style={{ fontSize: 12, color: '#92400e', margin: 0 }}>☀ {t('tripBestTime', place.best_time_start, place.best_time_end)}</p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          ))}
 
         {/* Halo layer */}
         {routeLegs.map(({ leg, positions }) => {
