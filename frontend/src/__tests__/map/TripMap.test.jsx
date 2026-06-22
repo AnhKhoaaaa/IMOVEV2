@@ -68,11 +68,11 @@ function polylinesByColor(color) {
  * Note: normalizeTransportMode('MRT') → 'METRO', so MRT legs use METRO colour.
  */
 const FILL = {
-  MRT_LEG:  '#1d4ed8',  // transport_mode:'MRT' normalises to 'METRO' → '#1d4ed8'
-  BUS:      '#059669',
-  WALK:     '#ea580c',
-  CYCLE:    '#0f766e',
-  TRACKING: '#2563eb',
+  MRT_LEG:  '#2563eb',  // transport_mode:'MRT' normalises to 'METRO' → mode-mrt token
+  BUS:      '#06b6d4',  // mode-bus (cyan)
+  WALK:     '#64748b',  // mode-walk (slate)
+  CYCLE:    '#f97316',  // mode-cycle (orange)
+  TRACKING: '#6366f1',  // indigo "you" trail — distinct from brand-blue rail
 }
 
 // ---------------------------------------------------------------------------
@@ -187,18 +187,18 @@ describe('TripMap', () => {
     expect(screen.getAllByTestId('polyline')).toHaveLength(6)
   })
 
-  it('MRT-transport leg fill layer uses METRO blue (#1d4ed8)', () => {
+  it('MRT-transport leg fill layer uses METRO blue (#2563eb)', () => {
     // normalizeTransportMode('MRT') → 'METRO' → MODE_STYLE.METRO.color
     render(<TripMap places={makePlaces()} legs={makeLegs()} />)
     expect(polylinesByColor(FILL.MRT_LEG)).toHaveLength(1)
   })
 
-  it('BUS fill layer uses emerald (#059669)', () => {
+  it('BUS fill layer uses cyan (#06b6d4)', () => {
     render(<TripMap places={makePlaces()} legs={makeLegs()} />)
     expect(polylinesByColor(FILL.BUS)).toHaveLength(1)
   })
 
-  it('WALK fill layer is orange (#ea580c) with dashArray', () => {
+  it('WALK fill layer is slate (#64748b) with dashArray', () => {
     const legs = [{ id: 'l1', from_place_id: 'p1', to_place_id: 'p2', transport_mode: 'WALK', duration_minutes: 8, cost_sgd: null, is_estimated: false }]
     render(<TripMap places={makePlaces()} legs={legs} />)
     const fills = polylinesByColor(FILL.WALK)
@@ -206,7 +206,7 @@ describe('TripMap', () => {
     expect(fills[0].dataset.dash).toBe('8,8')
   })
 
-  it('CYCLE fill layer is teal (#0f766e) with dashArray', () => {
+  it('CYCLE fill layer is orange (#f97316) with dashArray', () => {
     const legs = [{ id: 'l1', from_place_id: 'p1', to_place_id: 'p2', transport_mode: 'CYCLE', duration_minutes: 20, cost_sgd: null, is_estimated: false }]
     render(<TripMap places={makePlaces()} legs={legs} />)
     const fills = polylinesByColor(FILL.CYCLE)

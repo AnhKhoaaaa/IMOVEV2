@@ -8,14 +8,17 @@ export const TRANSPORT_OPTIONS = [
   { mode: 'GRAB',  label: 'Grab', Icon: Car },
 ]
 
+// Single source of truth for transit-mode colour. `tone` = Tailwind classes for badges/chips,
+// `color` = hex for Leaflet polylines / inline SVG. Both mirror the locked design-system mode
+// tokens in index.css (--color-mode-*), so the Trip transit cards + TripMap stay in sync.
 export const TRANSPORT_META = {
-  METRO: { label: 'MRT',   Icon: Train,      tone: 'bg-blue-50 text-blue-700 border-blue-100',     color: '#2563eb' },
-  MRT:   { label: 'MRT',   Icon: Train,      tone: 'bg-blue-50 text-blue-700 border-blue-100',     color: '#2563eb' },
-  LRT:   { label: 'MRT',   Icon: Train,      tone: 'bg-violet-50 text-violet-700 border-violet-100', color: '#7c3aed' },
-  BUS:   { label: 'Bus',   Icon: Bus,        tone: 'bg-emerald-50 text-emerald-700 border-emerald-100', color: '#10b981' },
-  WALK:  { label: 'Walk',  Icon: Footprints, tone: 'bg-orange-50 text-orange-700 border-orange-100', color: '#f97316' },
-  CYCLE: { label: 'Cycle', Icon: Bike,       tone: 'bg-teal-50 text-teal-700 border-teal-100',     color: '#0d9488' },
-  GRAB:  { label: 'Grab',  Icon: Car,        tone: 'bg-green-50 text-green-700 border-green-100',  color: '#00b14f' },
+  METRO: { label: 'MRT',   Icon: Train,      tone: 'bg-mode-mrt-50 text-mode-mrt border-mode-mrt/20',     color: '#2563eb' },
+  MRT:   { label: 'MRT',   Icon: Train,      tone: 'bg-mode-mrt-50 text-mode-mrt border-mode-mrt/20',     color: '#2563eb' },
+  LRT:   { label: 'MRT',   Icon: Train,      tone: 'bg-mode-lrt-50 text-mode-lrt border-mode-lrt/20',     color: '#3b82f6' },
+  BUS:   { label: 'Bus',   Icon: Bus,        tone: 'bg-mode-bus-50 text-mode-bus border-mode-bus/20',     color: '#06b6d4' },
+  WALK:  { label: 'Walk',  Icon: Footprints, tone: 'bg-mode-walk-50 text-mode-walk border-mode-walk/25',  color: '#64748b' },
+  CYCLE: { label: 'Cycle', Icon: Bike,       tone: 'bg-mode-cycle-50 text-mode-cycle border-mode-cycle/20', color: '#f97316' },
+  GRAB:  { label: 'Grab',  Icon: Car,        tone: 'bg-mode-taxi-50 text-mode-taxi border-mode-taxi/20',  color: '#00b14f' },
 }
 
 export function normalizeTransportMode(mode) {

@@ -2,7 +2,6 @@ import json
 import pathlib
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
 from app.models.place import Place
 from app.agents.planning_agent import _normalise_place
 
@@ -29,12 +28,6 @@ async def search_places(q: str = Query(..., min_length=1)):
     ]
 
 
-class AiSuggestRequest(BaseModel):
-    num_days: int = Field(default=1, ge=1, le=14)
-    travel_styles: list[str] = Field(default_factory=list)
-    group_type: str = "solo"
-
-
 @router.get("/geocode")
 async def geocode_location(q: str = Query(..., min_length=1)):
     """Geocode a free-text address or place name via OneMap.
@@ -47,13 +40,3 @@ async def geocode_location(q: str = Query(..., min_length=1)):
         return await geocode(q)
     except GeocodingError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-
-
-@router.post("/ai-suggest")
-async def ai_suggest_places(body: AiSuggestRequest):
-    from app.agents.planning_agent import suggest_places, get_all_places
-    place_ids = await suggest_places(body.num_days, body.travel_styles, body.group_type)
-    # Filter out hallucinated or stale IDs — only return IDs that exist in the
-    # curated dataset so downstream plan_trip never hits PlaceDataMissingError.
-    known = get_all_places()
-    return {"suggested_place_ids": [pid for pid in place_ids if pid in known]}

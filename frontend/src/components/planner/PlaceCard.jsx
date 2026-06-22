@@ -48,13 +48,13 @@ export default function PlaceCard({ place, index, expanded, onToggle, notes, onN
     <div className="relative pl-12">
       {/* Timeline connector */}
       <div className="absolute left-[19px] top-0 bottom-0 w-px border-l border-dashed border-slate-300" />
-      <div className="absolute left-[10px] top-3.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-white border-[3px] border-indigo-600 shadow-card">
-        <MapPin size={10} className="text-indigo-600" strokeWidth={3} />
+      <div className="absolute left-[10px] top-3.5 grid h-[22px] w-[22px] place-items-center rounded-full bg-white border-[3px] border-blue-600 shadow-card">
+        <MapPin size={10} className="text-blue-600" strokeWidth={3} />
       </div>
 
       <div className={cn(
         'rounded-2xl border bg-white shadow-card overflow-hidden transition',
-        expanded ? 'border-indigo-200 ring-2 ring-indigo-100/60' : 'border-slate-200 hover:border-slate-300'
+        expanded ? 'border-blue-200 ring-2 ring-blue-100/60' : 'border-slate-200 hover:border-slate-300'
       )}>
         {/* Horizontal card header */}
         <button onClick={onToggle} className="w-full text-left focus-ring">
@@ -134,7 +134,7 @@ export default function PlaceCard({ place, index, expanded, onToggle, notes, onN
               onChange={(e) => onNotesChange && onNotesChange(e.target.value)}
               placeholder={t('pcNotesPlaceholder')}
               rows={2}
-              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] placeholder:text-slate-400 focus-ring focus:border-indigo-400 resize-none"
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] placeholder:text-slate-400 focus-ring focus:border-blue-400 resize-none"
             />
             <div className="flex items-center justify-between text-[11.5px] text-slate-500 pt-1">
               {categoryLabel && (
@@ -143,7 +143,7 @@ export default function PlaceCard({ place, index, expanded, onToggle, notes, onN
                   {categoryLabel}
                 </span>
               )}
-              <span className="inline-flex items-center gap-1 text-indigo-600 font-medium ml-auto">
+              <span className="inline-flex items-center gap-1 text-blue-600 font-medium ml-auto">
                 <MapPin size={11} />
                 {place.lat?.toFixed(4)}°, {place.lng?.toFixed(4)}°
               </span>

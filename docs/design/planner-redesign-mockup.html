@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Planner Redesign — Mockup v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root{
+    --p50:#eff6ff;--p100:#dbeafe;--p600:#2563eb;--p700:#1d4ed8;
+    --ok:#10b981;--ok50:#ecfdf5;--amber:#f59e0b;--ink:#0f172a;--mut:#64748b;--fade:#94a3b8;--b:#e8edf3;--bg:#f8fafc;
+    --sh-card:0 1px 2px rgb(0 0 0/.04),0 1px 3px rgb(0 0 0/.06);
+    --sh-btn:0 4px 12px -3px rgb(37 99 235/.42),0 2px 4px -2px rgb(37 99 235/.28);
+    --ease:cubic-bezier(.2,.7,.2,1);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.5}
+  .disp{font-family:'Space Grotesk',Inter,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:30px 26px 90px}
+  h1{font-family:'Space Grotesk';font-weight:700;letter-spacing:-.02em;font-size:30px;margin:0}
+  .kicker{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.16em;color:var(--fade)}
+  [data-lucide]{width:16px;height:16px;stroke-width:2}
+  .sep{display:flex;align-items:center;gap:10px;margin:42px 0 14px;color:var(--p600)}
+  .sep .t{font-family:'Space Grotesk';font-weight:700;font-size:13px;letter-spacing:.02em;display:flex;align-items:center;gap:7px}
+  .sep .ln{height:1px;background:var(--b);flex:1}
+  .card{background:#fff;border:1px solid var(--b);border-radius:16px;box-shadow:var(--sh-card)}
+  .pad{padding:24px}
+  .grid2{display:grid;grid-template-columns:1fr 330px;gap:20px;align-items:start}
+  .grid2b{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start}
+  /* step indicator with ICONS (no numbers) */
+  .dots{display:flex;justify-content:space-between;position:relative;margin:0 22px 26px}
+  .dots .bar{position:absolute;top:18px;left:18px;right:18px;height:2px;background:#eef2f7}
+  .dots .barf{position:absolute;top:18px;left:18px;height:2px;background:var(--p600)}
+  .dot{display:flex;flex-direction:column;align-items:center;gap:7px;z-index:1;font-size:11.5px;font-weight:600;color:var(--fade)}
+  .dot .c{width:38px;height:38px;border-radius:9999px;display:grid;place-items:center;border:1px solid var(--b);background:#fff;color:var(--fade)}
+  .dot.act .c{background:var(--p600);border-color:var(--p600);color:#fff;box-shadow:0 0 0 4px var(--p100)}
+  .dot.done .c{background:var(--ok);border-color:var(--ok);color:#fff}
+  .dot.act,.dot.done{color:var(--ink)}
+  /* in-card header with ICON chip (no number) */
+  .shead{display:flex;align-items:center;gap:13px;margin-bottom:22px}
+  .shead .ic{width:46px;height:46px;border-radius:13px;background:var(--p50);color:var(--p600);display:grid;place-items:center;flex:0 0 auto}
+  .shead .ic [data-lucide]{width:22px;height:22px}
+  .shead h2{font-family:'Space Grotesk';font-weight:700;font-size:20px;margin:0;letter-spacing:-.01em}
+  .shead p{margin:2px 0 0;font-size:13px;color:var(--mut)}
+  .field{padding:18px 0;border-top:1px solid #f1f5f9}
+  .field:first-of-type{border-top:0;padding-top:0}
+  .lbl{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--mut);margin-bottom:9px}
+  .lbl [data-lucide]{color:var(--fade);width:15px;height:15px}
+  .inp{height:46px;width:100%;border:1px solid var(--b);border-radius:10px;padding:0 14px;font-size:15px;color:var(--ink);background:#fff;display:flex;align-items:center;gap:8px}
+  .inp.hero{height:54px;font-size:18px;font-weight:600;font-family:'Space Grotesk'}
+  .ph{color:var(--fade);font-weight:400}
+  .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  /* budget slider */
+  .budval{font-family:'Space Grotesk';font-weight:700;font-size:26px;color:var(--ink)}
+  .budval small{font-size:13px;color:var(--mut);font-weight:600}
+  .slider{height:8px;border-radius:9999px;background:#e8edf3;position:relative;margin:14px 0 6px}
+  .slider .fill{position:absolute;left:0;top:0;bottom:0;width:34%;background:var(--p600);border-radius:9999px}
+  .slider .thumb{position:absolute;left:34%;top:50%;width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--p600);transform:translate(-50%,-50%);box-shadow:var(--sh-card)}
+  .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--fade)}
+  .chips{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .chip{border:1px solid var(--b);border-radius:9999px;padding:7px 16px;font-size:13px;font-weight:600;color:var(--mut);background:#fff;display:inline-flex;flex-direction:column;align-items:center;line-height:1.25}
+  .chip small{font-size:10px;color:var(--fade);font-weight:600}
+  .chip.on{background:var(--p50);border-color:var(--p600);color:var(--p700)}.chip.on small{color:var(--p600)}
+  .seg{display:inline-flex;background:#f1f5f9;border:1px solid var(--b);border-radius:9999px;padding:3px;gap:3px}
+  .seg button{border:0;background:transparent;border-radius:9999px;padding:8px 16px;font-size:13px;font-weight:600;color:var(--mut);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .seg button.on{background:var(--p600);color:#fff;box-shadow:var(--sh-btn)}
+  .stepper{display:inline-flex;align-items:center;border:1px solid var(--b);border-radius:9999px;overflow:hidden}
+  .stepper button{width:46px;height:46px;border:0;background:#fff;color:var(--p600);cursor:pointer;display:grid;place-items:center}
+  .stepper .v{min-width:118px;text-align:center;font-weight:700;font-size:15px;font-family:'Space Grotesk'}
+  .btn{font-family:Inter;font-weight:600;font-size:14px;border:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:9999px;height:44px;padding:0 22px;transition:transform .18s var(--ease),box-shadow .2s}
+  .btn:hover{transform:translateY(-2px)}
+  .b-pri{background:var(--p600);color:#fff;box-shadow:var(--sh-btn)}
+  .b-out{background:#fff;color:#334155;border:1px solid var(--b)}
+  .navrow{display:flex;justify-content:space-between;border-top:1px solid #f1f5f9;padding-top:18px;margin-top:20px}
+  .sumhead{display:flex;align-items:center;gap:9px;border-bottom:1px solid #f1f5f9;padding-bottom:13px;margin-bottom:4px}
+  .sumhead .ic{width:30px;height:30px;border-radius:9px;background:var(--p50);color:var(--p600);display:grid;place-items:center}
+  .sumhead b{font-family:'Space Grotesk';font-size:15px}
+  .sumrow{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #f6f8fb;font-size:13px}
+  .sumrow .k{color:var(--mut);display:flex;align-items:center;gap:7px}.sumrow .v{font-weight:700}
+  .mut{color:var(--mut)}.fade{color:var(--fade)}.star{color:var(--p600)}
+  .toggle{width:44px;height:24px;border-radius:9999px;background:var(--p600);position:relative;flex:0 0 auto}
+  .toggle::after{content:"";position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:#fff}
+  .note{font-size:12px;color:var(--fade)}
+  /* category filter chips */
+  .cats{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px}
+  .cat{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--b);border-radius:9999px;padding:7px 13px;font-size:12px;font-weight:600;color:var(--mut);background:#fff;white-space:nowrap;flex:0 0 auto}
+  .cat [data-lucide]{width:14px;height:14px}
+  .cat.on{background:var(--p600);border-color:var(--p600);color:#fff}
+  /* poi 3/row rich cards */
+  .poigrid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}
+  .poi{border:1px solid var(--b);border-radius:16px;overflow:hidden;background:#fff;box-shadow:var(--sh-card);position:relative}
+  .poi.sel{border-color:var(--p600);box-shadow:0 0 0 1px var(--p600),var(--sh-card)}
+  .poi .img{height:96px;position:relative}
+  .poi .sb{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:9px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.8);box-shadow:var(--sh-card)}
+  .poi .sb.on{background:var(--p600);color:#fff}.poi .sb.off{background:rgba(255,255,255,.92);color:var(--fade)}
+  .poi .award{position:absolute;left:8px;bottom:8px;background:#fffbeb;color:#b45309;font-size:10px;font-weight:700;border-radius:9999px;padding:2px 8px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .poi .pb{padding:11px 12px 13px}
+  .eyebrow{display:inline-flex;align-items:center;gap:5px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--mut)}
+  .eyebrow [data-lucide]{width:12px;height:12px}
+  .poi .nm{font-family:'Space Grotesk';font-weight:600;font-size:13.5px;line-height:1.3;margin:5px 0 6px;display:block}
+  .metarow{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f3f6fa;padding-top:8px;margin-top:2px;font-size:11px;color:var(--mut);font-weight:600}
+  .metarow [data-lucide]{width:13px;height:13px}
+  .rate{display:inline-flex;align-items:center;gap:3px}
+  /* selected list prominent */
+  .selhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .selhead b{font-family:'Space Grotesk';font-size:13.5px}
+  .pill-count{background:var(--p600);color:#fff;font-size:11px;font-weight:700;border-radius:9999px;padding:2px 9px}
+  .selitem{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--b);border-radius:12px;margin-bottom:8px;box-shadow:var(--sh-card)}
+  .selitem .th{width:38px;height:38px;border-radius:9px;flex:0 0 auto}
+  .selitem .nm{font-weight:700;font-size:12.5px;line-height:1.2}
+  .selitem .cat{font-size:10px;color:var(--fade);font-weight:600}
+  .selitem .rm{margin-left:auto;width:26px;height:26px;border-radius:8px;background:#f8fafc;color:var(--fade);display:grid;place-items:center;flex:0 0 auto}
+  .preset{border:1px solid var(--b);border-radius:14px;padding:15px;background:#fff}
+  .preset.on{border-color:var(--p600);background:var(--p50)}
+  .preset .t{font-family:'Space Grotesk';font-weight:600;font-size:14px;display:flex;align-items:center;gap:7px}
+  .bars{display:inline-flex;gap:3px}.bars i{width:16px;height:6px;border-radius:9999px;background:#e2e8f0}.bars i.on{background:var(--p600)}
+</style></head>
+<body><div class="wrap">
+
+  <p class="kicker">IMOVE · Phase 3 — Planner layout mockup (v3)</p>
+  <h1>Plan your trip</h1>
+  <p class="note">Updates: step icons (no 1-2-3-4) · budget slider + presets · Step 4 category filters + rich place cards + prominent selected. Locked tokens · Lucide · Space Grotesk.</p>
+
+  <!-- STEP 1 -->
+  <div class="sep"><span class="t"><i data-lucide="sliders-horizontal"></i> Trip basics</span><span class="ln"></span></div>
+  <div class="grid2">
+    <div class="card pad">
+      <div class="dots">
+        <div class="bar"></div><div class="barf" style="width:0"></div>
+        <div class="dot act"><div class="c"><i data-lucide="sliders-horizontal"></i></div>Basics</div>
+        <div class="dot"><div class="c"><i data-lucide="building-2"></i></div>Base</div>
+        <div class="dot"><div class="c"><i data-lucide="route"></i></div>Style</div>
+        <div class="dot"><div class="c"><i data-lucide="map-pin"></i></div>Places</div>
+      </div>
+      <div class="shead"><span class="ic"><i data-lucide="sliders-horizontal"></i></span><div><h2>Trip basics</h2><p>Name it, set a budget, and choose when you travel.</p></div></div>
+
+      <div class="field">
+        <div class="lbl"><i data-lucide="pencil-line"></i> Trip name</div>
+        <div class="inp hero">Singapore Trip</div>
+      </div>
+      <div class="field">
+        <div class="lbl"><i data-lucide="wallet"></i> Transit budget · per day</div>
+        <div class="budval">S$50 <small>/ day</small></div>
+        <div class="slider"><div class="fill"></div><div class="thumb"></div></div>
+        <div class="ticks"><span>S$10</span><span>S$80</span><span>S$150</span></div>
+        <div class="chips">
+          <span class="chip">S$30<small>Saver</small></span>
+          <span class="chip on">S$50<small>Standard</small></span>
+          <span class="chip">S$80<small>Comfort</small></span>
+          <span class="chip">S$120<small>Premium</small></span>
+        </div>
+      </div>
+      <div class="field">
+        <div class="lbl"><i data-lucide="calendar-days"></i> Dates</div>
+        <div class="row">
+          <div class="seg"><button class="on"><i data-lucide="infinity"></i> Flexible</button><button><i data-lucide="calendar"></i> Calendar</button></div>
+          <div class="stepper"><button><i data-lucide="minus"></i></button><div class="v">3 days</div><button><i data-lucide="plus"></i></button></div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="lbl"><i data-lucide="clock"></i> Daily start time</div>
+        <div class="row" style="margin-bottom:10px"><div class="seg"><button class="on">Same every day</button><button>Per day</button></div></div>
+        <div class="inp" style="max-width:240px"><i data-lucide="clock" style="color:var(--p600)"></i> 09:00 <span class="note" style="margin-left:auto">applies to all 3 days</span></div>
+      </div>
+      <div class="navrow"><span></span><button class="btn b-pri">Continue <i data-lucide="arrow-right"></i></button></div>
+    </div>
+    <div class="card pad">
+      <div class="sumhead"><span class="ic"><i data-lucide="clipboard-list"></i></span><b>Trip summary</b></div>
+      <div class="sumrow"><span class="k">Name</span><span class="v">Singapore Trip</span></div>
+      <div class="sumrow"><span class="k">Duration</span><span class="v">3 days</span></div>
+      <div class="sumrow"><span class="k">Budget</span><span class="v">S$50.00</span></div>
+      <div class="sumrow"><span class="k">Home base</span><span class="v fade">Not set</span></div>
+      <div class="sumrow"><span class="k">Style</span><span class="v" style="color:var(--p600)">Fastest</span></div>
+      <div class="sumrow" style="border:0"><span class="k">Places</span><span class="v">0</span></div>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="sep"><span class="t"><i data-lucide="building-2"></i> Home base</span><span class="ln"></span></div>
+  <div class="card pad" style="max-width:760px">
+    <div class="shead"><span class="ic"><i data-lucide="building-2"></i></span><div><h2>Home base <span class="note" style="font-weight:600">· optional</span></h2><p>Set a hotel as the start and end point of each day.</p></div></div>
+    <div class="field" style="padding-top:0;border:0">
+      <div class="lbl"><i data-lucide="search"></i> Find your hotel</div>
+      <div class="inp hero"><i data-lucide="map-pin" style="color:var(--fade)"></i> <span class="ph">Search a hotel in Singapore…</span></div>
+    </div>
+    <div style="border:1px solid #a7f3d0;background:var(--ok50);border-radius:14px;padding:15px;display:flex;gap:13px;align-items:center;margin-top:6px">
+      <span style="width:36px;height:36px;border-radius:10px;background:#fff;display:grid;place-items:center;color:var(--ok)"><i data-lucide="building-2"></i></span>
+      <div style="flex:1"><b class="disp" style="font-size:14px">Marina Bay Sands</b><div class="note">10 Bayfront Ave, Singapore</div></div>
+      <span style="color:var(--ok);font-weight:700;font-size:13px;display:flex;align-items:center;gap:5px"><i data-lucide="check"></i> Selected</span>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="sep"><span class="t"><i data-lucide="route"></i> Travel style</span><span class="ln"></span></div>
+  <div class="card pad" style="max-width:760px">
+    <div class="shead"><span class="ic"><i data-lucide="route"></i></span><div><h2>Travel style</h2><p>How should we rank routes between your stops?</p></div></div>
+    <div class="poigrid" style="grid-template-columns:1fr 1fr">
+      <div class="preset on"><div class="t"><i data-lucide="zap" style="color:var(--p600)"></i> Fastest</div><div class="note" style="margin-top:4px">Prioritise the shortest travel time</div></div>
+      <div class="preset"><div class="t"><i data-lucide="banknote"></i> Cheapest</div><div class="note" style="margin-top:4px">Prioritise the lowest fare</div></div>
+      <div class="preset"><div class="t"><i data-lucide="footprints"></i> Least walking</div><div class="note" style="margin-top:4px">Minimise walking distance</div></div>
+      <div class="preset"><div class="t"><i data-lucide="shuffle"></i> Fewest transfers</div><div class="note" style="margin-top:4px">Avoid line changes</div></div>
+    </div>
+    <div style="border:1px solid var(--b);background:#f8fafc;border-radius:14px;padding:16px;margin-top:12px">
+      <div class="note" style="font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">Priority mix</div>
+      <div class="sumrow" style="border:0"><span class="k"><i data-lucide="clock"></i> Time</span><span class="bars"><i class="on"></i><i class="on"></i><i class="on"></i></span></div>
+      <div class="sumrow" style="border:0"><span class="k"><i data-lucide="banknote"></i> Cost</span><span class="bars"><i class="on"></i><i></i><i></i></span></div>
+      <div class="sumrow" style="border:0"><span class="k"><i data-lucide="footprints"></i> Walking</span><span class="bars"><i class="on"></i><i></i><i></i></span></div>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="sep"><span class="t"><i data-lucide="map-pin"></i> Your places</span><span class="ln"></span></div>
+  <div class="grid2b">
+    <div class="card pad">
+      <div class="shead"><span class="ic"><i data-lucide="map-pin"></i></span><div><h2>Your places</h2><p>Search, filter by category, and pick the stops you want.</p></div></div>
+      <div class="inp" style="margin-bottom:12px"><i data-lucide="search" style="color:var(--fade)"></i> <span class="ph">Search places…</span></div>
+      <!-- category filters (from real PlaceBrowser) -->
+      <div class="cats">
+        <span class="cat on"><i data-lucide="layout-grid"></i> All</span>
+        <span class="cat"><i data-lucide="landmark"></i> Culture</span>
+        <span class="cat"><i data-lucide="map-pin"></i> Attractions</span>
+        <span class="cat"><i data-lucide="leaf"></i> Nature</span>
+        <span class="cat"><i data-lucide="sparkles"></i> Entertainment</span>
+        <span class="cat"><i data-lucide="utensils"></i> Food &amp; Shopping</span>
+      </div>
+      <div class="poigrid">
+        <div class="poi sel"><div class="img" style="background:linear-gradient(135deg,#059669,#10b981)"><span class="sb on"><i data-lucide="check"></i></span><span class="award">Editor's Pick 2026</span></div>
+          <div class="pb"><span class="eyebrow"><i data-lucide="leaf"></i> Nature</span><span class="nm">Gardens by the Bay</span><div class="metarow"><span class="rate"><i data-lucide="star" style="color:var(--amber);fill:var(--amber)"></i> 4.8</span><span><i data-lucide="clock"></i> ~120m</span></div></div></div>
+        <div class="poi"><div class="img" style="background:linear-gradient(135deg,#7c3aed,#a855f7)"><span class="sb off"><i data-lucide="plus"></i></span></div>
+          <div class="pb"><span class="eyebrow"><i data-lucide="landmark"></i> Culture</span><span class="nm">National Museum</span><div class="metarow"><span class="rate"><i data-lucide="star" style="color:var(--amber);fill:var(--amber)"></i> 4.6</span><span><i data-lucide="clock"></i> ~90m</span></div></div></div>
+        <div class="poi sel"><div class="img" style="background:linear-gradient(135deg,#2563eb,#3b82f6)"><span class="sb on"><i data-lucide="check"></i></span><span class="award">Iconic Symbol</span></div>
+          <div class="pb"><span class="eyebrow"><i data-lucide="map-pin"></i> Attractions</span><span class="nm">Merlion Park</span><div class="metarow"><span class="rate"><i data-lucide="star" style="color:var(--amber);fill:var(--amber)"></i> 4.5</span><span><i data-lucide="clock"></i> ~30m</span></div></div></div>
+        <div class="poi"><div class="img" style="background:linear-gradient(135deg,#d97706,#f59e0b)"><span class="sb off"><i data-lucide="plus"></i></span></div>
+          <div class="pb"><span class="eyebrow"><i data-lucide="utensils"></i> Food</span><span class="nm">Lau Pa Sat</span><div class="metarow"><span class="rate"><i data-lucide="star" style="color:var(--amber);fill:var(--amber)"></i> 4.4</span><span><i data-lucide="clock"></i> ~60m</span></div></div></div>
+        <div class="poi"><div class="img" style="background:linear-gradient(135deg,#db2777,#ec4899)"><span class="sb off"><i data-lucide="plus"></i></span></div>
+          <div class="pb"><span class="eyebrow"><i data-lucide="shopping-bag"></i> Shopping</span><span class="nm">Orchard Road</span><div class="metarow"><span class="rate"><i data-lucide="star" style="color:var(--amber);fill:var(--amber)"></i> 4.3</span><span><i data-lucide="clock"></i> ~120m</span></div></div></div>
+        <div class="poi sel"><div class="img" style="background:linear-gradient(135deg,#0891b2,#06b6d4)"><span class="sb on"><i data-lucide="check"></i></span></div>
+          <div class="pb"><span class="eyebrow"><i data-lucide="leaf"></i> Nature</span><span class="nm">Marina Barrage</span><div class="metarow"><span class="rate"><i data-lucide="star" style="color:var(--amber);fill:var(--amber)"></i> 4.5</span><span><i data-lucide="clock"></i> ~45m</span></div></div></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card pad">
+        <div class="sumhead"><span class="ic"><i data-lucide="clipboard-list"></i></span><b>Summary</b></div>
+        <div class="sumrow"><span class="k">Duration</span><span class="v">3 days</span></div>
+        <div class="sumrow"><span class="k">Budget</span><span class="v">S$50</span></div>
+        <div class="sumrow" style="border:0"><span class="k">Places</span><span class="v star">3</span></div>
+      </div>
+      <!-- selected — prominent cards -->
+      <div class="card pad">
+        <div class="selhead"><b>Selected</b><span class="pill-count">3</span></div>
+        <div class="selitem"><span class="th" style="background:linear-gradient(135deg,#059669,#10b981)"></span><div><div class="nm">Gardens by the Bay</div><div class="cat">Nature · ~120m</div></div><span class="rm"><i data-lucide="x"></i></span></div>
+        <div class="selitem"><span class="th" style="background:linear-gradient(135deg,#2563eb,#3b82f6)"></span><div><div class="nm">Merlion Park</div><div class="cat">Attractions · ~30m</div></div><span class="rm"><i data-lucide="x"></i></span></div>
+        <div class="selitem" style="margin-bottom:0"><span class="th" style="background:linear-gradient(135deg,#0891b2,#06b6d4)"></span><div><div class="nm">Marina Barrage</div><div class="cat">Nature · ~45m</div></div><span class="rm"><i data-lucide="x"></i></span></div>
+      </div>
+      <div class="card pad" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div><b class="disp" style="font-size:13.5px">Auto-optimise order</b><div class="note">Reorder stops for the best route</div></div>
+        <span class="toggle"></span>
+      </div>
+      <button class="btn b-pri" style="width:100%;height:48px"><i data-lucide="sparkles"></i> Generate plan</button>
+      <button class="btn b-out" style="width:100%"><i data-lucide="arrow-left"></i> Back</button>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:40px">Planner redesign mockup v3 · planning logic unchanged · icons: Lucide · display: Space Grotesk.</p>
+</div>
+<script>lucide.createIcons()</script>
+</body></html>

@@ -174,7 +174,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
             aria-label={getSearchAriaLabel()}
           />
         </div>
-        <span className="w-fit shrink-0 rounded-full bg-slate-950 px-3 py-2 text-[10px] font-extrabold text-white">
+        <span className="w-fit shrink-0 rounded-full bg-blue-600 px-3 py-2 text-[10px] font-extrabold text-white">
           {getSelectedCountLabel()}
         </span>
       </div>
@@ -190,8 +190,8 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
               aria-pressed={activeGroup === id}
               className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-[10px] font-extrabold transition-colors ${
                 activeGroup === id
-                  ? 'border-slate-950 bg-slate-950 text-white'
-                  : 'border-slate-200 bg-white text-slate-500 hover:border-slate-400 hover:text-slate-900'
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-slate-200 bg-white text-slate-500 hover:border-blue-300 hover:text-slate-900'
               }`}
             >
               <Icon className="h-3 w-3" />
@@ -203,7 +203,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
 
       {/* Cards */}
       {loading ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label={getLoadingAriaLabel()}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label={getLoadingAriaLabel()}>
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-64 rounded-2xl" />
           ))}
@@ -212,7 +212,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
         <p className="py-4 text-center text-sm text-slate-400">{getEmptyMessage()}</p>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {visiblePlaces.map((place) => {
               const isSelected = selectedIds.includes(place.id)
               const Icon = ICON_BY_CATEGORY[getExtendedCategory(place)] ?? MapPin
@@ -226,7 +226,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
                   aria-label={place.name}
                   className={`group relative min-w-0 overflow-hidden rounded-2xl border bg-white text-left shadow-[0_5px_18px_-15px_rgba(15,23,42,0.3)] transition-[transform,box-shadow,border-color] duration-200 will-change-transform hover:z-10 hover:scale-[1.025] hover:border-slate-400 hover:shadow-[0_20px_38px_-27px_rgba(15,23,42,0.58)] ${
                     isSelected
-                      ? 'border-slate-950 ring-1 ring-slate-950'
+                      ? 'border-blue-600 ring-1 ring-blue-600'
                       : 'border-slate-200'
                   }`}
                 >
@@ -245,7 +245,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
                       />
                     )}
                     <span className={`absolute right-2.5 top-2.5 z-10 grid h-7 w-7 place-items-center rounded-lg border border-white/80 shadow-sm transition ${
-                      isSelected ? 'bg-slate-950 text-white' : 'bg-white/90 text-slate-400'
+                      isSelected ? 'bg-blue-600 text-white' : 'bg-white/90 text-slate-400'
                     }`}>
                       {isSelected ? <Check className="h-3.5 w-3.5" /> : <span className="text-base font-medium leading-none">+</span>}
                     </span>

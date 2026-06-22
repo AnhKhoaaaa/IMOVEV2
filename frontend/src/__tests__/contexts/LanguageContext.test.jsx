@@ -13,7 +13,7 @@ describe('LanguageContext', () => {
   it('defaults to EN', () => {
     const { result } = renderHook(useAll, { wrapper })
     expect(result.current.lang).toBe('en')
-    expect(result.current.t('signIn')).toBe('Sign in')
+    expect(result.current.t('signIn')).toBe('Sign In')
     expect(result.current.t('newTrip')).toBe('New Trip')
   })
 
@@ -30,7 +30,7 @@ describe('LanguageContext', () => {
     act(() => result.current.toggleLang())
     act(() => result.current.toggleLang())
     expect(result.current.lang).toBe('en')
-    expect(result.current.t('signIn')).toBe('Sign in')
+    expect(result.current.t('signIn')).toBe('Sign In')
   })
 
   it('handles function translations with args', () => {
@@ -81,15 +81,5 @@ describe('LanguageContext', () => {
     expect(result.current.t('statusToday')).toBe('Đang diễn ra')
     expect(result.current.t('or')).toBe('hoặc')
     expect(result.current.t('flexibleDates')).toBe('Ngày linh hoạt')
-  })
-
-  it('companion/style/pace keys translate', () => {
-    const { result } = renderHook(useAll, { wrapper })
-    expect(result.current.t('comp_family')).toBe('Family')
-    expect(result.current.t('style_cultural')).toBe('Cultural')
-    expect(result.current.t('pace_relaxed')).toBe('Relaxed')
-    act(() => result.current.toggleLang())
-    expect(result.current.t('comp_family')).toBe('Gia đình')
-    expect(result.current.t('pace_relaxed')).toBe('Thư thả')
   })
 })
