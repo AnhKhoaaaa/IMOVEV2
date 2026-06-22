@@ -1,7 +1,18 @@
+# IMOVEV2 Agent Instructions
+
+- project architecture and constraints;
+- the Explore -> Plan -> Code -> Test workflow;
+- conditional GitNexus usage;
+- the rule that commits are created only when the user explicitly requests one.
+
+The GitNexus block below is auto-generated reference material. Its unconditional
+usage wording is overridden by `CODEX_WORKFLOW.md`: use GitNexus only for
+difficult or high-impact tasks, or when the user explicitly requests it.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **IMOVEV2** (4151 symbols, 7199 relationships, 209 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **IMOVEV2** (4761 symbols, 8213 relationships, 230 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
