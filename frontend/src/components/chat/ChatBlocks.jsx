@@ -82,7 +82,7 @@ function RouteCompareCard({ options = [] }) {
             <span className="flex items-center gap-2 text-xs text-slate-500">
               {o.duration_minutes != null && <span>{t('chatMinShort', Math.round(o.duration_minutes))}</span>}
               {o.fare_sgd != null && (
-                <span className="font-medium text-emerald-600">
+                <span className="font-medium text-success-600">
                   {o.fare_sgd > 0 ? `S$${o.fare_sgd.toFixed(2)}` : t('chatRouteFree')}
                 </span>
               )}
@@ -106,7 +106,7 @@ function BusArrivalsCard({ stop_code, services = [] }) {
           {services.map((s, i) => (
             <div key={i} className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 text-sm">
               <span className="font-semibold text-slate-700">{s.service_no}</span>
-              <span className={cn('text-xs font-medium', s.eta_min != null && s.eta_min <= 1 ? 'text-amber-600' : 'text-slate-500')}>
+              <span className={cn('text-xs font-medium', s.eta_min != null && s.eta_min <= 1 ? 'text-warning-600' : 'text-slate-500')}>
                 {s.eta_min == null ? '—' : s.eta_min <= 1 ? t('chatBusNow') : t('chatBusEta', s.eta_min)}
               </span>
             </div>

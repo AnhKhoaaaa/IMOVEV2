@@ -284,28 +284,28 @@ export default function Home() {
       <section className="relative isolate overflow-hidden border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/70 to-white">
         <WaveLightShader className="absolute -inset-x-[8%] -inset-y-20 h-[calc(100%+10rem)] w-[116%] opacity-50 mix-blend-multiply" />
         <div className="pointer-events-none absolute inset-0 bg-white/20" />
-        <div className="relative mx-auto max-w-7xl px-6 py-6">
+        <div className="relative mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
           <ScrollReveal>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md">
-                <CalendarDays className="stats-floating-icon h-5 w-5 text-blue-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeStatToday')}</p>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+              <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md sm:p-4">
+                <CalendarDays className="stats-floating-icon h-4 w-4 text-blue-600 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">{stats.today}</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeStatToday')}</p>
               </div>
-              <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md">
-                <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-5 w-5 text-emerald-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeStatUpcoming')}</p>
+              <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md sm:p-4">
+                <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-4 w-4 text-emerald-600 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">{stats.upcoming}</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeStatUpcoming')}</p>
               </div>
-              <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md">
-                <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-5 w-5 text-amber-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{t('homeLive')}</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeLtaWeather')}</p>
+              <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md sm:p-4">
+                <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-4 w-4 text-amber-600 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">{t('homeLive')}</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeLtaWeather')}</p>
               </div>
-              <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md">
-                <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-5 w-5 text-red-500" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeOpenAlerts')}</p>
+              <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md sm:p-4">
+                <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-4 w-4 text-red-500 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">0</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeOpenAlerts')}</p>
               </div>
             </div>
           </ScrollReveal>
@@ -335,10 +335,10 @@ export default function Home() {
         )
       })()}
 
-      <section id="my-trips" className="mx-auto max-w-7xl px-6 py-6">
+      <section id="my-trips" className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
         <ScrollReveal>
-          <div className="mb-5 flex items-center justify-between gap-4">
-            <div className="flex rounded-lg border border-slate-200 bg-white p-1 shadow-card">
+          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
+            <div className="flex max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-card">
               {FILTERS.map((item) => (
                 <button
                   key={item.id}
@@ -357,13 +357,13 @@ export default function Home() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t('homeSearch')}
-              className="w-[320px]"
+              className="w-full md:w-[320px]"
             />
           </div>
         </ScrollReveal>
 
         {filteredTrips.length ? (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {filteredTrips.map((trip, index) => (
               <ScrollReveal key={trip.id} delay={Math.min(index, 5) * 90}>
                 <div className="relative">
@@ -386,7 +386,7 @@ export default function Home() {
           </div>
         ) : (
           <ScrollReveal delay={100}>
-            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-12 text-center">
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center sm:p-12">
               <MapPin className="mx-auto h-8 w-8 text-slate-300" />
               <h2 className="mt-3 font-display text-[22px] font-extrabold text-slate-950">{t('homeNoTrips')}</h2>
               <p className="mt-2 text-[14px] text-slate-500">{t('homeNoTripsDesc')}</p>

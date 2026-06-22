@@ -26,18 +26,18 @@ export default function Support() {
                   Chỉ cần nhập điểm xuất phát và điểm đến của bạn vào Planner. Các agent thông minh của IMOVE sẽ tính toán sự kết hợp hiệu quả nhất giữa MRT và xe buýt, cân bằng giữa thời gian di chuyển, khoảng cách đi bộ và chi phí dựa trên dữ liệu thời gian thực.
                 </p>
               </div>
-              
+
               <hr className="border-slate-100" />
-              
+
               <div>
                 <h3 className="text-lg font-bold text-slate-800 mb-2">Chuyện gì xảy ra nếu tàu hoặc xe buýt của tôi bị trễ?</h3>
                 <p className="text-slate-600 leading-relaxed">
                   IMOVE giám sát dữ liệu trực tiếp từ LTA DataMall. Nếu có sự cố gián đoạn trên tuyến đường bạn đã chọn, Adaptation Agent của chúng tôi sẽ tự động cảnh báo và đề xuất các phương án thay thế để đưa bạn đến nơi an toàn.
                 </p>
               </div>
-              
+
               <hr className="border-slate-100" />
-              
+
               <div>
                 <h3 className="text-lg font-bold text-slate-800 mb-2">Tôi có thể tùy chỉnh phương tiện ưu tiên không?</h3>
                 <p className="text-slate-600 leading-relaxed">
@@ -89,18 +89,18 @@ export default function Support() {
                 Simply enter your starting point and destination in the Planner. IMOVE's intelligent agents will calculate the most efficient combinations of MRT and buses, balancing travel time, walking distance, and cost based on real-time data.
               </p>
             </div>
-            
+
             <hr className="border-slate-100" />
-            
+
             <div>
               <h3 className="text-lg font-bold text-slate-800 mb-2">What happens if my train or bus is delayed?</h3>
               <p className="text-slate-600 leading-relaxed">
                 IMOVE monitors live data from the LTA DataMall. If a disruption occurs on your planned route, our Adaptation Agent will automatically alert you and suggest alternative options to get you to your destination safely.
               </p>
             </div>
-            
+
             <hr className="border-slate-100" />
-            
+
             <div>
               <h3 className="text-lg font-bold text-slate-800 mb-2">Can I customize my preferred transport mode?</h3>
               <p className="text-slate-600 leading-relaxed">

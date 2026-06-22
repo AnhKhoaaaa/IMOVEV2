@@ -91,7 +91,7 @@ dev29 đã thống nhất **2 lớp màu**: **brand** (blue `#2563eb`) và **sta
 1. **Hệ màu transit mode:** tô theo **MODE** (MRT/BUS/WALK — đơn giản) hay theo **LINE** (NSL đỏ/EWL xanh… — đúng chuẩn SG, refs.md §2, nhưng cần dữ liệu line từ backend)? *(Khuyến nghị: theo line khi có `route`, fallback theo mode.)*
 2. **Button:** pill (full) hay giữ bo 10px? *(refs.md: pill phổ biến ở transit; nhưng pill toàn app là thay đổi nhận diện lớn.)*
 3. **Display font:** giữ Inter+Plus Jakarta Sans, hay đổi sang geometric (Sora/Outfit/Space Grotesk)?
-4. **POI category & weather:** giữ phân biệt màu theo nhóm (đã token hóa) hay rút về 1 accent + icon? 
+4. **POI category & weather:** giữ phân biệt màu theo nhóm (đã token hóa) hay rút về 1 accent + icon?
 
 ## Rerun Inputs
 ```

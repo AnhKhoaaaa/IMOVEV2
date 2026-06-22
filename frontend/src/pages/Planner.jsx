@@ -182,6 +182,7 @@ export default function Planner() {
   const [syncDailyStart, setSyncDailyStart] = useState(true)
 
   // Sidebar states
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   // Step 2: Hotel States (Optional)
   const [hotelQuery, setHotelQuery] = useState('')
@@ -363,11 +364,11 @@ export default function Planner() {
 
   return (
     <AuroraBackground>
-      <div className="py-8 px-6">
+      <div className="px-3 py-5 pb-24 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-7xl">
 
           {/* Header section */}
-          <div className="mb-6 flex items-center gap-4">
+          <div className="mb-4 flex items-center gap-3 sm:mb-6 sm:gap-4">
             <button
               onClick={() => navigate('/')}
               className="grid h-9 w-9 place-items-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700 hover:shadow-sm transition"
@@ -377,21 +378,21 @@ export default function Planner() {
             </button>
             <div>
               <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{t('plnEyebrow')}</p>
-              <h1 className="font-display text-[28px] font-extrabold text-slate-900">{t('plnTitle')}</h1>
+              <h1 className="font-display text-[24px] font-extrabold text-slate-900 sm:text-[28px]">{t('plnTitle')}</h1>
             </div>
           </div>
 
           {/* 2-Panel Layout */}
-          <div className="grid grid-cols-[1fr_360px] gap-6 items-start">
+          <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[1fr_360px] lg:gap-6">
 
             {/* Main Wizard Form Card (Left) */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm min-h-[500px] flex flex-col justify-between">
+            <div className="flex min-h-[420px] min-w-0 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:min-h-[500px] sm:p-6">
               <div>
                 {/* Steps Dot Indicator */}
-                <div className="relative flex justify-between mb-8 px-6">
-                  <div className="absolute top-[21px] left-10 right-10 h-0.5 bg-slate-100 -z-10" />
+                <div className="relative mb-5 grid grid-cols-4 gap-1 sm:mb-8 sm:flex sm:justify-between sm:px-6">
+                  <div className="absolute left-10 right-10 top-[21px] -z-10 hidden h-0.5 bg-slate-100 sm:block" />
                   <div
-                    className="absolute top-[21px] left-10 h-0.5 bg-blue-600 -z-10 transition-all duration-300"
+                    className="absolute left-10 top-[21px] -z-10 hidden h-0.5 bg-blue-600 transition-all duration-300 sm:block"
                     style={{ width: `${((currentStep - 1) / 3) * 82}%` }}
                   />
 
@@ -405,11 +406,11 @@ export default function Planner() {
                       key={s.num}
                       type="button"
                       onClick={() => goToStep(s.num)}
-                      className="flex flex-col items-center focus:outline-none"
+                      className="flex min-w-0 flex-col items-center focus:outline-none"
                     >
                       <div
                         className={cn(
-                          'flex h-10 w-10 items-center justify-center rounded-full border transition',
+                          'flex h-9 w-9 items-center justify-center rounded-full border transition sm:h-10 sm:w-10',
                           currentStep === s.num
                             ? 'border-blue-600 bg-blue-600 text-white shadow-card ring-2 ring-blue-100'
                             : currentStep > s.num
@@ -421,7 +422,7 @@ export default function Planner() {
                       </div>
                       <span
                         className={cn(
-                          'text-[12px] font-semibold mt-1.5 transition',
+                          'mt-1.5 text-center text-[10px] font-semibold leading-tight transition sm:text-[12px]',
                           currentStep >= s.num ? 'text-slate-900' : 'text-slate-400'
                         )}
                       >
@@ -595,7 +596,7 @@ export default function Planner() {
                             />
                           </div>
                         ) : (
-                          <div className={cn('grid gap-2', numDays > 4 ? 'grid-cols-3' : 'grid-cols-2')}>
+                          <div className={cn('grid gap-2', numDays > 4 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2')}>
                             {Array.from({ length: numDays }, (_, i) => (
                               <div key={i} className="flex items-center gap-2 rounded-[10px] border border-slate-200 bg-slate-50/50 px-3 py-2">
                                 <span className="w-9 shrink-0 text-[11px] font-bold text-slate-400">{t('tripDay', i + 1)}</span>
@@ -688,7 +689,7 @@ export default function Planner() {
                     <div className="space-y-4 animate-fade-in">
                       <StepHeader Icon={Route} title={t('plnTransitWeights')} desc={t('plnTransitDesc')} />
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <motion.button
                           type="button"
                           onClick={() => setSelectedPreset('fastest')}
@@ -860,7 +861,7 @@ export default function Planner() {
             </div>
 
             {/* Sidebar Info/JSON Panel (Right) */}
-            <aside className="space-y-4">
+            <aside className="hidden space-y-4 lg:block">
 
               {/* Summary Info */}
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -965,13 +966,157 @@ export default function Planner() {
           </div>
         </div>
 
+        <div className="lg:hidden">
+          <button
+            type="button"
+            onClick={() => setSummaryOpen(true)}
+            aria-expanded={summaryOpen}
+            aria-controls="planner-summary-drawer"
+            aria-label={t('plnConfigSummary')}
+            className="fixed right-0 top-1/2 z-40 grid h-12 w-10 -translate-y-1/2 place-items-center rounded-l-2xl border border-r-0 border-slate-200 bg-white text-blue-700 shadow-pop active:scale-95"
+          >
+            <HelpCircle size={18} />
+          </button>
+
+          {summaryOpen && (
+            <div className="fixed inset-0 z-50">
+              <button
+                type="button"
+                aria-label={t('chatClose')}
+                onClick={() => setSummaryOpen(false)}
+                className="absolute inset-0 bg-slate-950/35 backdrop-blur-[2px]"
+              />
+              <aside
+                id="planner-summary-drawer"
+                className="absolute right-0 top-0 flex h-full w-[min(88vw,360px)] flex-col border-l border-slate-200 bg-slate-50 shadow-2xl animate-pop-in"
+              >
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+                  <div>
+                    <p className="text-[11px] font-extrabold uppercase tracking-wide text-blue-600">{t('plnEyebrow')}</p>
+                    <h2 className="font-display text-[17px] font-extrabold text-slate-950">{t('plnConfigSummary')}</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSummaryOpen(false)}
+                    aria-label={t('chatClose')}
+                    className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+                  <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-4 flex items-center gap-1.5 border-b border-slate-100 pb-3">
+                      <div className="grid h-7 w-7 place-items-center rounded bg-blue-50 text-blue-600"><Calendar size={16} /></div>
+                      <h3 className="font-display text-[15px] font-bold text-slate-900">{t('plnConfigSummary')}</h3>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex justify-between gap-3 border-b border-slate-100/50 pb-2">
+                        <span className="text-[12px] font-medium text-slate-400">{t('plnTripName')}</span>
+                        <span className="max-w-[160px] truncate text-[12.5px] font-bold text-slate-800" title={tripName}>{tripName}</span>
+                      </div>
+
+                      <div className="flex justify-between gap-3 border-b border-slate-100/50 pb-2">
+                        <span className="text-[12px] font-medium text-slate-400">{t('plnDuration')}</span>
+                        <span className="text-[12.5px] font-bold text-slate-800">{t('plnDaysValue', numDays)}</span>
+                      </div>
+
+                      <div className="flex justify-between gap-3 border-b border-slate-100/50 pb-2">
+                        <span className="text-[12px] font-medium text-slate-400">{t('plnSumBudget')}</span>
+                        <span className="text-[12.5px] font-bold text-slate-800">S${budget.toFixed(2)}</span>
+                      </div>
+
+                      <div className="flex justify-between gap-3 border-b border-slate-100/50 pb-2">
+                        <span className="text-[12px] font-medium text-slate-400">{t('plnHotelStart')}</span>
+                        <span
+                          className={cn('max-w-[180px] truncate text-right text-[12.5px] font-bold', hotel ? 'text-blue-600' : 'text-slate-400')}
+                          title={hotel ? hotel.name : t('plnStartsFirstStop')}
+                        >
+                          {hotel ? hotel.name : t('plnNotSet')}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between gap-3 border-b border-slate-100/50 pb-2">
+                        <span className="text-[12px] font-medium text-slate-400">{t('plnTravelStyle')}</span>
+                        <span className="text-right text-[12.5px] font-bold text-amber-600">{t(STYLE_LABEL_KEY[selectedPreset] ?? 'plnFastest')}</span>
+                      </div>
+
+                      <div className="flex justify-between gap-3 pb-1">
+                        <span className="text-[12px] font-medium text-slate-400">{t('plnStopsSelected')}</span>
+                        <span className="text-[12.5px] font-bold text-slate-800">{t('plnStopsValue', selected.length)}</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  {currentStep === 4 && (
+                    <>
+                      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h3 className="font-display text-[14px] font-bold text-slate-900">{t('plnSelectedShortlist', selected.length)}</h3>
+                          <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-bold text-white">{selected.length}</span>
+                        </div>
+                        <SelectedList places={selected} onRemove={removePlace} />
+                      </section>
+
+                      <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex flex-col gap-0.5 pr-3">
+                          <span className="text-[13px] font-bold text-slate-900">{t('plnAutoOptimize')}</span>
+                          <span className="text-[11.5px] text-slate-400">{t('plnAutoOptimizeDesc')}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setOptimizeOrder(!optimizeOrder)}
+                          aria-pressed={optimizeOrder}
+                          className={cn(
+                            'relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none',
+                            optimizeOrder ? 'bg-blue-600' : 'bg-slate-200'
+                          )}
+                        >
+                          <span className={cn('pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', optimizeOrder ? 'translate-x-5' : 'translate-x-0')} />
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {error && (
+                    <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 shadow-sm animate-pop-in">
+                      <AlertCircle size={14} className="mt-0.5 shrink-0 text-red-600" />
+                      <p className="text-[12px] font-medium leading-normal text-red-700">{error}</p>
+                    </div>
+                  )}
+                </div>
+
+                {currentStep === 4 && (
+                  <div className="shrink-0 space-y-2 border-t border-slate-200 bg-white/95 p-4 shadow-[0_-12px_30px_-24px_rgba(15,23,42,0.35)] backdrop-blur">
+                    <Button
+                      type="button"
+                      size="lg"
+                      onClick={createPlan}
+                      disabled={creating || selected.length < 2}
+                      className="w-full"
+                    >
+                      {creating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                      {creating ? t('plnGenerating') : t('plnGeneratePlan')}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handlePrev} className="w-full">
+                      <ArrowLeft size={15} /> {t('tripBack')}
+                    </Button>
+                  </div>
+                )}
+              </aside>
+            </div>
+          )}
+        </div>
+
         {showScrollTop && (
           <button
             type="button"
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             title={t('plnBackToTop')}
             aria-label={t('plnBackToTop')}
-            className="fixed bottom-[88px] left-5 z-[60] grid h-11 w-11 place-items-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-pop transition hover:bg-slate-50 active:scale-95"
+            className="fixed bottom-[88px] right-5 z-40 grid h-11 w-11 place-items-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-pop transition hover:bg-slate-50 active:scale-95 sm:left-5 sm:right-auto sm:z-[60]"
           >
             <ArrowUp size={18} />
           </button>

@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useT } from '../contexts/LanguageContext'
 import { cn } from '../lib/utils'
 import AuthModal from '../components/auth/AuthModal'
+import { Button } from '../components/ui/button'
 
 const DEFAULT_PROFILE = {
   duration_w: 0.4,
@@ -99,7 +100,7 @@ export default function Preferences() {
   }
 
   return (
-    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 px-6 py-8">
+    <main className="min-h-[calc(100dvh-56px)] bg-slate-50 px-4 py-8 sm:px-6">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6">
           <p className="text-[12px] font-bold uppercase tracking-wide text-blue-600">{t('setEyebrow')}</p>
@@ -110,28 +111,28 @@ export default function Preferences() {
         </div>
 
         {!user ? (
-          <section className="rounded-lg border border-blue-200 bg-white p-6 shadow-card">
+          <section className="rounded-xl border border-primary-200 bg-white p-6 shadow-card">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="font-display text-[18px] font-extrabold text-slate-950">{t('setSignInTitle')}</h2>
                 <ul className="mt-3 space-y-1.5 text-[13.5px] text-slate-600">
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet1')}</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet2')}</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet3')}</li>
-                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" /> {t('setBullet4')}</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-500" /> {t('setBullet1')}</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-500" /> {t('setBullet2')}</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-500" /> {t('setBullet3')}</li>
+                  <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-500" /> {t('setBullet4')}</li>
                 </ul>
               </div>
-              <button
+              <Button
                 onClick={() => setShowAuth(true)}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-md bg-blue-600 px-5 text-[14px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
+                className="h-11 shrink-0 px-5 text-[14px]"
               >
                 <LogIn size={16} /> {t('signIn')}
-              </button>
+              </Button>
             </div>
           </section>
         ) : (
-          <div className="grid grid-cols-[1fr_300px] gap-6">
-            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-card">
+          <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+            <section className="mx-auto w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-card sm:max-w-none sm:p-6">
               <div className="mb-5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <SlidersHorizontal className="h-5 w-5 text-blue-600" />
@@ -175,36 +176,38 @@ export default function Preferences() {
               </div>
             </section>
 
-            <aside className="space-y-4">
+            <aside className="mx-auto w-full max-w-md space-y-4 sm:max-w-none">
               <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-card">
                 <p className="text-[12px] font-bold uppercase tracking-wide text-slate-400">{t('setHowItWorks')}</p>
                 <p className="mt-2 text-[12.5px] leading-5 text-slate-500">
                   {t('setHowItWorksDesc')}
                 </p>
                 <div className="mt-4 flex gap-2">
-                  <button
+                  <Button
+                    variant="outline"
+                    size="icon"
                     onClick={reset}
-                    className="grid h-10 w-10 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
+                    className="h-10 w-10"
                     title={t('setReset')}
                   >
                     <RotateCcw size={15} />
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={save}
                     disabled={saving}
-                    className="flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700 disabled:opacity-60"
+                    className="h-10 flex-1 gap-2 px-4 text-[13px]"
                   >
                     {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
                     {t('setSave')}
-                  </button>
+                  </Button>
                 </div>
               </section>
 
               {(message || error) && (
-                <section className={`rounded-lg border p-4 ${error ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
+                <section className={`rounded-xl border p-4 ${error ? 'border-danger-500/30 bg-danger-50' : 'border-success-500/30 bg-success-50'}`}>
                   <div className="flex gap-2">
-                    {error ? <AlertCircle className="h-4 w-4 text-red-600" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
-                    <p className={`text-[13px] font-semibold ${error ? 'text-red-700' : 'text-emerald-700'}`}>
+                    {error ? <AlertCircle className="h-4 w-4 text-danger-600" /> : <CheckCircle2 className="h-4 w-4 text-success-600" />}
+                    <p className={`text-[13px] font-semibold ${error ? 'text-danger-600' : 'text-success-600'}`}>
                       {error ?? message}
                     </p>
                   </div>

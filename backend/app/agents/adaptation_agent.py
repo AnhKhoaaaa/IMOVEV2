@@ -506,8 +506,7 @@ def _weather_alert_message(day: int, day_date: str, rain_prob: int, suggestions:
     stops = f"{n} outdoor stop{'s' if n != 1 else ''}"
     return (
         f"Day {day} ({label}): {rain_prob}% chance of rain. "
-        f"{stops} may be wet — tap Preview to swap them for nearby indoor spots: "
-        f"{'; '.join(suggestions)}"
+        f"{stops} may be wet — tap Preview to swap them for nearby indoor spots."
     )
 
 

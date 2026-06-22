@@ -1,15 +1,31 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 
 const LanguageContext = createContext({ lang: 'en', toggleLang: () => {} })
 
 export function LanguageProvider({ children }) {
-  const [lang, setLang] = useState(() => {
+  const [storedLang, setStoredLang] = useState(() => {
     try { return localStorage.getItem('imove_lang') ?? 'en' } catch { return 'en' }
   })
+  const [forceMobileEnglish, setForceMobileEnglish] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const media = window.matchMedia('(max-width: 639px)')
+    const update = () => setForceMobileEnglish(media.matches)
+    update()
+    if (media.addEventListener) media.addEventListener('change', update)
+    else media.addListener?.(update)
+    return () => {
+      if (media.removeEventListener) media.removeEventListener('change', update)
+      else media.removeListener?.(update)
+    }
+  }, [])
+
+  const lang = forceMobileEnglish ? 'en' : storedLang
 
   const toggleLang = () => {
-    const next = lang === 'en' ? 'vi' : 'en'
-    setLang(next)
+    const next = storedLang === 'en' ? 'vi' : 'en'
+    setStoredLang(next)
     try { localStorage.setItem('imove_lang', next) } catch {}
   }
 
@@ -347,6 +363,9 @@ const EN = {
   tripStartsToday: 'Your trip starts today! Head to the dashboard to start.',
   tripOffline: 'Offline mode — showing your cached itinerary.',
   tripRainMore: (n) => `Rain forecast for ${n} more day${n !== 1 ? 's' : ''}`,
+  tripWarningsTitle: (n) => `${n} planning notice${n !== 1 ? 's' : ''}`,
+  tripHideMap: 'Hide map',
+  tripShowMap: 'Show map',
   tripLoadError: (msg) => `Could not load trip: ${msg}`,
   tripUnavailableTitle: 'Trip unavailable',
   tripUnavailableBody: () => 'We could not open this trip. It may be private, deleted, or you may not have permission to view it.',
@@ -1047,6 +1066,9 @@ const VI = {
   tripStartsToday: 'Chuyến đi của bạn bắt đầu hôm nay! Vào bảng điều khiển để bắt đầu.',
   tripOffline: 'Chế độ ngoại tuyến — đang hiển thị lịch trình đã lưu.',
   tripRainMore: (n) => `Dự báo mưa cho ${n} ngày nữa`,
+  tripWarningsTitle: (n) => `${n} lưu ý lịch trình`,
+  tripHideMap: 'Ẩn bản đồ',
+  tripShowMap: 'Hiện bản đồ',
   tripLoadError: (msg) => `Không tải được chuyến đi: ${msg}`,
   tripUnavailableTitle: 'Không mở được chuyến đi',
   tripUnavailableBody: () => 'Chuyến đi này có thể là riêng tư, đã bị xoá, hoặc bạn không có quyền xem.',

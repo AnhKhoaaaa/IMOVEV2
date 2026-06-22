@@ -111,7 +111,7 @@ export default function Header() {
             <img
               src="/imove-logo-transparent.png"
               alt=""
-              className="h-10 w-auto max-w-[190px] object-contain"
+              className="h-8 w-auto max-w-[136px] object-contain sm:h-10 sm:max-w-[190px]"
             />
             <span className="sr-only">IMOVE</span>
           </Link>
@@ -124,7 +124,7 @@ export default function Header() {
           {/* Right side */}
           <div className="absolute right-4 flex items-center gap-3 sm:right-6">
             {/* Globe Language Switcher */}
-            <div className="relative" ref={langRef}>
+            <div className="relative hidden sm:block" ref={langRef}>
               <button
                 type="button"
                 onClick={() => setShowLangMenu((v) => !v)}
