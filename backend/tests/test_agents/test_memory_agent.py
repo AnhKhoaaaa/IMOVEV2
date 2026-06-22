@@ -147,6 +147,30 @@ async def test_learn_implicit_two_bus_to_mrt_sets_prefer_mrt():
 
 
 @pytest.mark.asyncio
+async def test_learn_implicit_two_bus_to_metro_sets_prefer_mrt():
+    feedback = [
+        {"comment": "Mode changed: BUS → METRO"},
+        {"comment": "Mode changed: BUS → METRO"},
+    ]
+    sb = _make_sb(feedback_data=feedback, existing_pref=[])
+    inserted = []
+
+    def capture_insert(row):
+        inserted.append(row)
+        m = MagicMock()
+        m.execute.return_value = MagicMock(data=[])
+        return m
+
+    sb.table("user_preferences").insert = capture_insert
+
+    with patch("app.agents.memory_agent.supabase", sb):
+        await learn_from_implicit("00000000-0000-0000-0000-000000000001")
+
+    assert len(inserted) == 1
+    assert inserted[0]["prefer_mrt"] is True
+
+
+@pytest.mark.asyncio
 async def test_learn_implicit_two_walk_increases_max_walk():
     feedback = [
         {"comment": "Mode changed: BUS → WALK"},

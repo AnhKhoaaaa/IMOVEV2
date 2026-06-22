@@ -39,6 +39,7 @@ To_fix.md
 # GCP service account credentials — never commit
 backend/application_default_credentials.json
 backend/*-credentials.json
+backend/gcp-credentials.json
 backend/*-key.json
 backend/service-account*.json
 *-credentials.json

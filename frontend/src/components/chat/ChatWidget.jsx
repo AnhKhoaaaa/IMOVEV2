@@ -129,6 +129,17 @@ export default function ChatWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, pending, loading])
 
+  // Jump straight to the newest message when the panel opens: its scroll container is freshly
+  // mounted, so the message-change effect above never fires for an existing conversation — it
+  // would otherwise stay pinned at the very first message. rAF waits for layout before scrolling.
+  useEffect(() => {
+    if (!open) return
+    requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }, [open])
+
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
