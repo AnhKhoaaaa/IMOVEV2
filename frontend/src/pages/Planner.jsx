@@ -1087,6 +1087,24 @@ export default function Planner() {
                     </div>
                   )}
                 </div>
+
+                {currentStep === 4 && (
+                  <div className="shrink-0 space-y-2 border-t border-slate-200 bg-white/95 p-4 shadow-[0_-12px_30px_-24px_rgba(15,23,42,0.35)] backdrop-blur">
+                    <Button
+                      type="button"
+                      size="lg"
+                      onClick={createPlan}
+                      disabled={creating || selected.length < 2}
+                      className="w-full"
+                    >
+                      {creating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                      {creating ? t('plnGenerating') : t('plnGeneratePlan')}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handlePrev} className="w-full">
+                      <ArrowLeft size={15} /> {t('tripBack')}
+                    </Button>
+                  </div>
+                )}
               </aside>
             </div>
           )}
