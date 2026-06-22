@@ -602,7 +602,7 @@ def estimated_alternatives_models(
 
 
 async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
-    """Fetch PT (mixed), PT bus-only, Walk, and Cycle routes in parallel.
+    """Fetch PT (mixed), PT bus-only, PT subway-only, Walk, and Cycle routes in parallel.
 
     Returns dict[TransportMode, route_dict] — only populated for modes OneMap can route.
     PT routes where the itinerary is all-walk are excluded (WALK already covers those).
@@ -623,9 +623,10 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
                       mode, from_p.get("id"), to_p.get("id"), exc)
             return None
 
-    pt_route, bus_route, walk_route, cycle_route, drive_route = await asyncio.gather(
+    pt_route, bus_route, metro_route, walk_route, cycle_route, drive_route = await asyncio.gather(
         _safe("pt"),
         _safe("pt", transit_modes="BUS"),
+        _safe("pt", transit_modes="SUBWAY"),
         _safe("walk"),
         _safe("cycle"),
         _safe("drive"),
@@ -647,6 +648,13 @@ async def _fetch_all_alternatives(from_p: dict, to_p: dict) -> dict[str, dict]:
         bus_primary = _primary_mode(bus_route.get("legs", []))
         if bus_primary == "BUS":
             result["BUS"] = bus_route
+
+    # PT subway-only → backfill METRO when pt_route chose BUS as primary.
+    # Ensures the Change dropdown always offers both MRT and Bus when both serve the pair.
+    if metro_route and "METRO" not in result:
+        metro_primary = _primary_mode(metro_route.get("legs", []))
+        if metro_primary == "METRO":
+            result["METRO"] = metro_route
 
     # Walk
     if walk_route:
