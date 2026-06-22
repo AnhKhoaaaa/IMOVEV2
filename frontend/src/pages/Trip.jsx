@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
   Building2,
+  Calendar,
   Car,
   CheckCircle,
   ChevronDown,
   Clock,
   CloudRain,
   FileText,
+  GripVertical,
   Home,
   Loader2,
   Lock,
@@ -26,6 +28,9 @@ import {
   WifiOff,
   X,
 } from 'lucide-react'
+import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { api } from '../services/api'
 import { useTrip } from '../hooks/useTrip'
 import { useAlerts } from '../hooks/useAlerts'
@@ -34,6 +39,7 @@ import { useGeolocation } from '../hooks/useGeolocation'
 import { useAuth } from '../contexts/AuthContext'
 import { buildPlacesById, computePlaceTimes, haversineMeters, parseHHMM, toHHMM } from '../lib/tripUtils'
 import { allModesWithAvailability, normalizeTransportMode, transportMeta } from '../lib/transport'
+import { categoryChip, categoryHex } from '../lib/categories'
 import { useT } from '../contexts/LanguageContext'
 
 // Maps a transport mode to its i18n label key for the mode picker.
@@ -47,6 +53,7 @@ import SummaryTab from '../components/planner/SummaryTab'
 import PlaceSearch from '../components/planner/PlaceSearch'
 import BusArrivalPanel from '../components/transit/BusArrivalPanel'
 import ConfirmDialog from '../components/ui/ConfirmDialog'
+import { Button } from '../components/ui/button'
 
 // DEV25-BANNER-RETAINED: as of dev25 Phase 1, live alerts surface through the ChatWidget for
 // logged-in users and guests get no alerts, so the on-page AlertBanner is not mounted. The
@@ -162,9 +169,9 @@ function CompactPlaceCard({ place, role, onRemove }) {
 function PlaceCard({ place, onRemove, arriveAt, departAt }) {
   const { t } = useT()
   return (
-    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
       <div className="flex gap-4">
-        <div className="h-24 w-28 shrink-0 overflow-hidden rounded-md bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+        <div className="h-24 w-28 shrink-0 overflow-hidden rounded-[10px] bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
           {place.image_url ? (
             <img
               src={place.image_url}
@@ -183,7 +190,7 @@ function PlaceCard({ place, onRemove, arriveAt, departAt }) {
             <div className="min-w-0">
               <p className="truncate font-display text-[17px] font-extrabold text-slate-950">{place.name}</p>
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="rounded-md bg-blue-50 px-2 py-1 text-[11px] font-bold capitalize text-blue-700">
+                <span className={cn('rounded-md px-2 py-1 text-[11px] font-bold capitalize', categoryChip(place.category))}>
                   {place.category || t('tripCategoryFallback')}
                 </span>
                 <span className="rounded-md bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-500">
@@ -296,104 +303,115 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
     }
   }
 
+  const modeKey = normalizeTransportMode(leg.transport_mode)
+  // Citymapper-style line badge: first non-walk transit sub-leg's service number (e.g. "97", "EW")
+  const lineBadge = (leg.sub_legs ?? []).find((s) => s.mode !== 'WALK' && s.route)?.route ?? null
+
   return (
-    <article className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-2">
-            <TransportBadge mode={leg.transport_mode} />
-            <span className="text-[12px] font-semibold text-slate-400">
-              {t('tripRoute', from?.name ?? t('tripOrigin'), to?.name ?? t('tripDestination'))}
-            </span>
-          </div>
+    <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-card">
+      <div className="flex items-center gap-3">
+        {/* mode icon chip — tinted with the mode token */}
+        <div className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-[10px] border', meta.tone)}>
+          <meta.Icon size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
-              <Clock size={12} /> {formatDuration(leg.duration_minutes)}
+            <span className="font-display text-[14px] font-bold text-slate-900">
+              {MODE_LABEL_KEY[modeKey] ? t(MODE_LABEL_KEY[modeKey]) : meta.label}
             </span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
-              <Wallet size={12} /> {formatCost(leg.cost_sgd)}
-            </span>
-            {leg.distance_km != null && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-1 text-[12px] font-bold text-slate-600">
-                <Route size={12} /> {Number(leg.distance_km).toFixed(1)} km
+            {lineBadge && (
+              <span
+                className="inline-flex h-[17px] items-center rounded px-1.5 text-[10px] font-extrabold text-white"
+                style={{ background: meta.color }}
+              >
+                {lineBadge}
               </span>
             )}
             {leg.is_estimated && (
-              <span className="rounded-md bg-amber-50 px-2 py-1 text-[12px] font-bold text-amber-700">
+              <span className="rounded-md bg-warning-50 px-1.5 py-0.5 text-[10px] font-bold text-warning-600">
                 {t('tripEstimated')}
               </span>
             )}
-            {tripStarted && normalizeTransportMode(leg.transport_mode) === 'GRAB' && (
-              <button
-                onClick={() => {
-                  const pickup   = position ? { lat: position.lat, lng: position.lng } : { lat: from?.lat, lng: from?.lng }
-                  const fromName = position ? t('tripYourLocation') : (from?.name ?? '')
-                  const toName   = to?.name ?? ''
-                  openGrab(
-                    { fromLat: pickup.lat, fromLng: pickup.lng, toLat: to?.lat, toLng: to?.lng, fromName, toName },
-                    ({ appOpened }) => onWarning?.(appOpened
-                      ? t('tripGrabOpened', fromName, toName)
-                      : t('tripGrabNotFound', fromName, toName)
-                    ),
-                  )
-                }}
-                className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-[12px] font-bold text-white hover:bg-green-500"
-              >
-                <Car size={12} /> {t('tripOpenGrab')}
-              </button>
-            )}
           </div>
+          <p className="mt-0.5 truncate text-[12px] text-slate-500 tabular-nums">
+            {formatDuration(leg.duration_minutes)} · {formatCost(leg.cost_sgd)}
+            {leg.distance_km != null ? ` · ${Number(leg.distance_km).toFixed(1)} km` : ''}
+          </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setOpen((value) => !value)}
-              className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-[12px] font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700"
-            >
-              {savingMode ? <Loader2 size={13} className="animate-spin" /> : <meta.Icon size={13} />}
-              {t('tripChange')}
-              <ChevronDown size={12} />
-            </button>
-            {open && (
-              <div className="absolute right-0 top-10 z-30 w-44 overflow-hidden rounded-md border border-slate-200 bg-white shadow-pop">
-                {allModesWithAvailability(leg).map((option) => (
-                  <button
-                    key={option.mode}
-                    onClick={() => { if (!option.available) return; setOpen(false); changeMode(option.mode) }}
-                    disabled={!option.available}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-bold',
-                      option.available
-                        ? 'text-slate-700 hover:bg-blue-50 hover:text-blue-700'
-                        : 'cursor-not-allowed text-slate-300 opacity-50'
-                    )}
-                  >
-                    <option.Icon size={14} />
-                    {MODE_LABEL_KEY[option.mode] ? t(MODE_LABEL_KEY[option.mode]) : option.label}
-                    {!option.available && (
-                      <span className="ml-auto text-[10px] font-medium text-slate-300">N/A</span>
-                    )}
-                    {option.available
-                      && normalizeTransportMode(leg.transport_mode) !== option.mode
-                      && leg.alternatives?.[option.mode]?.is_estimated && (
-                      <span
-                        className="ml-auto text-[9px] font-semibold uppercase tracking-wide text-amber-500"
-                        title={t('tripEstimated')}
-                      >
-                        ~{t('tripEstimated')}
-                      </span>
-                    )}
-                    {option.available && normalizeTransportMode(leg.transport_mode) === option.mode && (
-                      <CheckCircle size={13} className="ml-auto text-emerald-600" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* Change dropdown — pill trigger, logic unchanged */}
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            onClick={() => setOpen((value) => !value)}
+            className="flex h-9 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 text-[12px] font-bold text-slate-700 transition-colors hover:border-blue-200 hover:text-blue-700"
+          >
+            {savingMode ? <Loader2 size={13} className="animate-spin" /> : <meta.Icon size={13} />}
+            {t('tripChange')}
+            <ChevronDown size={12} />
+          </button>
+          {open && (
+            <div className="absolute right-0 top-11 z-30 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-pop">
+              {allModesWithAvailability(leg).map((option) => (
+                <button
+                  key={option.mode}
+                  onClick={() => { if (!option.available) return; setOpen(false); changeMode(option.mode) }}
+                  disabled={!option.available}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] font-bold',
+                    option.available
+                      ? 'text-slate-700 hover:bg-blue-50 hover:text-blue-700'
+                      : 'cursor-not-allowed text-slate-300 opacity-50'
+                  )}
+                >
+                  <option.Icon size={14} />
+                  {MODE_LABEL_KEY[option.mode] ? t(MODE_LABEL_KEY[option.mode]) : option.label}
+                  {!option.available && (
+                    <span className="ml-auto text-[10px] font-medium text-slate-300">N/A</span>
+                  )}
+                  {option.available
+                    && normalizeTransportMode(leg.transport_mode) !== option.mode
+                    && leg.alternatives?.[option.mode]?.is_estimated && (
+                    <span
+                      className="ml-auto text-[9px] font-semibold uppercase tracking-wide text-amber-500"
+                      title={t('tripEstimated')}
+                    >
+                      ~{t('tripEstimated')}
+                    </span>
+                  )}
+                  {option.available && normalizeTransportMode(leg.transport_mode) === option.mode && (
+                    <CheckCircle size={13} className="ml-auto text-emerald-600" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* route from → to */}
+      <p className="mt-2 truncate text-[11.5px] text-slate-400">
+        {t('tripRoute', from?.name ?? t('tripOrigin'), to?.name ?? t('tripDestination'))}
+      </p>
+
+      {tripStarted && modeKey === 'GRAB' && (
+        <button
+          onClick={() => {
+            const pickup   = position ? { lat: position.lat, lng: position.lng } : { lat: from?.lat, lng: from?.lng }
+            const fromName = position ? t('tripYourLocation') : (from?.name ?? '')
+            const toName   = to?.name ?? ''
+            openGrab(
+              { fromLat: pickup.lat, fromLng: pickup.lng, toLat: to?.lat, toLng: to?.lng, fromName, toName },
+              ({ appOpened }) => onWarning?.(appOpened
+                ? t('tripGrabOpened', fromName, toName)
+                : t('tripGrabNotFound', fromName, toName)
+              ),
+            )
+          }}
+          className="mt-2.5 inline-flex items-center gap-1.5 rounded-full bg-mode-taxi px-3.5 py-1.5 text-[12px] font-bold text-white transition-opacity hover:opacity-90"
+        >
+          <Car size={13} /> {t('tripOpenGrab')}
+        </button>
+      )}
 
       {tripStarted && (
         <>
@@ -401,7 +419,7 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
             <button
               onClick={loadCompare}
               disabled={compareLoading}
-              className="rounded-md border border-blue-100 bg-blue-50 px-3 py-1.5 text-[12px] font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+              className="rounded-full border border-blue-200 bg-blue-50 px-3.5 py-1.5 text-[12px] font-bold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
             >
               {compareLoading ? t('tripComparing') : t('tripCompareModes')}
             </button>
@@ -410,18 +428,29 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
           {(leg.sub_legs?.length > 0 || compare || leg.first_bus_stop_code) && (
             <div className="mt-3 space-y-3">
               {leg.sub_legs?.length > 0 && (
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripTransitDetails')}</p>
-                  <div className="space-y-2">
-                    {leg.sub_legs.map((sub, index) => (
-                      <div key={index} className="flex items-center gap-2 text-[12px] text-slate-600">
-                        <TransportBadge mode={sub.mode} />
-                        <span className="min-w-0 flex-1 truncate">
-                          {sub.route ? `${sub.route}: ` : ''}{t('tripRoute', sub.from_name, sub.to_name)}
-                        </span>
-                        <span className="shrink-0 font-bold">{t('tripMinShort', sub.duration_minutes)}</span>
-                      </div>
-                    ))}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">{t('tripTransitDetails')}</p>
+                  <div>
+                    {leg.sub_legs.map((sub, index) => {
+                      const subMeta = transportMeta(sub.mode)
+                      const isLast = index === leg.sub_legs.length - 1
+                      return (
+                        <div key={index} className="flex gap-2.5">
+                          <div className="flex flex-col items-center">
+                            <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-white" style={{ borderColor: subMeta.color }}>
+                              <subMeta.Icon size={9} style={{ color: subMeta.color }} />
+                            </span>
+                            {!isLast && <span className="my-0.5 w-px flex-1 bg-slate-200" style={{ minHeight: 12 }} />}
+                          </div>
+                          <div className="min-w-0 flex-1 pb-2.5">
+                            <p className="text-[12px] leading-snug text-slate-700">
+                              {sub.route ? `[${sub.route}] ` : ''}{t('tripRoute', sub.from_name, sub.to_name)}
+                            </p>
+                            <p className="text-[11px] text-slate-400">{t('tripMinShort', sub.duration_minutes)}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -449,7 +478,7 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
               {compare && (
                 <div className="grid grid-cols-3 gap-2">
                   {Object.entries(compare).map(([key, value]) => (
-                    <div key={key} className="rounded-md border border-slate-200 bg-white p-3">
+                    <div key={key} className="rounded-lg border border-slate-200 bg-white p-3">
                       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{key}</p>
                       <p className="mt-1 text-[13px] font-extrabold text-slate-900">
                         {value.available ? formatDuration(value.duration_minutes) : t('tripUnavailable')}
@@ -458,13 +487,13 @@ function LegCard({ leg, from, to, tripId, tripStarted, position, onUpdated, onWa
                     </div>
                   ))}
                   {/* Grab card — always shown in compare, data from leg.alternatives */}
-                  <div className="rounded-md border border-green-100 bg-green-50 p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-green-600">Grab</p>
-                    <p className="mt-1 text-[13px] font-extrabold text-green-900">
+                  <div className="rounded-lg border border-mode-taxi/20 bg-mode-taxi-50 p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-mode-taxi">Grab</p>
+                    <p className="mt-1 text-[13px] font-extrabold text-slate-900">
                       {leg.alternatives?.GRAB ? formatDuration(leg.alternatives.GRAB.duration_minutes) : '—'}
                     </p>
                     {leg.alternatives?.GRAB && (
-                      <p className="text-[11px] text-green-600">
+                      <p className="text-[11px] text-mode-taxi">
                         {formatCost(leg.alternatives.GRAB.fare_sgd)} · {t('tripEstimated')}
                       </p>
                     )}
@@ -505,9 +534,56 @@ function computeHaversineTimes(places, hotel, startTimeStr) {
   return times
 }
 
-function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTime, needsRouteUpdate, mutating }) {
+function SortablePlaceItem({ place, visitIndex, times, tripStarted, onRemovePlace, dayNum }) {
+  const { t } = useT()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: place.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  }
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
+      {!tripStarted && (
+        <button {...attributes} {...listeners} className="shrink-0 cursor-grab touch-none text-slate-300 hover:text-slate-500 active:cursor-grabbing" aria-label="Drag to reorder">
+          <GripVertical size={14} />
+        </button>
+      )}
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
+        {visitIndex + 1}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-bold text-slate-700">{place.name}</p>
+        {times && (
+          <p className="text-[10.5px] text-slate-400 tabular-nums">{times.arrive} – {times.depart}</p>
+        )}
+      </div>
+      <span className={cn('shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold capitalize', categoryChip(place.category))}>
+        {place.category || t('tripCategoryFallback')}
+      </span>
+      {!tripStarted && (
+        <button
+          onClick={() => onRemovePlace(place.id, dayNum)}
+          className="shrink-0 text-slate-300 hover:text-red-500"
+          title={t('tripRemove')}
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay, onAddPlace, onRemovePlace, onReorder, onDragReorder, onUpdateRoute, onOptimiseOrder, onStartTrip, tripStarted, startTimeForDay, needsRouteUpdate, mutating }) {
   const { t } = useT()
   const [routeDropdownOpen, setRouteDropdownOpen] = useState(false)
+  const [activeDragId, setActiveDragId] = useState(null)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(KeyboardSensor)
+  )
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -519,15 +595,14 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
           <div className="flex items-center gap-2">
             {needsRouteUpdate ? (
               <div className="relative">
-                <button
+                <Button
                   onClick={() => setRouteDropdownOpen((v) => !v)}
-                  className="flex h-10 items-center gap-2 rounded-md bg-indigo-600 px-4 text-[13px] font-bold text-white hover:bg-indigo-500 disabled:opacity-60"
                   disabled={mutating}
                 >
                   {mutating ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
                   {t('tripUpdateRoute')}
                   <ChevronDown size={13} className={cn('ml-1 transition-transform', routeDropdownOpen && 'rotate-180')} />
-                </button>
+                </Button>
                 {routeDropdownOpen && (
                   <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-md border border-slate-200 bg-white shadow-pop">
                     <button
@@ -554,21 +629,19 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 )}
               </div>
             ) : (
-              <button
+              <Button
+                variant="outline"
                 onClick={onOptimiseOrder}
                 disabled={mutating}
-                className="flex h-10 items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-4 text-[13px] font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-60"
+                className="border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-700"
               >
                 <Sparkles size={15} /> {t('tripOptimiseOrder')}
-              </button>
+              </Button>
             )}
             {onStartTrip && (
-              <button
-                onClick={onStartTrip}
-                className="flex h-10 items-center gap-2 rounded-md bg-emerald-600 px-4 text-[13px] font-bold text-white hover:bg-emerald-500"
-              >
+              <Button variant="success" onClick={onStartTrip}>
                 <Navigation2 size={15} /> {t('tripStartTrip')}
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -613,7 +686,8 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
 
           const hotelPlace = allPlacesById['hotel'] ?? null
           const stats = dayStats(day)
-          const serverPlaceTimes = computePlaceTimes(day, allPlacesById, startTime ?? '09:00')
+          const dayStartTime = startTimeForDay?.(day.day) ?? '09:00'
+          const serverPlaceTimes = computePlaceTimes(day, allPlacesById, dayStartTime)
           const placeTimes = isDirty ? (pendingTimes[day.day] ?? serverPlaceTimes) : serverPlaceTimes
           // Total transit includes all legs (hotel→first and last→hotel)
           const transitMin = (day.legs ?? []).reduce((s, l) => s + (l.duration_minutes ?? 0), 0)
@@ -621,18 +695,20 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
           const hasHotelStart = day.legs?.[0]?.from_place_id === 'hotel'
           const hasHotelEnd   = (day.legs?.length ?? 0) > 0 && day.legs[day.legs.length - 1]?.to_place_id === 'hotel'
           const firstTime = hasHotelStart
-            ? (startTime ?? '09:00')
+            ? dayStartTime
             : (visitPlaces[0] ? placeTimes[visitPlaces[0].id]?.arrive : null)
           const lastTime = hasHotelEnd
             ? placeTimes['hotel']?.arrive
             : (visitPlaces.at(-1) ? placeTimes[visitPlaces.at(-1).id]?.depart : null)
 
           return (
-            <section key={day.day} className="rounded-lg border border-slate-200 bg-white p-4 shadow-card">
+            <section key={day.day} className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <button onClick={() => onSelectDay(day.day)} className="text-left">
-                  <h3 className="font-display text-[18px] font-extrabold text-slate-950">{t('tripDay', day.day)}</h3>
-                  <p className="mt-1 text-[12px] text-slate-500">
+                  <span className="inline-flex items-center gap-1.5 rounded-[9px] bg-info-50 px-2.5 py-1 font-display text-[13px] font-bold text-blue-600">
+                    <Calendar size={14} /> {t('tripDay', day.day)}
+                  </span>
+                  <p className="mt-2 text-[12px] text-slate-500">
                     {t('tripStopsCount', visitPlaces.length)} · {formatCost(stats.cost)}
                   </p>
                   {firstTime && lastTime && (
@@ -644,13 +720,40 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 {!tripStarted && (
                   <button
                     onClick={() => onAddPlace(day.day)}
-                    className="grid h-8 w-8 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    className="grid h-8 w-8 place-items-center rounded-[10px] border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
                     title={t('tripAddPlace')}
                   >
                     <Plus size={14} />
                   </button>
                 )}
               </div>
+
+              {/* Photo strip — gives each day card life (place imagery), like Wanderlog day cards */}
+              {visitPlaces.length > 0 && (
+                <div className="mb-3 flex gap-1 overflow-hidden rounded-[10px]">
+                  {visitPlaces.slice(0, 4).map((p) => (
+                    <div key={p.id} className="h-[58px] flex-1 overflow-hidden bg-gradient-to-br from-blue-50 via-emerald-50 to-amber-50">
+                      {p.image_url ? (
+                        <img
+                          src={p.image_url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          onError={(event) => { event.currentTarget.style.display = 'none' }}
+                        />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center" style={{ color: categoryHex(p.category) }}>
+                          <MapPin size={16} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {visitPlaces.length > 4 && (
+                    <div className="grid h-[58px] w-11 shrink-0 place-items-center bg-slate-900/80 text-[12px] font-bold text-white">
+                      +{visitPlaces.length - 4}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-2">
                 {/* Hotel start pin — always first, not reorderable */}
@@ -664,44 +767,59 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                   </div>
                 )}
 
-                {/* Reorderable sightseeing places */}
-                {visitPlaces.length > 0 ? visitPlaces.map((place, visitIndex) => {
-                  const times = placeTimes[place.id]
-                  return (
-                    <div key={place.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2">
-                      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-white text-[11px] font-extrabold text-blue-600">
-                        {visitIndex + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-bold text-slate-700">{place.name}</p>
-                        {times && (
-                          <p className="text-[10.5px] text-slate-400 tabular-nums">{times.arrive} – {times.depart}</p>
-                        )}
-                      </div>
-                      {!tripStarted && (
-                        <>
-                          <button
-                            onClick={() => onReorder(day.day, visitPlaces.map((p) => p.id), visitIndex, -1)}
-                            disabled={visitIndex === 0}
-                            className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                          >{t('tripUp')}</button>
-                          <button
-                            onClick={() => onReorder(day.day, visitPlaces.map((p) => p.id), visitIndex, 1)}
-                            disabled={visitIndex === visitPlaces.length - 1}
-                            className="text-[11px] font-bold text-slate-400 hover:text-blue-600 disabled:opacity-30"
-                          >{t('tripDown')}</button>
-                          <button
-                            onClick={() => onRemovePlace(place.id, day.day)}
-                            className="text-slate-300 hover:text-red-500"
-                            title={t('tripRemove')}
-                          >
-                            <X size={13} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )
-                }) : !hotelPlace && (
+                {/* Reorderable sightseeing places — drag-and-drop */}
+                {visitPlaces.length > 0 ? (
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragStart={({ active }) => setActiveDragId(active.id)}
+                    onDragEnd={({ active, over }) => {
+                      setActiveDragId(null)
+                      if (!over || active.id === over.id) return
+                      const ids = visitPlaces.map((p) => p.id)
+                      const oldIdx = ids.indexOf(active.id)
+                      const newIdx = ids.indexOf(over.id)
+                      if (oldIdx === -1 || newIdx === -1) return
+                      onDragReorder(day.day, arrayMove(ids, oldIdx, newIdx))
+                    }}
+                    onDragCancel={() => setActiveDragId(null)}
+                  >
+                    <SortableContext items={visitPlaces.map((p) => p.id)} strategy={verticalListSortingStrategy}>
+                      {visitPlaces.map((place, visitIndex) => (
+                        <SortablePlaceItem
+                          key={place.id}
+                          place={place}
+                          visitIndex={visitIndex}
+                          times={placeTimes[place.id]}
+                          tripStarted={tripStarted}
+                          onRemovePlace={onRemovePlace}
+                          dayNum={day.day}
+                        />
+                      ))}
+                    </SortableContext>
+                    <DragOverlay>
+                      {activeDragId ? (() => {
+                        const dragPlace = visitPlaces.find((p) => p.id === activeDragId)
+                        if (!dragPlace) return null
+                        const dragIdx = visitPlaces.indexOf(dragPlace)
+                        return (
+                          <div className="flex items-center gap-2 rounded-md bg-white px-3 py-2 shadow-lg border border-blue-200 ring-2 ring-blue-100">
+                            <GripVertical size={14} className="shrink-0 text-blue-400" />
+                            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-blue-50 text-[11px] font-extrabold text-blue-600">
+                              {dragIdx + 1}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[13px] font-bold text-slate-700">{dragPlace.name}</p>
+                            </div>
+                            <span className={cn('shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold capitalize', categoryChip(dragPlace.category))}>
+                              {dragPlace.category || t('tripCategoryFallback')}
+                            </span>
+                          </div>
+                        )
+                      })() : null}
+                    </DragOverlay>
+                  </DndContext>
+                ) : !hotelPlace && (
                   <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-[13px] text-slate-400">
                     {t('tripEmptyDay')}
                   </div>
@@ -724,11 +842,18 @@ function Overview({ trip, allPlacesById, pendingByDay, pendingTimes, onSelectDay
                 )}
               </div>
 
-              {isDirty && (
-                <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-center text-[11.5px] font-semibold text-amber-700">
-                  ⚡ {t('tripEstimatedHint')}
-                </p>
-              )}
+              {/* Transport mode badges — shows which modes are used this day */}
+              {(() => {
+                const dayModes = [...new Set((day.legs ?? []).map((l) => normalizeTransportMode(l.transport_mode)))]
+                return dayModes.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {dayModes.map((mode) => (
+                      <TransportBadge key={mode} mode={mode} />
+                    ))}
+                  </div>
+                ) : null
+              })()}
+
             </section>
           )
         })}
@@ -763,28 +888,16 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
           </div>
           <div className="flex items-center gap-2">
             {canGoBack && (
-              <button
-                onClick={onGoBack}
-                title={t('tripGoBackTitle')}
-                className="flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-[13px] font-bold text-slate-600 transition-colors duration-300 hover:bg-slate-50"
-              >
+              <Button variant="outline" onClick={onGoBack} title={t('tripGoBackTitle')}>
                 <ArrowLeft size={15} /> {t('tripBack')}
-              </button>
+              </Button>
             )}
             <div className="relative">
-              <button
-                onClick={arrivedPending ? onContinue : onMarkArrived}
-                className={cn(
-                  'flex h-10 items-center gap-2 rounded-md px-4 text-[13px] font-bold text-white transition-colors duration-300',
-                  arrivedPending
-                    ? 'bg-teal-600 hover:bg-teal-500'
-                    : 'bg-emerald-600 hover:bg-emerald-500',
-                )}
-              >
+              <Button variant="success" onClick={arrivedPending ? onContinue : onMarkArrived}>
                 {arrivedPending
                   ? <><Navigation2 size={15} /> {t('tripContinue')}</>
                   : <><CheckCircle size={15} /> {t('tripArrived')}</>}
-              </button>
+              </Button>
               {arrivedPending && (
                 <span className="absolute -right-1 -top-1 flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75" />
@@ -817,58 +930,81 @@ function DayView({ day, placesById, tripId, tripStarted, position, activeLegInde
           <h2 className="font-display text-[24px] font-extrabold text-slate-950">{t('tripDay', day.day)}</h2>
           <p className="mt-1 text-[13px] text-slate-500">{t('tripDayDesc')}</p>
         </div>
-        <button
+        <Button
+          variant="outline"
           onClick={() => onAddPlace(day.day)}
-          className="flex h-10 items-center gap-2 rounded-md border border-blue-100 bg-blue-50 px-4 text-[13px] font-bold text-blue-700 hover:bg-blue-100"
+          className="border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-700"
         >
           <Plus size={15} /> {t('tripAddPlace')}
-        </button>
+        </Button>
       </div>
 
-      {items.length ? (
-        <div className="space-y-3">
-          {items.map((item, index) => item.type === 'place' ? (
-            <PlaceCard
-              key={`place-${item.place.id}`}
-              place={item.place}
-              arriveAt={placeTimes[item.place.id]?.arrive}
-              departAt={placeTimes[item.place.id]?.depart}
-              onRemove={item.place.id === 'hotel' ? undefined : () => onRemovePlace(item.place.id)}
-            />
-          ) : (
-            <LegCard
-              key={`leg-${item.leg.id}-${index}`}
-              leg={item.leg}
-              from={item.from}
-              to={item.to}
-              tripId={tripId}
-              tripStarted={false}
-              position={position}
-              onUpdated={onUpdated}
-              onWarning={onWarning}
-              open={openLegId === item.leg.id}
-              onOpenChange={(next) => setOpenLegId(next ? item.leg.id : null)}
-            />
-          ))}
-          {hasReturnToHotel && (
-            <PlaceCard
-              key="hotel-return"
-              place={placesById['hotel']}
-              arriveAt={placeTimes['hotel']?.arrive}
-              departAt={undefined}
-            />
-          )}
-        </div>
-      ) : (
+      {items.length ? (() => {
+        // Citymapper timeline: continuous left rail; place nodes coloured by category
+        // (hotel = amber), transit cards sit indented between them.
+        const rows = hasReturnToHotel
+          ? [...items, { type: 'place', place: placesById['hotel'], _return: true }]
+          : items
+        const lastIdx = rows.length - 1
+        return (
+          <div>
+            {rows.map((item, index) => {
+              const isPlace = item.type === 'place'
+              const isLast = index === lastIdx
+              const dotColor = isPlace
+                ? (item.place.id === 'hotel' ? '#d97706' : categoryHex(item.place.category))
+                : null
+              return (
+                <div
+                  key={isPlace ? `place-${item.place.id}${item._return ? '-ret' : ''}` : `leg-${item.leg.id}-${index}`}
+                  className="flex gap-3"
+                >
+                  <div className="flex w-[18px] shrink-0 flex-col items-center pt-5">
+                    {isPlace ? (
+                      <span
+                        className="h-[18px] w-[18px] shrink-0 rounded-full border-[3px] border-white shadow-[0_1px_4px_rgba(0,0,0,0.18)]"
+                        style={{ background: dotColor }}
+                      />
+                    ) : (
+                      <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                    )}
+                    {!isLast && <span className="mt-1 w-0.5 flex-1 bg-slate-200" />}
+                  </div>
+                  <div className="min-w-0 flex-1 pb-3">
+                    {isPlace ? (
+                      <PlaceCard
+                        place={item.place}
+                        arriveAt={placeTimes[item.place.id]?.arrive}
+                        departAt={item._return ? undefined : placeTimes[item.place.id]?.depart}
+                        onRemove={item.place.id === 'hotel' ? undefined : () => onRemovePlace(item.place.id)}
+                      />
+                    ) : (
+                      <LegCard
+                        leg={item.leg}
+                        from={item.from}
+                        to={item.to}
+                        tripId={tripId}
+                        tripStarted={false}
+                        position={position}
+                        onUpdated={onUpdated}
+                        onWarning={onWarning}
+                        open={openLegId === item.leg.id}
+                        onOpenChange={(next) => setOpenLegId(next ? item.leg.id : null)}
+                      />
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })() : (
         <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
           <MapPin className="mx-auto h-7 w-7 text-slate-300" />
           <p className="mt-2 text-[14px] font-bold text-slate-600">{t('tripNoLegs')}</p>
-          <button
-            onClick={() => onAddPlace(day.day)}
-            className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white"
-          >
+          <Button onClick={() => onAddPlace(day.day)} className="mt-4">
             <Plus size={15} /> {t('tripAddPlace')}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -977,6 +1113,7 @@ export default function Trip() {
   }, [alerts, selectedDay])
 
   const savedMeta = useMemo(() => savedTrips.find((item) => item.id === id), [savedTrips, id])
+  const effectiveMeta = useMemo(() => ({ ...(pendingSave ?? {}), ...(savedMeta ?? {}) }), [pendingSave, savedMeta])
   const placesById = useMemo(() => buildPlacesById(trip?.places ?? []), [trip])
   const allPlacesById = useMemo(() => ({ ...placesById, ...pendingPlaces }), [placesById, pendingPlaces])
   const currentDay = useMemo(
@@ -1026,6 +1163,11 @@ export default function Trip() {
   const needsRouteUpdate = isEstimated || hasDirtyDays
   // isLive drives all UI decisions; raw tripStarted drives GPS/backend effects
   const isLive = tripStarted && !editMode
+  const startTimeForDay = (dayNum) => {
+    const times = effectiveMeta?.dayStartTimes ?? effectiveMeta?.day_start_times
+    if (Array.isArray(times) && times[dayNum - 1]) return times[dayNum - 1]
+    return effectiveMeta?.startTime ?? '09:00'
+  }
 
   // Chatbot confirmed a write → refresh the itinerary from the server.
   useEffect(() => {
@@ -1035,17 +1177,16 @@ export default function Trip() {
   }, [refresh])
 
   // Estimated times for pending (dirty) days — computed purely from haversine, no API call
-  const startTimeStr = savedMeta?.startTime ?? '09:00'
   const pendingTimes = useMemo(() => {
     if (!hasDirtyDays) return {}
     const hotel = allPlacesById['hotel'] ?? null
     const result = {}
     for (const [dayStr, placeIds] of Object.entries(pendingByDay)) {
       const places = placeIds.map((pid) => allPlacesById[pid]).filter(Boolean)
-      result[Number(dayStr)] = computeHaversineTimes(places, hotel, startTimeStr)
+      result[Number(dayStr)] = computeHaversineTimes(places, hotel, startTimeForDay(Number(dayStr)))
     }
     return result
-  }, [pendingByDay, allPlacesById, startTimeStr, hasDirtyDays])
+  }, [pendingByDay, allPlacesById, effectiveMeta, hasDirtyDays])
 
   // Task 3a: IDs of places in the currently selected day tab (null = no inter-day dimming)
   const activeDayPlaceIds = useMemo(() => {
@@ -1113,10 +1254,11 @@ export default function Trip() {
   }, [trip, selectedDay])
 
   useEffect(() => {
-    if (!savedMeta?.start_date || tripStarted) return
+    const tripStartDate = effectiveMeta?.start_date ?? effectiveMeta?.startDate
+    if (!tripStartDate || tripStarted) return
     const today = new Date().toISOString().slice(0, 10)
-    if (savedMeta.start_date === today) setTodayBanner(true)
-  }, [savedMeta, tripStarted])
+    if (tripStartDate === today) setTodayBanner(true)
+  }, [effectiveMeta, tripStarted])
 
   useEffect(() => {
     if (!tripStarted || !position || !id) return
@@ -1379,6 +1521,11 @@ export default function Trip() {
     setPendingByDay((prev) => ({ ...prev, [dayNum]: next }))
   }
 
+  // Drag-and-drop reorder — accepts the full new order array from @dnd-kit
+  const dragReorder = useCallback((dayNum, newIds) => {
+    setPendingByDay((prev) => ({ ...prev, [dayNum]: newIds }))
+  }, [])
+
   const startDay = (dayNum) => {
     setTripStarted(true)
     setSelectedDay(dayNum)
@@ -1486,20 +1633,14 @@ export default function Trip() {
             {t('tripUnavailableBody', message)}
           </p>
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            <button
-              onClick={() => navigate('/')}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
-            >
+            <Button variant="outline" size="lg" onClick={() => navigate('/')} className="w-full">
               <Home className="h-4 w-4" aria-hidden="true" />
               {t('tripBackHome')}
-            </button>
-            <button
-              onClick={() => navigate('/plan')}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-700"
-            >
+            </Button>
+            <Button size="lg" onClick={() => navigate('/plan')} className="w-full">
               <Plus className="h-4 w-4" aria-hidden="true" />
               {t('tripStartNew')}
-            </button>
+            </Button>
           </div>
         </div>
       </main>
@@ -1515,13 +1656,46 @@ export default function Trip() {
               <ArrowLeft size={17} />
             </button>
             <div className="min-w-0">
-              <h1 className="truncate font-display text-[22px] font-extrabold text-slate-950">
-                {savedMeta?.name ?? pendingSave?.name ?? t('tripDefaultName')}
-              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate font-display text-[22px] font-extrabold text-slate-950">
+                  {effectiveMeta?.name ?? t('tripDefaultName')}
+                </h1>
+                {/* Status Badges integrated directly into header */}
+                <span className={cn(
+                  'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold border shrink-0',
+                  isLive
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : tripStarted && editMode
+                      ? 'border-amber-200 bg-amber-50 text-amber-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                )}>
+                  {isLive ? (
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  ) : tripStarted && editMode ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                  )}
+                  {isLive
+                    ? t('tripBannerLive', selectedDay)
+                    : tripStarted && editMode
+                      ? t('tripBannerEdit')
+                      : t('tripBannerPlanning')}
+                </span>
+                {!isLive && (
+                  <span className={cn(
+                    'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold border shrink-0',
+                    needsRouteUpdate
+                      ? 'border-amber-200 bg-amber-50 text-amber-700'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  )}>
+                    <span className={cn('h-1.5 w-1.5 rounded-full', needsRouteUpdate ? 'bg-amber-500' : 'bg-emerald-500')} />
+                    {needsRouteUpdate ? t('tripEstimated') : t('tripGoodToGo')}
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-[12px] font-semibold text-slate-400">
                 {t('tripDaysCount', trip.days?.length ?? 0)} · {t('tripPlacesCount', trip.places?.length ?? 0)}
-                {isLive && <span className="ml-2 text-emerald-600">{t('tripLive')}</span>}
-                {tripStarted && editMode && <span className="ml-2 text-amber-500">{t('tripPaused')}</span>}
               </p>
             </div>
           </div>
@@ -1558,6 +1732,17 @@ export default function Trip() {
                 )}
               </div>
             ))}
+            {/* Add day — co-located with the day tabs (browser-tab "+" pattern), not by settings */}
+            {!isLive && (
+              <button
+                onClick={addDay}
+                disabled={mutating}
+                title={t('tripAddDay')}
+                className="grid h-9 w-8 shrink-0 place-items-center rounded-md text-slate-400 hover:bg-white hover:text-blue-600 disabled:opacity-50"
+              >
+                {mutating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} />}
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('summary')}
               className={cn('h-9 rounded-md px-3 text-[13px] font-bold', activeTab === 'summary' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500')}
@@ -1568,22 +1753,14 @@ export default function Trip() {
 
           <div className="flex shrink-0 items-center gap-2">
             {!isLive && (
-              <>
-                <button onClick={addDay} disabled={mutating} className="grid h-9 w-9 place-items-center rounded-md border border-blue-100 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50" title={t('tripAddDay')}>
-                  {mutating ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-                </button>
-                <button onClick={() => setSetupOpen(true)} className="grid h-9 w-9 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50" title={t('tripEditSetup')}>
-                  <Settings size={15} />
-                </button>
-              </>
+              <button onClick={() => setSetupOpen(true)} className="grid h-9 w-9 place-items-center rounded-[10px] border border-slate-200 text-slate-500 hover:bg-slate-50" title={t('tripEditSetup')}>
+                <Settings size={15} />
+              </button>
             )}
             {tripStarted && editMode && (
-              <button
-                onClick={resumeNavigation}
-                className="flex h-9 items-center gap-2 rounded-md bg-emerald-600 px-3 text-[13px] font-bold text-white hover:bg-emerald-500"
-              >
+              <Button variant="success" size="sm" onClick={resumeNavigation} className="h-9">
                 <Navigation2 size={14} /> {t('tripResumeTrip')}
-              </button>
+              </Button>
             )}
             {isLive && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-[12px] font-bold text-emerald-700">
@@ -1594,96 +1771,68 @@ export default function Trip() {
         </div>
       </header>
 
-      {/* Mode banner */}
-      <div className={cn(
-        'shrink-0 border-b px-6 py-2 text-[12.5px] font-semibold flex items-center gap-2',
-        isLive
-          ? 'border-emerald-100 bg-emerald-50 text-emerald-800'
-          : tripStarted && editMode
-            ? 'border-amber-100 bg-amber-50 text-amber-800'
-            : 'border-slate-100 bg-slate-50 text-slate-500'
-      )}>
-        {isLive
-          ? <><Navigation2 size={13} /> {t('tripBannerLive', selectedDay)}</>
-          : tripStarted && editMode
-            ? <><Settings size={13} /> {t('tripBannerEdit')}</>
-            : <>
-                <FileText size={13} /> {t('tripBannerPlanning')}
-                <span className={cn(
-                  'ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold',
-                  needsRouteUpdate
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-emerald-100 text-emerald-700'
-                )}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', needsRouteUpdate ? 'bg-amber-500' : 'bg-emerald-500')} />
-                  {needsRouteUpdate ? t('tripEstimated') : t('tripGoodToGo')}
-                </span>
-              </>
-        }
-      </div>
-
-      {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
-        <section className="shrink-0 space-y-2 border-b border-slate-200 bg-white px-6 py-3">
-          {isLive && geoError && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
-              <MapPin size={15} className="shrink-0" />
-              {t('tripGpsOff')}
-            </div>
-          )}
-          {todayBanner && (
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-800">
-              <Navigation2 size={15} /> {t('tripStartsToday')}
-              <button onClick={() => setTodayBanner(false)} className="ml-auto"><X size={14} /></button>
-            </div>
-          )}
-          {optimizeMsg && (
-            <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[13px] font-semibold text-indigo-800">
-              <Sparkles size={15} /> {optimizeMsg}
-              <button onClick={() => setOptimizeMsg(null)} className="ml-auto"><X size={14} /></button>
-            </div>
-          )}
-          {isOffline && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
-              <WifiOff size={15} /> {t('tripOffline')}
-            </div>
-          )}
-          {uiWarning && (
-            <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-700">
-              <AlertCircle size={15} /> {uiWarning}
-              <button onClick={() => setUiWarning(null)} className="ml-auto"><X size={14} /></button>
-            </div>
-          )}
-          {/* DEV25-BANNER-RETAINED: gated off — alerts now reach users via the ChatWidget. */}
-          {ENABLE_TRIP_BANNERS && otherAlerts.map((alert) => (
-            <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
-          ))}
-          {ENABLE_TRIP_BANNERS && weatherAlertsToShow.map((alert) => (
-            <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
-          ))}
-          {ENABLE_TRIP_BANNERS && weatherAlertsCollapsed.length > 0 && (
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3.5">
-              <button
-                onClick={() => setShowAllWeatherAlerts((v) => !v)}
-                className="flex w-full items-center gap-2 text-left text-[13px] font-semibold text-sky-900"
-              >
-                <CloudRain size={15} className="shrink-0 text-sky-500" />
-                {t('tripRainMore', weatherAlertsCollapsed.length)}
-                <ChevronDown size={14} className={cn('ml-auto shrink-0 transition-transform', showAllWeatherAlerts && 'rotate-180')} />
-              </button>
-              {showAllWeatherAlerts && (
-                <div className="mt-3 space-y-2">
-                  {weatherAlertsCollapsed.map((alert) => (
-                    <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
-                  ))}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] overflow-hidden">
+        <section className="relative isolate min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
+          {/* Warnings & Alerts placed inside the sidebar to connect map directly with toolbar */}
+          {(isOffline || todayBanner || optimizeMsg || (isLive && geoError) || (ENABLE_TRIP_BANNERS && alerts.length > 0) || uiWarning) && (
+            <div className="mb-4 space-y-2">
+              {isLive && geoError && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
+                  <MapPin size={15} className="shrink-0" />
+                  {t('tripGpsOff')}
+                </div>
+              )}
+              {todayBanner && (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-semibold text-emerald-800">
+                  <Navigation2 size={15} /> {t('tripStartsToday')}
+                  <button onClick={() => setTodayBanner(false)} className="ml-auto"><X size={14} /></button>
+                </div>
+              )}
+              {optimizeMsg && (
+                <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[13px] font-semibold text-blue-800">
+                  <Sparkles size={15} /> {optimizeMsg}
+                  <button onClick={() => setOptimizeMsg(null)} className="ml-auto"><X size={14} /></button>
+                </div>
+              )}
+              {isOffline && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800">
+                  <WifiOff size={15} /> {t('tripOffline')}
+                </div>
+              )}
+              {uiWarning && (
+                <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] font-semibold text-red-700">
+                  <AlertCircle size={15} /> {uiWarning}
+                  <button onClick={() => setUiWarning(null)} className="ml-auto"><X size={14} /></button>
+                </div>
+              )}
+              {ENABLE_TRIP_BANNERS && otherAlerts.map((alert) => (
+                <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+              ))}
+              {ENABLE_TRIP_BANNERS && weatherAlertsToShow.map((alert) => (
+                <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+              ))}
+              {ENABLE_TRIP_BANNERS && weatherAlertsCollapsed.length > 0 && (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-3.5">
+                  <button
+                    onClick={() => setShowAllWeatherAlerts((v) => !v)}
+                    className="flex w-full items-center gap-2 text-left text-[13px] font-semibold text-sky-900"
+                  >
+                    <CloudRain size={15} className="shrink-0 text-sky-500" />
+                    {t('tripRainMore', weatherAlertsCollapsed.length)}
+                    <ChevronDown size={14} className={cn('ml-auto shrink-0 transition-transform', showAllWeatherAlerts && 'rotate-180')} />
+                  </button>
+                  {showAllWeatherAlerts && (
+                    <div className="mt-3 space-y-2">
+                      {weatherAlertsCollapsed.map((alert) => (
+                        <AlertBanner key={alert.id} alert={alert} tripId={id} onDismiss={dismiss} onAdapted={refresh} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           )}
-        </section>
-      )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(520px,0.9fr)_minmax(440px,1.1fr)] overflow-hidden">
-        <section className="relative isolate min-h-0 overflow-y-auto border-r border-slate-200 bg-slate-50 p-6 scroll-thin">
           {activeTab === 'overview' && (
             <Overview
               trip={trip}
@@ -1694,11 +1843,12 @@ export default function Trip() {
               onAddPlace={setAddDayFor}
               onRemovePlace={removePlace}
               onReorder={reorderLocal}
+              onDragReorder={dragReorder}
               onUpdateRoute={handleUpdateRoute}
               onOptimiseOrder={() => setConfirmOptimise(true)}
               onStartTrip={null}
               tripStarted={isLive}
-              startTime={savedMeta?.startTime ?? '09:00'}
+              startTimeForDay={startTimeForDay}
               needsRouteUpdate={needsRouteUpdate}
               mutating={mutating}
             />
@@ -1721,7 +1871,7 @@ export default function Trip() {
               canGoBack={canGoBack}
               arrivedPending={arrivedPending}
               onAddPlace={setAddDayFor}
-              startTime={savedMeta?.startTime ?? '09:00'}
+              startTime={startTimeForDay(currentDay.day)}
               gapNotifications={trip.gap_notifications ?? []}
             />
           )}
@@ -1730,9 +1880,8 @@ export default function Trip() {
             <SummaryTab
               trip={trip}
               pendingSave={pendingSave}
-              optimizationLog={(trip.warnings ?? []).map((warning) => ({ title: warning, type: 'mode_change' }))}
               onSave={(name) => {
-                const meta = { ...pendingSave, name, confirmed: true }
+                const meta = { ...effectiveMeta, name, confirmed: true }
                 saveTrip(id, meta)
                 setPendingSave(null)
                 sessionStorage.removeItem(pendingKey)
@@ -1742,8 +1891,8 @@ export default function Trip() {
           )}
         </section>
 
-        <aside className="relative isolate min-h-0 bg-slate-100 p-4">
-          <div className="h-full overflow-hidden rounded-lg border border-slate-200 bg-white p-3 shadow-card">
+        <aside className="relative isolate min-h-0 bg-white">
+          <div className="h-full w-full overflow-hidden">
             <TripMap
               places={mapPlaces}
               legs={mapLegs}
@@ -1763,11 +1912,12 @@ export default function Trip() {
 
       <TripSetupModal
         open={setupOpen}
-        savedMeta={savedMeta}
+        savedMeta={effectiveMeta}
         tripHotel={allPlacesById['hotel'] ?? null}
         onClose={() => setSetupOpen(false)}
         onSave={async (meta) => {
-          saveTrip(id, { ...savedMeta, ...meta, confirmed: true })
+          const nextMeta = { ...effectiveMeta, ...meta, confirmed: true }
+          saveTrip(id, nextMeta)
           if (!trip?.places?.length) return
           setMutating(true)
           setUiWarning(null)
@@ -1776,13 +1926,16 @@ export default function Trip() {
               place_ids: trip.places.filter((p) => p.id !== 'hotel').map((p) => p.id),
               optimize_order: true,
               preferences: {
-                budget_sgd: meta.budget_sgd ?? savedMeta?.budget_sgd ?? 100,
+                budget_sgd: meta.budget_sgd ?? effectiveMeta?.budget_sgd ?? 100,
+                ...(meta.routeWeights ?? meta.route_weights ?? {}),
+                travel_style: meta.travelStyle ?? meta.travel_style ?? effectiveMeta?.travelStyle ?? null,
                 travel_styles: meta.styles ?? [],
                 group_type: meta.companion ?? 'solo',
               },
               hotel_name: meta.hotelName ?? null,
               hotel_lat: meta.hotelLat ?? null,
               hotel_lng: meta.hotelLng ?? null,
+              day_start_times: meta.dayStartTimes ?? meta.day_start_times ?? effectiveMeta?.dayStartTimes ?? [],
             })
             await refresh()
           } catch (e) {
@@ -1801,18 +1954,12 @@ export default function Trip() {
               {t('tripOptimiseDesc')}
             </p>
             <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => setConfirmOptimise(false)}
-                className="flex-1 h-10 rounded-md border border-slate-200 text-[13px] font-bold text-slate-700 hover:bg-slate-50"
-              >
+              <Button variant="outline" onClick={() => setConfirmOptimise(false)} className="flex-1">
                 {t('tripCancel')}
-              </button>
-              <button
-                onClick={handleConfirmOptimise}
-                className="flex-1 h-10 rounded-md bg-indigo-600 text-[13px] font-bold text-white hover:bg-indigo-500"
-              >
+              </Button>
+              <Button onClick={handleConfirmOptimise} className="flex-1">
                 {t('tripConfirm')}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { ArrowUp } from 'lucide-react'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { cn } from '../../lib/utils'
+import { useLang } from '../../contexts/LanguageContext'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -79,6 +80,7 @@ function MarqueeItem() {
 }
 
 export function CinematicFooter() {
+  const { lang } = useLang()
   const wrapperRef = useRef(null)
   const giantTextRef = useRef(null)
   const headingRef = useRef(null)
@@ -146,32 +148,32 @@ export function CinematicFooter() {
 
         <div className="relative z-10 mx-auto mt-20 flex w-full max-w-5xl flex-1 flex-col items-center justify-center px-6">
           <h2 ref={headingRef} className="motion-footer-heading mb-12 text-center text-5xl font-black tracking-tighter md:text-8xl">
-            Ready to begin?
+            {lang === 'vi' ? 'Sẵn sàng bắt đầu?' : 'Ready to begin?'}
           </h2>
 
           <div ref={linksRef} className="flex w-full flex-col items-center gap-6">
             <div className="flex w-full flex-wrap justify-center gap-3 md:gap-6">
-              <MagneticButton as="a" href="#" className="motion-footer-pill px-6 py-3 text-xs font-medium text-slate-600 hover:text-slate-950 md:text-sm">
-                Privacy Policy
+              <MagneticButton as="a" href="/privacy" className="motion-footer-pill px-6 py-3 text-xs font-medium text-slate-600 hover:text-slate-950 md:text-sm">
+                {lang === 'vi' ? 'Chính sách Bảo mật' : 'Privacy Policy'}
               </MagneticButton>
-              <MagneticButton as="a" href="#" className="motion-footer-pill px-6 py-3 text-xs font-medium text-slate-600 hover:text-slate-950 md:text-sm">
-                Terms of Service
+              <MagneticButton as="a" href="/terms" className="motion-footer-pill px-6 py-3 text-xs font-medium text-slate-600 hover:text-slate-950 md:text-sm">
+                {lang === 'vi' ? 'Điều khoản Dịch vụ' : 'Terms of Service'}
               </MagneticButton>
-              <MagneticButton as="a" href="#" className="motion-footer-pill px-6 py-3 text-xs font-medium text-slate-600 hover:text-slate-950 md:text-sm">
-                Support
+              <MagneticButton as="a" href="/support" className="motion-footer-pill px-6 py-3 text-xs font-medium text-slate-600 hover:text-slate-950 md:text-sm">
+                {lang === 'vi' ? 'Hỗ trợ' : 'Support'}
               </MagneticButton>
             </div>
           </div>
         </div>
 
         <div className="relative z-20 flex w-full flex-col items-center justify-between gap-6 px-6 pb-8 md:flex-row md:px-12">
-          <div className="order-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500 md:order-1 md:text-xs">
-            2026 IMOVE. All rights reserved.
+          <div className="order-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500 md:order-2 md:text-xs">
+            {lang === 'vi' ? '2026 IMOVE. Bảo lưu mọi quyền.' : '2026 IMOVE. All rights reserved.'}
           </div>
           <MagneticButton
             as="button"
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="motion-footer-pill group order-3 flex h-12 w-12 items-center justify-center text-slate-500 hover:text-slate-950"
+            className="motion-footer-pill group order-1 flex h-12 w-12 self-start items-center justify-center text-slate-500 hover:text-slate-950 md:order-1 md:self-auto"
             aria-label="Back to top"
           >
             <ArrowUp className="h-5 w-5 transition-transform duration-300 group-hover:-translate-y-1.5" />

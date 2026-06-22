@@ -37,13 +37,30 @@ export function useT() {
   return { t, lang }
 }
 
+/** Resolve a key in an explicit language (used to reserve nav width across EN/VI). */
+export function tFor(lang, key, ...args) {
+  const T = lang === 'vi' ? VI : EN
+  const val = T[key]
+  if (val === undefined) return key
+  if (typeof val === 'function') return val(...args)
+  return val
+}
+
 /* ── Translations ─────────────────────────────────────────────────── */
 
 const EN = {
   /* ── Header ──────────────────────── */
+  home: 'My Trips',
   newTrip: 'New Trip',
-  signIn: 'Sign in',
+  signIn: 'Sign In',
   signOut: 'Sign out',
+  preferences: 'Preferences',
+  confirmNavTitle: 'Leave page?',
+  confirmNav: 'Are you sure you want to leave this page?',
+  confirmLeaveBtn: 'Leave',
+  language: 'Language',
+  hideNav: 'Hide navigation',
+  showNav: 'Show navigation',
 
   /* ── Auth modal ───────────────────── */
   signInTitle: 'Sign in',
@@ -262,25 +279,6 @@ const EN = {
   transport_bus: 'Bus',
   transport_mrt: 'MRT',
 
-  /* ── Companions ────────────────────── */
-  comp_solo: 'Solo',
-  comp_family: 'Family',
-  comp_couple: 'Couple',
-  comp_friends: 'Friends',
-  comp_elderly: 'Elderly',
-
-  /* ── Travel styles ─────────────────── */
-  style_cultural: 'Cultural',
-  style_classic: 'Classic',
-  style_nature: 'Nature',
-  style_cityscape: 'Cityscape',
-  style_historical: 'Historical',
-
-  /* ── Pace ──────────────────────────── */
-  pace_ambitious: 'Ambitious',
-  pace_moderate: 'Moderate',
-  pace_relaxed: 'Relaxed',
-
   /* ── Alert Banner ────────────────── */
   alertTransit: 'Transit Alert',
   alertWeather: 'Weather Alert',
@@ -435,11 +433,17 @@ const EN = {
   sumTransitCost: 'Transit cost',
   sumWalkDist: 'Walking distance',
   sumTransfers: 'Transfers',
-  sumByDay: 'By day',
+  sumByDay: 'Time breakdown by day',
+  sumModeSplit: 'Transport breakdown',
   sumPaceCheck: 'Pace check',
   sumPaceText: (stops, days, avg) => `Your trip has ${stops} stop${stops !== 1 ? 's' : ''} across ${days} day${days !== 1 ? 's' : ''} — averaging ${avg} stops/day. Looks comfortable.`,
   sumAgentActivity: 'Agent activity',
   sumNoAgent: 'No agent interventions recorded yet.',
+  sumTimeDistribution: 'Time distribution',
+  sumTimeSightseeing: 'Sightseeing',
+  sumTimeTransit: 'Transit',
+  sumCostBreakdown: 'Cost breakdown by day',
+  sumCategoryMix: 'Category mix',
   sumShareExport: 'Share & export',
   sumShareLink: 'Share link',
   sumSavePdf: 'Save as PDF',
@@ -465,7 +469,7 @@ const EN = {
   busRefresh: 'Refresh arrivals',
 
   /* ── Settings page ───────────────── */
-  setEyebrow: 'Settings',
+  setEyebrow: 'Preferences',
   setTitle: 'Transport preferences',
   setDesc: 'IMOVE uses these priorities when choosing between MRT, bus, walking, and cycling alternatives.',
   setWFasterLabel: 'Faster routes',
@@ -542,6 +546,9 @@ const EN = {
   plnCalendar: 'Calendar',
   plnStartDate: 'Start date',
   plnDailyStart: 'Daily Start Times',
+  plnSyncSame: 'Same every day',
+  plnSyncPer: 'Per day',
+  plnBudgetPerDay: '/ day',
   plnAutoOptimize: 'Auto-Optimize Order',
   plnAutoOptimizeDesc: 'Reorders places dynamically to save transit times.',
   plnHotelTitle: 'Hotel Accommodation',
@@ -571,11 +578,8 @@ const EN = {
   plnDimTransfers: 'Number of Transfers',
   plnAttractions: 'Singapore attractions',
   plnStep4of4: 'Step 4 of 4',
-  plnPickSights: 'Pick sights. Select at least 2 places. You can search or use AI suggestions.',
+  plnPickSights: 'Pick sights. Select at least 2 places from the curated list.',
   plnCuratedSearch: 'Curated POI Search',
-  plnAutoShortlist: 'Auto AI Shortlist',
-  plnAnalyzing: (n) => `AI is analyzing ${n} days and routing to shortlist matching sights...`,
-  plnShortlistDone: 'AI Shortlist pre-selected. Edit as you wish!',
   plnSelectedShortlist: (n) => `Selected Shortlist (${n})`,
   plnGenerating: 'Building',
   plnGeneratePlan: 'Generate',
@@ -589,7 +593,6 @@ const EN = {
   plnStopsSelected: 'Stops Selected',
   plnNotSet: 'Not Set',
   plnStartsFirstStop: 'Starts at first stop',
-  plnApiPayload: 'API Live payload',
   plnMin2Places: 'Please select at least 2 places before generating a plan.',
   plnBackToTop: 'Back to top',
   plnNoSelected: 'No places selected yet',
@@ -697,7 +700,7 @@ const EN = {
 
   /* ── Trip setup modal ────────────── */
   tsmTitle: 'Trip preferences',
-  tsmDesc: 'Adjust dates and travel preferences. Existing days stay in place.',
+  tsmDesc: 'Adjust trip name, dates, budget, hotel, and daily start time. Existing places stay in place.',
   tsmOriginPlaceholder: 'Ho Chi Minh City',
   tsmDates: 'Dates',
   tsmFlexibleDuration: 'Flexible duration',
@@ -709,15 +712,8 @@ const EN = {
   tsmHotel: 'Hotel',
   tsmHotelOptional: '(optional — daily start origin)',
   tsmHotelPlaceholder: 'e.g. Marina Bay Sands',
-  tsmDateWarning: 'Changing dates or styles will re-run route planning. Existing places are kept; legs will be recalculated.',
-  tsmCompanions: 'Travel companions',
-  tsmPace: 'Travel pace',
+  tsmDateWarning: 'Changing dates, budget, hotel, or start time will re-run route planning. Existing places are kept; legs will be recalculated.',
   tsmSaveChanges: 'Save changes',
-  tsmStyleNature: 'Nature',
-  tsmStyleFood: 'Food',
-  tsmStyleHeritage: 'Heritage',
-  tsmStyleShopping: 'Shopping',
-  tsmStyleNightlife: 'Nightlife',
 
   /* ── Trip map ────────────────────── */
   tmEstimated: '(estimated)',
@@ -752,9 +748,17 @@ const EN = {
 
 const VI = {
   /* ── Header ──────────────────────── */
+  home: 'Chuyến đi',
   newTrip: 'Chuyến mới',
   signIn: 'Đăng nhập',
   signOut: 'Đăng xuất',
+  preferences: 'Sở thích đi lại',
+  confirmNavTitle: 'Rời khỏi trang?',
+  confirmNav: 'Bạn có chắc muốn rời khỏi trang này không?',
+  confirmLeaveBtn: 'Rời đi',
+  language: 'Ngôn ngữ',
+  hideNav: 'Ẩn thanh điều hướng',
+  showNav: 'Hiện thanh điều hướng',
 
   /* ── Auth modal ───────────────────── */
   signInTitle: 'Đăng nhập',
@@ -973,25 +977,6 @@ const VI = {
   transport_bus: 'Xe buýt',
   transport_mrt: 'MRT',
 
-  /* ── Companions ────────────────────── */
-  comp_solo: 'Solo',
-  comp_family: 'Gia đình',
-  comp_couple: 'Cặp đôi',
-  comp_friends: 'Bạn bè',
-  comp_elderly: 'Người cao tuổi',
-
-  /* ── Travel styles ─────────────────── */
-  style_cultural: 'Văn hoá',
-  style_classic: 'Cổ điển',
-  style_nature: 'Thiên nhiên',
-  style_cityscape: 'Đô thị',
-  style_historical: 'Lịch sử',
-
-  /* ── Pace ──────────────────────────── */
-  pace_ambitious: 'Nhiều điểm',
-  pace_moderate: 'Vừa phải',
-  pace_relaxed: 'Thư thả',
-
   /* ── Alert Banner ────────────────── */
   alertTransit: 'Cảnh báo giao thông',
   alertWeather: 'Cảnh báo thời tiết',
@@ -1146,11 +1131,17 @@ const VI = {
   sumTransitCost: 'Chi phí di chuyển',
   sumWalkDist: 'Quãng đi bộ',
   sumTransfers: 'Lần chuyển tuyến',
-  sumByDay: 'Theo ngày',
+  sumByDay: 'Thời gian hoạt động theo ngày',
+  sumModeSplit: 'Phân bổ phương tiện',
   sumPaceCheck: 'Kiểm tra nhịp độ',
   sumPaceText: (stops, days, avg) => `Chuyến đi có ${stops} điểm trong ${days} ngày — trung bình ${avg} điểm/ngày. Khá thoải mái.`,
   sumAgentActivity: 'Hoạt động của agent',
   sumNoAgent: 'Chưa ghi nhận can thiệp nào từ agent.',
+  sumTimeDistribution: 'Phân bổ thời gian',
+  sumTimeSightseeing: 'Tham quan',
+  sumTimeTransit: 'Di chuyển',
+  sumCostBreakdown: 'Chi phí theo ngày',
+  sumCategoryMix: 'Phân bổ thể loại',
   sumShareExport: 'Chia sẻ & xuất',
   sumShareLink: 'Chia sẻ liên kết',
   sumSavePdf: 'Lưu PDF',
@@ -1176,7 +1167,7 @@ const VI = {
   busRefresh: 'Làm mới giờ xe',
 
   /* ── Settings page ───────────────── */
-  setEyebrow: 'Cài đặt',
+  setEyebrow: 'Sở thích đi lại',
   setTitle: 'Tuỳ chọn di chuyển',
   setDesc: 'IMOVE dùng các ưu tiên này khi chọn giữa MRT, xe buýt, đi bộ và đạp xe.',
   setWFasterLabel: 'Tuyến nhanh hơn',
@@ -1253,6 +1244,9 @@ const VI = {
   plnCalendar: 'Theo lịch',
   plnStartDate: 'Ngày bắt đầu',
   plnDailyStart: 'Giờ bắt đầu mỗi ngày',
+  plnSyncSame: 'Đồng bộ mọi ngày',
+  plnSyncPer: 'Mỗi ngày riêng',
+  plnBudgetPerDay: '/ ngày',
   plnAutoOptimize: 'Tự tối ưu thứ tự',
   plnAutoOptimizeDesc: 'Tự sắp xếp lại các điểm để tiết kiệm thời gian di chuyển.',
   plnHotelTitle: 'Nơi lưu trú',
@@ -1282,11 +1276,8 @@ const VI = {
   plnDimTransfers: 'Số lần chuyển tuyến',
   plnAttractions: 'Điểm tham quan Singapore',
   plnStep4of4: 'Bước 4/4',
-  plnPickSights: 'Chọn điểm tham quan. Cần ít nhất 2 địa điểm. Bạn có thể tìm kiếm hoặc dùng gợi ý AI.',
+  plnPickSights: 'Chọn điểm tham quan. Cần ít nhất 2 địa điểm từ danh sách tuyển chọn.',
   plnCuratedSearch: 'Tìm địa điểm tuyển chọn',
-  plnAutoShortlist: 'Gợi ý AI tự động',
-  plnAnalyzing: (n) => `AI đang phân tích ${n} ngày và lộ trình để chọn các điểm phù hợp...`,
-  plnShortlistDone: 'AI đã chọn sẵn. Bạn có thể chỉnh tuỳ ý!',
   plnSelectedShortlist: (n) => `Đã chọn (${n})`,
   plnGenerating: 'Đang tạo',
   plnGeneratePlan: 'Tạo',
@@ -1300,7 +1291,6 @@ const VI = {
   plnStopsSelected: 'Số điểm đã chọn',
   plnNotSet: 'Chưa đặt',
   plnStartsFirstStop: 'Bắt đầu từ điểm đầu tiên',
-  plnApiPayload: 'Payload API trực tiếp',
   plnMin2Places: 'Vui lòng chọn ít nhất 2 địa điểm trước khi tạo lịch trình.',
   plnBackToTop: 'Lên đầu trang',
   plnNoSelected: 'Chưa chọn địa điểm nào',
@@ -1408,7 +1398,7 @@ const VI = {
 
   /* ── Trip setup modal ────────────── */
   tsmTitle: 'Tuỳ chọn chuyến đi',
-  tsmDesc: 'Điều chỉnh ngày và tuỳ chọn di chuyển. Các ngày hiện có được giữ nguyên.',
+  tsmDesc: 'Điều chỉnh tên chuyến đi, ngày, ngân sách, khách sạn và giờ bắt đầu mỗi ngày. Các địa điểm hiện có được giữ nguyên.',
   tsmOriginPlaceholder: 'TP. Hồ Chí Minh',
   tsmDates: 'Ngày',
   tsmFlexibleDuration: 'Thời lượng linh hoạt',
@@ -1420,15 +1410,8 @@ const VI = {
   tsmHotel: 'Khách sạn',
   tsmHotelOptional: '(tuỳ chọn — điểm xuất phát mỗi ngày)',
   tsmHotelPlaceholder: 'VD: Marina Bay Sands',
-  tsmDateWarning: 'Đổi ngày hoặc phong cách sẽ chạy lại việc lập lộ trình. Các địa điểm được giữ; các chặng sẽ được tính lại.',
-  tsmCompanions: 'Đi cùng ai',
-  tsmPace: 'Nhịp độ di chuyển',
+  tsmDateWarning: 'Đổi ngày, ngân sách, khách sạn hoặc giờ bắt đầu sẽ chạy lại việc lập lộ trình. Các địa điểm được giữ; các chặng sẽ được tính lại.',
   tsmSaveChanges: 'Lưu thay đổi',
-  tsmStyleNature: 'Thiên nhiên',
-  tsmStyleFood: 'Ẩm thực',
-  tsmStyleHeritage: 'Di sản',
-  tsmStyleShopping: 'Mua sắm',
-  tsmStyleNightlife: 'Về đêm',
 
   /* ── Trip map ────────────────────── */
   tmEstimated: '(ước tính)',

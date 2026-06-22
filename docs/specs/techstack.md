@@ -37,7 +37,9 @@
 **Tại sao:** Async-first, type-safe qua Pydantic, auto-generates OpenAPI docs, phù hợp với agent pattern (mỗi endpoint delegate sang agent/service layer).
 
 **Constraints:**
-- Render free tier hibernates sau 15 phút idle → `GET /health` được gọi keepalive định kỳ
+- Render Free hibernates sau 15 phút không có inbound traffic; `/health` là health/readiness endpoint, không phải cơ chế keepalive của Render
+- Khi instance hibernates, APScheduler cũng dừng nên alert polling dưới 3 phút không được đảm bảo trên Free tier
+- Nếu deploy Cloud Run mà vẫn giữ APScheduler in-process, phải dùng CPU always allocated + `min-instances=1`, `max-instances=1` để tránh job chạy trùng
 - All logic nằm trong `agents/` và `services/`, router chỉ là HTTP layer
 - CORS whitelist: `localhost:5173`, `localhost:5174`, `FRONTEND_URL` env var
 
@@ -76,7 +78,11 @@
 ### PWA (Phase 3)
 **Tại sao:** Cùng codebase React, không cần React Native. Có thể "cài" lên Android (Chrome) và iOS (Safari Add to Home Screen).
 
-**Implementation:** Vite PWA plugin → auto-generates `manifest.json` + service worker.
+**Trạng thái hiện tại:** Chưa triển khai `vite-plugin-pwa`, manifest và service worker.
+
+**Implementation đề xuất:** Vite PWA plugin → generate manifest + service worker; cache app shell/static assets, không cache chung dữ liệu trip/alert/transit cần độ mới cao.
+
+**iOS install flow:** Safari → Share → Add to Home Screen → Open as Web App → Add. iOS cần hướng dẫn thủ công trong UI thay vì chỉ dựa vào install prompt của browser.
 
 ---
 
@@ -128,10 +134,13 @@
 
 | Service | Platform | Notes |
 |---------|---------|-------|
-| Backend | Render (free tier) | Cần HEALTH_CHECK_URL → /health; set tất cả env vars |
-| Frontend | Vercel | Set `VITE_API_BASE_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
+| Backend (demo) | Render | Free có cold start và dừng APScheduler khi sleep; paid always-on nếu cần alert liên tục |
+| Backend (production) | Google Cloud Run + Cloud Scheduler | Tách LTA/weather polling khỏi web process để scale an toàn |
+| Frontend/PWA | Vercel | Set `VITE_API_BASE_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`; thêm SPA rewrite |
 | Database | Supabase (managed) | Chạy `supabase/migrations/` trên production project |
 | CI | GitHub Actions (Phase 4) | Lint + test on PR |
+
+Hướng dẫn và so sánh chi tiết: [`deployment-pwa.md`](./deployment-pwa.md).
 
 ---
 

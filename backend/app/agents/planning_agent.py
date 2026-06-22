@@ -77,9 +77,6 @@ def get_all_places() -> dict:
     return _PLACES
 
 
-# Re-exported so tests can patch at app.agents.planning_agent.suggest_places
-from app.services.gemini import suggest_places  # noqa: E402
-
 # Map OneMap transit modes to TransportMode labels
 _MODE_MAP: dict[str, str] = {"SUBWAY": "METRO", "TRAM": "METRO", "BUS": "BUS", "WALK": "WALK"}
 

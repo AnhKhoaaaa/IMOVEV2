@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IMOVE — Trip page redesign (Phase 3D mockup)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+  :root{
+    /* locked design tokens (mirror index.css) */
+    --brand:#2563eb; --brand-700:#1d4ed8;
+    --success-50:#ecfdf5; --success-500:#10b981; --success-600:#059669;
+    --warning-50:#fffbeb; --warning-500:#f59e0b; --warning-600:#d97706;
+    --danger-50:#fef2f2;  --danger-500:#ef4444;  --danger-600:#dc2626;
+    --info-50:#eff6ff;    --info-500:#3b82f6;
+    --mode-mrt:#2563eb; --mode-lrt:#3b82f6; --mode-bus:#06b6d4;
+    --mode-taxi:#00b14f; --mode-walk:#64748b; --mode-cycle:#f97316;
+    --cat-culture:#7c3aed; --cat-landmark:#2563eb; --cat-nature:#059669;
+    --cat-food:#d97706; --cat-shopping:#db2777; --cat-entertainment:#c026d3;
+    --slate-50:#f8fafc; --slate-100:#f1f5f9; --slate-200:#e2e8f0;
+    --slate-400:#94a3b8; --slate-500:#64748b; --slate-700:#334155; --slate-950:#020617;
+    --radius:10px;
+    --shadow-card:0 1px 2px rgba(15,23,42,.04),0 4px 12px -4px rgba(15,23,42,.08);
+    --shadow-btn:0 4px 12px -3px rgb(37 99 235 / .42),0 2px 4px -2px rgb(37 99 235 / .28);
+    --shadow-btn-success:0 4px 12px -3px rgb(5 150 105 / .40),0 2px 4px -2px rgb(5 150 105 / .25);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Inter,sans-serif;background:#e7eaf0;color:var(--slate-950);padding:28px;line-height:1.45}
+  .display{font-family:'Space Grotesk',sans-serif}
+  .frame{max-width:1180px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 30px 80px -20px rgba(15,23,42,.28);border:1px solid var(--slate-200)}
+
+  /* annotation */
+  .note{max-width:1180px;margin:0 auto 18px;font-size:13px;color:#475569}
+  .note b{color:var(--slate-950)}
+  .tag{display:inline-block;background:#dbeafe;color:#1e40af;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;margin-right:6px}
+
+  /* ── App header ── */
+  .hdr{display:flex;align-items:center;gap:18px;padding:14px 22px;border-bottom:1px solid var(--slate-200)}
+  .iconbtn{display:grid;place-items:center;width:38px;height:38px;border-radius:var(--radius);color:var(--slate-500);border:1px solid transparent;cursor:pointer;background:transparent}
+  .iconbtn:hover{background:var(--slate-100)}
+  .iconbtn.bordered{border-color:var(--slate-200)}
+  .titlewrap h1{font-size:21px;font-weight:700}
+  .titlewrap p{font-size:12px;font-weight:600;color:var(--slate-400);margin-top:2px}
+  .tabs{display:flex;gap:3px;background:var(--slate-100);border:1px solid var(--slate-200);border-radius:12px;padding:4px;margin-left:auto}
+  .tab{height:34px;padding:0 14px;border-radius:8px;font-size:13px;font-weight:700;color:var(--slate-500);display:flex;align-items:center;gap:6px;cursor:pointer;border:none;background:transparent}
+  .tab.active{background:#fff;color:var(--slate-950);box-shadow:0 1px 2px rgba(15,23,42,.08)}
+  .hdr-actions{display:flex;align-items:center;gap:8px}
+  .chip-live{display:inline-flex;align-items:center;gap:7px;background:var(--success-50);color:var(--success-600);font-size:12px;font-weight:700;padding:6px 12px;border-radius:999px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--success-500)}
+
+  /* ── Consolidated status bar (THE D change) ── */
+  .statusbar{display:flex;align-items:center;gap:10px;padding:9px 22px;font-size:12.5px;font-weight:600;
+    background:var(--slate-50);color:var(--slate-500);border-bottom:1px solid var(--slate-200)}
+  .statusbar .qual{margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:3px 11px;border-radius:999px;font-size:11px;font-weight:700}
+  .qual.good{background:var(--success-50);color:var(--success-600)}
+  .qual.good .dot{background:var(--success-500)}
+
+  /* ── Body split ── */
+  .split{display:grid;grid-template-columns:1.05fr 1fr;min-height:560px}
+  .panel{padding:22px;background:var(--slate-50);border-right:1px solid var(--slate-200);overflow:auto}
+  .mapcol{background:var(--slate-100);padding:16px}
+  .mapinner{height:100%;border-radius:var(--radius);border:1px solid var(--slate-200);background:
+    linear-gradient(135deg,#eef2f7,#e2e8f0);display:grid;place-items:center;color:var(--slate-400);position:relative;overflow:hidden}
+  .legend{position:absolute;left:14px;bottom:14px;background:#fff;border:1px solid var(--slate-200);border-radius:10px;padding:9px 11px;display:flex;gap:14px;box-shadow:var(--shadow-card)}
+  .legend i{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--slate-700)}
+  .legend .ln{width:16px;height:4px;border-radius:2px}
+
+  /* overview head */
+  .ovhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .ovhead h2{font-size:23px;font-weight:700}
+  .ovhead p{font-size:13px;color:var(--slate-500);margin-top:2px}
+  .btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 18px;border-radius:999px;font-size:13.5px;font-weight:600;cursor:pointer;border:none}
+  .btn.primary{background:var(--brand);color:#fff;box-shadow:var(--shadow-btn)}
+  .btn.success{background:var(--success-600);color:#fff;box-shadow:var(--shadow-btn-success)}
+  .btn.outline{background:#fff;border:1px solid var(--slate-200);color:var(--slate-700)}
+  .btn.outline.blue{border-color:#bfdbfe;color:#1d4ed8}
+
+  /* day-card grid (2-col, polished) */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .daycard{background:#fff;border:1px solid var(--slate-200);border-radius:14px;padding:16px;box-shadow:var(--shadow-card)}
+  .dchead{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+  .daychip{display:inline-flex;align-items:center;gap:7px;background:var(--info-50);color:var(--brand);font-family:'Space Grotesk';font-weight:700;font-size:13px;padding:5px 11px;border-radius:9px}
+  .dchead .meta{font-size:11.5px;color:var(--slate-400);margin-top:7px;font-variant-numeric:tabular-nums}
+  .addmini{width:30px;height:30px;border-radius:9px;border:1px solid #bfdbfe;background:var(--info-50);color:#1d4ed8;display:grid;place-items:center;cursor:pointer}
+  .stop{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;background:var(--slate-50);margin-bottom:6px}
+  .stop.hotel{background:var(--warning-50);border:1px solid #fde68a}
+  .seq{width:23px;height:23px;border-radius:50%;background:#fff;color:var(--brand);font-weight:800;font-size:11px;display:grid;place-items:center;box-shadow:0 1px 2px rgba(0,0,0,.07)}
+  .stop .nm{font-size:12.5px;font-weight:700;color:var(--slate-700);flex:1;min-width:0}
+  .stop .tm{font-size:10.5px;color:var(--slate-400);font-variant-numeric:tabular-nums}
+  .hicon{width:20px;height:20px;color:var(--warning-600)}
+  .hlab{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--warning-600)}
+  .catchip{font-size:10px;font-weight:700;padding:2px 7px;border-radius:7px;text-transform:capitalize}
+
+  /* mode badges row */
+  .modes{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .mbadge{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:7px;border:1px solid}
+
+  /* ── Day tab — Citymapper timeline ── */
+  .dayhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  .dayhead h2{font-size:23px;font-weight:700}
+  .dayhead p{font-size:13px;color:var(--slate-500);margin-top:2px}
+  .timeline{position:relative;padding-left:34px}
+  .timeline::before{content:"";position:absolute;left:13px;top:8px;bottom:8px;width:2px;background:var(--slate-200)}
+  .tl-node{position:absolute;left:3px;width:22px;height:22px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.18);z-index:1}
+  .tl-row{position:relative;margin-bottom:14px}
+
+  /* place card */
+  .pcard{background:#fff;border:1px solid var(--slate-200);border-radius:14px;padding:13px;display:flex;gap:13px;box-shadow:var(--shadow-card)}
+  .pthumb{width:92px;height:78px;border-radius:10px;flex-shrink:0;background:
+    linear-gradient(135deg,#eff6ff,#ecfdf5,#fffbeb);display:grid;place-items:center;color:var(--mode-mrt);overflow:hidden}
+  .pbody{min-width:0;flex:1}
+  .pname{font-family:'Space Grotesk';font-size:16px;font-weight:700;color:var(--slate-950)}
+  .prow{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;align-items:center}
+  .ppill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:7px;background:var(--slate-50);color:var(--slate-500);font-variant-numeric:tabular-nums}
+  .pdesc{font-size:12.5px;color:var(--slate-500);margin-top:8px;line-height:1.5}
+
+  /* transit connector card */
+  .tcard{margin-left:6px;background:var(--slate-50);border:1px solid var(--slate-200);border-radius:12px;padding:11px 13px}
+  .tcard.alt{background:#fff}
+  .tline{display:flex;align-items:center;gap:10px}
+  .ticon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex-shrink:0}
+  .tmeta{flex:1;min-width:0}
+  .tmode{font-size:13px;font-weight:700;color:var(--slate-900);display:flex;align-items:center;gap:7px}
+  .linebadge{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:5px;color:#fff;font-size:10px;font-weight:800}
+  .tsub{font-size:11.5px;color:var(--slate-500);margin-top:2px;font-variant-numeric:tabular-nums}
+  .est{font-size:10px;font-weight:700;color:var(--warning-600);background:var(--warning-50);padding:2px 7px;border-radius:6px}
+  .changebtn{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--slate-200);background:#fff;font-size:12px;font-weight:700;color:var(--slate-700);cursor:pointer}
+  .subleg{display:flex;gap:9px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--slate-200)}
+  .subdot{width:18px;height:18px;border-radius:50%;border:2px solid;background:#fff;flex-shrink:0;display:grid;place-items:center;margin-top:1px}
+  .subtxt{font-size:12px;color:var(--slate-700);line-height:1.5}
+
+  /* live active-leg banner */
+  .liveband{display:flex;align-items:center;justify-content:space-between;background:var(--success-50);border:1px solid #a7f3d0;border-radius:12px;padding:12px 14px;margin-bottom:14px}
+  .liveband .lt{font-family:'Space Grotesk';font-weight:700;font-size:15px;color:var(--success-600)}
+  .liveband .ls{font-size:12px;color:#047857;margin-top:1px}
+</style>
+</head>
+<body>
+
+<div class="note">
+  <span class="tag">Phase 3D mockup</span>
+  <b>Trip page — bố cục đề xuất.</b> Thay đổi chính: (1) <b>gộp 2 dải trạng thái</b> thành MỘT
+  status bar gọn dưới header (bỏ "Live" lặp ở subtitle); (2) tab nav segmented sạch hơn;
+  (3) grid Overview 2 cột với day-card đã polish (chip ngày, mode badge theo token, category chip token);
+  (4) radius/shadow nhất quán, nút pill. Màu mode/category = token đã chốt.
+</div>
+
+<div class="frame">
+  <!-- App header -->
+  <div class="hdr">
+    <div class="iconbtn" title="Back"><i data-lucide="arrow-left"></i></div>
+    <div class="titlewrap">
+      <h1 class="display">Marina Bay Explorer</h1>
+      <p>3 days · 9 places</p><!-- no more duplicated "Live" here -->
+    </div>
+    <div class="tabs">
+      <button class="tab active"><i data-lucide="layout-grid" style="width:15px;height:15px"></i>Overview</button>
+      <button class="tab">Day 1</button>
+      <button class="tab">Day 2</button>
+      <button class="tab">Day 3</button>
+      <button class="tab">Summary</button>
+    </div>
+    <div class="hdr-actions">
+      <div class="iconbtn bordered" title="Add day"><i data-lucide="plus"></i></div>
+      <div class="iconbtn bordered" title="Edit setup"><i data-lucide="settings"></i></div>
+    </div>
+  </div>
+
+  <!-- ONE consolidated status bar -->
+  <div class="statusbar">
+    <i data-lucide="file-text" style="width:14px;height:14px"></i>
+    Planning mode — review & optimise your route before starting
+    <span class="qual good"><span class="dot"></span>Good to go</span>
+  </div>
+
+  <!-- Body -->
+  <div class="split">
+    <div class="panel">
+      <div class="ovhead">
+        <div>
+          <h2 class="display">Overview</h2>
+          <p>Your full itinerary at a glance</p>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn outline blue"><i data-lucide="sparkles" style="width:15px;height:15px"></i>Optimise order</button>
+        </div>
+      </div>
+
+      <div class="grid">
+        <!-- Day 1 -->
+        <div class="daycard">
+          <div class="dchead">
+            <div>
+              <span class="daychip"><i data-lucide="calendar" style="width:14px;height:14px"></i>Day 1</span>
+              <div class="meta">3 stops · S$6.40 &nbsp;·&nbsp; 09:00 – 17:20 · 1h 05m transit</div>
+            </div>
+            <div class="addmini"><i data-lucide="plus" style="width:14px;height:14px"></i></div>
+          </div>
+          <div class="stop hotel">
+            <i data-lucide="building-2" class="hicon"></i>
+            <div style="flex:1"><div class="hlab">Hotel</div><div class="nm">Marina Bay Sands</div></div>
+          </div>
+          <div class="stop">
+            <span class="seq">1</span>
+            <div style="flex:1"><div class="nm">Gardens by the Bay</div><div class="tm">09:18 – 11:18</div></div>
+            <span class="catchip" style="background:#ecfdf5;color:var(--cat-nature)">Nature</span>
+          </div>
+          <div class="stop">
+            <span class="seq">2</span>
+            <div style="flex:1"><div class="nm">ArtScience Museum</div><div class="tm">11:40 – 13:10</div></div>
+            <span class="catchip" style="background:#f5f3ff;color:var(--cat-culture)">Culture</span>
+          </div>
+          <div class="stop">
+            <span class="seq">3</span>
+            <div style="flex:1"><div class="nm">Merlion Park</div><div class="tm">13:35 – 14:35</div></div>
+            <span class="catchip" style="background:#eff6ff;color:var(--cat-landmark)">Landmark</span>
+          </div>
+          <div class="stop hotel">
+            <i data-lucide="building-2" class="hicon"></i>
+            <div style="flex:1"><div class="hlab">Return to hotel</div><div class="nm">Marina Bay Sands</div></div>
+            <span class="tm">17:20</span>
+          </div>
+          <div class="modes">
+            <span class="mbadge" style="color:var(--mode-mrt);background:#eff6ff;border-color:#bfdbfe"><i data-lucide="train-front" style="width:12px;height:12px"></i>MRT</span>
+            <span class="mbadge" style="color:var(--mode-bus);background:#ecfeff;border-color:#a5f3fc"><i data-lucide="bus" style="width:12px;height:12px"></i>Bus</span>
+            <span class="mbadge" style="color:var(--mode-walk);background:#f1f5f9;border-color:#cbd5e1"><i data-lucide="footprints" style="width:12px;height:12px"></i>Walk</span>
+          </div>
+        </div>
+
+        <!-- Day 2 -->
+        <div class="daycard">
+          <div class="dchead">
+            <div>
+              <span class="daychip"><i data-lucide="calendar" style="width:14px;height:14px"></i>Day 2</span>
+              <div class="meta">3 stops · S$9.10 &nbsp;·&nbsp; 09:30 – 18:00 · 1h 22m transit</div>
+            </div>
+            <div class="addmini"><i data-lucide="plus" style="width:14px;height:14px"></i></div>
+          </div>
+          <div class="stop hotel">
+            <i data-lucide="building-2" class="hicon"></i>
+            <div style="flex:1"><div class="hlab">Hotel</div><div class="nm">Marina Bay Sands</div></div>
+          </div>
+          <div class="stop">
+            <span class="seq">1</span>
+            <div style="flex:1"><div class="nm">Sentosa · Siloso Beach</div><div class="tm">10:05 – 13:05</div></div>
+            <span class="catchip" style="background:#ecfdf5;color:var(--cat-nature)">Nature</span>
+          </div>
+          <div class="stop">
+            <span class="seq">2</span>
+            <div style="flex:1"><div class="nm">Universal Studios</div><div class="tm">13:40 – 17:10</div></div>
+            <span class="catchip" style="background:#fdf4ff;color:var(--cat-entertainment)">Entertainment</span>
+          </div>
+          <div class="stop">
+            <span class="seq">3</span>
+            <div style="flex:1"><div class="nm">VivoCity</div><div class="tm">17:25 – 17:55</div></div>
+            <span class="catchip" style="background:#fdf2f8;color:var(--cat-shopping)">Shopping</span>
+          </div>
+          <div class="stop hotel">
+            <i data-lucide="building-2" class="hicon"></i>
+            <div style="flex:1"><div class="hlab">Return to hotel</div><div class="nm">Marina Bay Sands</div></div>
+            <span class="tm">18:00</span>
+          </div>
+          <div class="modes">
+            <span class="mbadge" style="color:var(--mode-mrt);background:#eff6ff;border-color:#bfdbfe"><i data-lucide="train-front" style="width:12px;height:12px"></i>MRT</span>
+            <span class="mbadge" style="color:var(--mode-taxi);background:#ecfdf5;border-color:#a7f3d0"><i data-lucide="car" style="width:12px;height:12px"></i>Grab</span>
+            <span class="mbadge" style="color:var(--mode-cycle);background:#fff7ed;border-color:#fed7aa"><i data-lucide="bike" style="width:12px;height:12px"></i>Cycle</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Map -->
+    <div class="mapcol">
+      <div class="mapinner">
+        <div style="text-align:center"><i data-lucide="map" style="width:34px;height:34px"></i><div style="margin-top:8px;font-size:13px">Live map · day-colored routes</div></div>
+        <div class="legend">
+          <i><span class="ln" style="background:var(--mode-mrt)"></span>MRT</i>
+          <i><span class="ln" style="background:var(--mode-bus)"></span>Bus</i>
+          <i><span class="ln" style="background:var(--mode-walk)"></span>Walk</i>
+          <i><span class="ln" style="background:var(--mode-cycle)"></span>Cycle</i>
+          <i><span class="ln" style="background:var(--mode-taxi)"></span>Grab</i>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note" style="margin-top:34px">
+  <span class="tag">Phase 3D · Tab Day</span>
+  <b>Bố cục tab Day — timeline kiểu Citymapper.</b> Mỗi điểm là một place-card (thumbnail · tên ·
+  category chip token · giờ đến–đi · mô tả); giữa hai điểm là một <b>transit card</b> áp màu mode token
+  (icon chip + "mode · phút · giá" + line badge + nút <b>Change</b> pill). Leg ước lượng có badge
+  <b>Estimated</b>; transit card mở rộng ra các sub-leg (lên/xuống trạm). Trục dọc nối node theo màu category.
+</div>
+
+<div class="frame">
+  <div class="hdr">
+    <div class="iconbtn" title="Back"><i data-lucide="arrow-left"></i></div>
+    <div class="titlewrap"><h1 class="display">Marina Bay Explorer</h1><p>3 days · 9 places</p></div>
+    <div class="tabs">
+      <button class="tab">Overview</button>
+      <button class="tab active">Day 1</button>
+      <button class="tab">Day 2</button>
+      <button class="tab">Day 3</button>
+      <button class="tab">Summary</button>
+    </div>
+    <div class="hdr-actions">
+      <div class="iconbtn bordered" title="Add day"><i data-lucide="plus"></i></div>
+      <div class="iconbtn bordered" title="Edit setup"><i data-lucide="settings"></i></div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <i data-lucide="file-text" style="width:14px;height:14px"></i>
+    Planning mode — Day 1 itinerary
+    <span class="qual good"><span class="dot"></span>Good to go</span>
+  </div>
+
+  <div class="split">
+    <div class="panel">
+      <div class="dayhead">
+        <div><h2 class="display">Day 1</h2><p>Tap a transit card to change mode or see live arrivals</p></div>
+        <button class="btn outline blue"><i data-lucide="plus" style="width:15px;height:15px"></i>Add place</button>
+      </div>
+
+      <div class="timeline">
+        <!-- hotel start -->
+        <div class="tl-row">
+          <span class="tl-node" style="background:var(--warning-500)"></span>
+          <div class="tcard alt" style="display:flex;align-items:center;gap:10px">
+            <i data-lucide="building-2" style="width:18px;height:18px;color:var(--warning-600)"></i>
+            <div><div class="hlab">Start · Hotel</div><div style="font-weight:700;font-size:13px;color:var(--slate-700)">Marina Bay Sands · 09:00</div></div>
+          </div>
+        </div>
+        <!-- transit -->
+        <div class="tl-row">
+          <div class="tcard">
+            <div class="tline">
+              <div class="ticon" style="background:#eff6ff"><i data-lucide="train-front" style="width:17px;height:17px;color:var(--mode-mrt)"></i></div>
+              <div class="tmeta">
+                <div class="tmode">MRT <span class="linebadge" style="background:var(--mode-mrt)">CE1</span></div>
+                <div class="tsub">12 min · S$1.50 · 4.2 km</div>
+              </div>
+              <button class="changebtn"><i data-lucide="repeat" style="width:13px;height:13px"></i>Change</button>
+            </div>
+          </div>
+        </div>
+        <!-- place 1 -->
+        <div class="tl-row">
+          <span class="tl-node" style="background:var(--cat-nature)"></span>
+          <div class="pcard">
+            <div class="pthumb"><i data-lucide="image" style="width:22px;height:22px"></i></div>
+            <div class="pbody">
+              <div class="pname">Gardens by the Bay</div>
+              <div class="prow">
+                <span class="catchip" style="background:#ecfdf5;color:var(--cat-nature)">Nature</span>
+                <span class="ppill">120 min</span>
+                <span class="ppill"><i data-lucide="clock" style="width:11px;height:11px"></i>09:18 – 11:18</span>
+              </div>
+              <p class="pdesc">Iconic nature park with Supertree Grove and climate-controlled domes.</p>
+            </div>
+          </div>
+        </div>
+        <!-- transit estimated + expanded sublegs -->
+        <div class="tl-row">
+          <div class="tcard">
+            <div class="tline">
+              <div class="ticon" style="background:#ecfeff"><i data-lucide="bus" style="width:17px;height:17px;color:var(--mode-bus)"></i></div>
+              <div class="tmeta">
+                <div class="tmode">Bus <span class="linebadge" style="background:var(--mode-bus)">97</span></div>
+                <div class="tsub">9 min · S$1.10</div>
+              </div>
+              <span class="est">Estimated</span>
+              <button class="changebtn" style="margin-left:9px"><i data-lucide="repeat" style="width:13px;height:13px"></i>Change</button>
+            </div>
+            <div class="subleg">
+              <span class="subdot" style="border-color:var(--mode-walk)"><i data-lucide="footprints" style="width:9px;height:9px;color:var(--mode-walk)"></i></span>
+              <div class="subtxt">Walk 3 min to Bayfront Ave stop</div>
+            </div>
+            <div class="subleg" style="border-top:none;padding-top:4px">
+              <span class="subdot" style="border-color:var(--mode-bus)"><i data-lucide="bus" style="width:9px;height:9px;color:var(--mode-bus)"></i></span>
+              <div class="subtxt">[97] Board at Bayfront → Alight at Esplanade · 6 min</div>
+            </div>
+          </div>
+        </div>
+        <!-- place 2 -->
+        <div class="tl-row">
+          <span class="tl-node" style="background:var(--cat-culture)"></span>
+          <div class="pcard">
+            <div class="pthumb" style="color:var(--cat-culture)"><i data-lucide="image" style="width:22px;height:22px"></i></div>
+            <div class="pbody">
+              <div class="pname">ArtScience Museum</div>
+              <div class="prow">
+                <span class="catchip" style="background:#f5f3ff;color:var(--cat-culture)">Culture</span>
+                <span class="ppill">90 min</span>
+                <span class="ppill"><i data-lucide="clock" style="width:11px;height:11px"></i>11:40 – 13:10</span>
+              </div>
+              <p class="pdesc">Lotus-inspired museum blending art, science and technology exhibits.</p>
+            </div>
+          </div>
+        </div>
+        <!-- return hotel -->
+        <div class="tl-row" style="margin-bottom:0">
+          <span class="tl-node" style="background:var(--warning-500)"></span>
+          <div class="tcard alt" style="display:flex;align-items:center;gap:10px">
+            <i data-lucide="building-2" style="width:18px;height:18px;color:var(--warning-600)"></i>
+            <div style="flex:1"><div class="hlab">Return · Hotel</div><div style="font-weight:700;font-size:13px;color:var(--slate-700)">Marina Bay Sands</div></div>
+            <span class="tsub">17:20</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mapcol">
+      <div class="mapinner">
+        <div style="text-align:center"><i data-lucide="map" style="width:34px;height:34px"></i><div style="margin-top:8px;font-size:13px">Day 1 route</div></div>
+        <div class="legend">
+          <i><span class="ln" style="background:var(--mode-mrt)"></span>MRT</i>
+          <i><span class="ln" style="background:var(--mode-bus)"></span>Bus</i>
+          <i><span class="ln" style="background:var(--mode-walk)"></span>Walk</i>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note" style="margin-top:34px">
+  <span class="tag">Phase 3D · Day · Live</span>
+  <b>Chế độ Live (đang đi).</b> Khi bấm Start, tab Day rút gọn còn <b>leg đang đi</b>: banner xanh
+  (success token) + nút <b>Arrived / Continue</b> pill, kẹp giữa hai compact place-card (from → to),
+  transit card hiển thị live arrivals + Compare modes.
+</div>
+
+<div class="frame">
+  <div class="hdr">
+    <div class="iconbtn" title="Back"><i data-lucide="arrow-left"></i></div>
+    <div class="titlewrap"><h1 class="display">Marina Bay Explorer</h1><p>3 days · 9 places</p></div>
+    <div class="tabs">
+      <button class="tab">Overview</button>
+      <button class="tab active">Day 1</button>
+      <button class="tab">Day 2</button>
+      <button class="tab">Summary</button>
+    </div>
+    <div class="hdr-actions"><span class="chip-live"><span class="dot"></span>Live</span></div>
+  </div>
+  <div class="statusbar" style="background:var(--success-50);color:var(--success-600);border-color:#a7f3d0">
+    <i data-lucide="navigation" style="width:14px;height:14px"></i>
+    Live navigation — Day 1 · leg 2 of 4
+  </div>
+
+  <div class="split">
+    <div class="panel">
+      <div class="liveband">
+        <div><div class="lt">Active leg</div><div class="ls">Day 1 · leg 2 of 4</div></div>
+        <div style="display:flex;gap:9px">
+          <button class="btn outline"><i data-lucide="arrow-left" style="width:15px;height:15px"></i>Back</button>
+          <button class="btn success"><i data-lucide="check-circle" style="width:15px;height:15px"></i>Arrived</button>
+        </div>
+      </div>
+
+      <!-- from -->
+      <div class="tcard alt" style="display:flex;align-items:center;gap:11px;border-left:3px solid var(--mode-mrt);margin-bottom:10px">
+        <span style="width:10px;height:10px;border-radius:50%;background:var(--mode-mrt)"></span>
+        <div><div class="hlab" style="color:var(--mode-mrt)">From</div><div style="font-weight:700;font-size:14px;color:var(--slate-950)" class="display">Gardens by the Bay</div></div>
+      </div>
+      <!-- active transit -->
+      <div class="tcard" style="background:#fff;border-color:#bfdbfe">
+        <div class="tline">
+          <div class="ticon" style="background:#ecfeff"><i data-lucide="bus" style="width:17px;height:17px;color:var(--mode-bus)"></i></div>
+          <div class="tmeta">
+            <div class="tmode">Bus <span class="linebadge" style="background:var(--mode-bus)">97</span></div>
+            <div class="tsub">9 min · S$1.10 · arriving in 3 min</div>
+          </div>
+          <button class="changebtn"><i data-lucide="repeat" style="width:13px;height:13px"></i>Change</button>
+        </div>
+        <div class="subleg"><span class="subdot" style="border-color:var(--mode-bus)"><i data-lucide="bus" style="width:9px;height:9px;color:var(--mode-bus)"></i></span><div class="subtxt"><b>Bus 97</b> · Bayfront → Esplanade · next: 3, 11, 19 min</div></div>
+      </div>
+      <!-- to -->
+      <div class="tcard alt" style="display:flex;align-items:center;gap:11px;border-left:3px solid var(--cat-culture);margin-top:10px">
+        <span style="width:10px;height:10px;border-radius:50%;background:var(--cat-culture)"></span>
+        <div style="flex:1"><div class="hlab" style="color:var(--cat-culture)">To</div><div style="font-weight:700;font-size:14px;color:var(--slate-950)" class="display">ArtScience Museum</div></div>
+        <span class="catchip" style="background:#f5f3ff;color:var(--cat-culture)">Culture</span>
+      </div>
+    </div>
+
+    <div class="mapcol">
+      <div class="mapinner">
+        <div style="text-align:center"><i data-lucide="navigation" style="width:34px;height:34px;color:var(--mode-bus)"></i><div style="margin-top:8px;font-size:13px">Live · active leg only</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>

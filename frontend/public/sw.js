@@ -1,4 +1,4 @@
-const STATIC_CACHE = 'imove-static-v1'
+const STATIC_CACHE = 'imove-static-v2'
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/imove-logo-transparent.png',

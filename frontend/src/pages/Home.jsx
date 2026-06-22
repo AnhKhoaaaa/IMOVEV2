@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowRight,
@@ -115,7 +115,7 @@ function TripCard({ trip, hydrated, loading, onOpen, onStart, onDelete }) {
       <div className="flex items-center gap-2">
         <button
           onClick={() => onOpen(trip)}
-          className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-blue-600 text-[13px] font-bold text-white hover:bg-blue-500"
+          className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-blue-600 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
         >
           {t('openBtn')} <ArrowRight size={14} />
         </button>
@@ -172,6 +172,7 @@ function ScrollReveal({ children, className = '', delay = 0 }) {
 
 export default function Home() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
   const { t } = useT()
   const { trips, remove } = useSavedTrips(user?.id)
@@ -194,6 +195,20 @@ export default function Home() {
     inFlightRef.current.clear()
     setLoadingIds(new Set())
   }, [user?.id])
+
+
+
+  useEffect(() => {
+    if (location.search.includes('scroll=my-trips')) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('my-trips')
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth' })
+        }
+      }, 150)
+      return () => clearTimeout(timer)
+    }
+  }, [location.search])
 
   useEffect(() => {
     trips.forEach((trip) => {
@@ -261,36 +276,36 @@ export default function Home() {
         ctaText={t('homeHeroCta')}
         secondaryCtaText={t('homeHeroSecondaryCta')}
         onCtaClick={() => navigate('/plan')}
-        onSecondaryCtaClick={() => navigate('/settings')}
+        onSecondaryCtaClick={() => navigate('/preferences')}
         images={HERO_IMAGES}
         features={heroFeatures}
       />
 
-      <section className="relative isolate hidden overflow-hidden border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/70 to-white md:block">
+      <section className="relative isolate overflow-hidden border-b border-slate-200 bg-gradient-to-r from-white via-blue-50/70 to-white">
         <WaveLightShader className="absolute -inset-x-[8%] -inset-y-20 h-[calc(100%+10rem)] w-[116%] opacity-50 mix-blend-multiply" />
         <div className="pointer-events-none absolute inset-0 bg-white/20" />
-        <div className="relative mx-auto max-w-7xl px-6 py-6">
+        <div className="relative mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
           <ScrollReveal>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md">
-                <CalendarDays className="stats-floating-icon h-5 w-5 text-blue-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.today}</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeStatToday')}</p>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+              <div className="group stats-floating-card rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(59,130,246,0.8)] backdrop-blur-md sm:p-4">
+                <CalendarDays className="stats-floating-icon h-4 w-4 text-blue-600 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">{stats.today}</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeStatToday')}</p>
               </div>
-              <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md">
-                <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-5 w-5 text-emerald-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{stats.upcoming}</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeStatUpcoming')}</p>
+              <div className="group stats-floating-card stats-floating-card-delay-1 rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(16,185,129,0.75)] backdrop-blur-md sm:p-4">
+                <Clock className="stats-floating-icon stats-floating-icon-delay-1 h-4 w-4 text-emerald-600 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">{stats.upcoming}</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeStatUpcoming')}</p>
               </div>
-              <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md">
-                <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-5 w-5 text-amber-600" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">{t('homeLive')}</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeLtaWeather')}</p>
+              <div className="group stats-floating-card stats-floating-card-delay-2 rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(245,158,11,0.75)] backdrop-blur-md sm:p-4">
+                <RadioTower className="stats-floating-icon stats-floating-icon-delay-2 h-4 w-4 text-amber-600 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">{t('homeLive')}</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeLtaWeather')}</p>
               </div>
-              <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-4 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md">
-                <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-5 w-5 text-red-500" />
-                <p className="mt-3 font-display text-[28px] font-extrabold text-slate-950">0</p>
-                <p className="text-[12px] font-semibold text-slate-500">{t('homeOpenAlerts')}</p>
+              <div className="group stats-floating-card stats-floating-card-delay-3 rounded-xl border border-white/15 bg-white/90 p-3 shadow-[0_12px_34px_-18px_rgba(239,68,68,0.7)] backdrop-blur-md sm:p-4">
+                <AlertTriangle className="stats-floating-icon stats-floating-icon-delay-3 h-4 w-4 text-red-500 sm:h-5 sm:w-5" />
+                <p className="mt-2 font-display text-[24px] font-extrabold text-slate-950 sm:mt-3 sm:text-[28px]">0</p>
+                <p className="text-[11px] font-semibold text-slate-500 sm:text-[12px]">{t('homeOpenAlerts')}</p>
               </div>
             </div>
           </ScrollReveal>
@@ -320,16 +335,16 @@ export default function Home() {
         )
       })()}
 
-      <section className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
+      <section id="my-trips" className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
         <ScrollReveal>
-          <div className="mb-4 flex flex-col gap-3 sm:mb-5 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
             <div className="flex max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 shadow-card">
               {FILTERS.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setFilter(item.id)}
                   className={cn(
-                    'h-9 shrink-0 rounded-md px-3 text-[13px] font-bold transition',
+                    'h-9 rounded-md px-3 text-[13px] font-bold transition',
                     filter === item.id ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                   )}
                 >
@@ -342,7 +357,7 @@ export default function Home() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t('homeSearch')}
-              className="w-full lg:w-[320px]"
+              className="w-full md:w-[320px]"
             />
           </div>
         </ScrollReveal>
@@ -377,7 +392,7 @@ export default function Home() {
               <p className="mt-2 text-[14px] text-slate-500">{t('homeNoTripsDesc')}</p>
               <button
                 onClick={() => navigate('/plan')}
-                className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white hover:bg-blue-500"
+                className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-blue-600 px-4 text-[13px] font-bold text-white btn-lift shadow-sm hover:shadow-md hover:bg-blue-700"
               >
                 <Plus size={15} /> {t('newTrip')}
               </button>

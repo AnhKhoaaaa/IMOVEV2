@@ -4,32 +4,22 @@ import { useEffect, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip, useMap } from 'react-leaflet'
 import { buildOrderedPlaces } from '../../lib/tripUtils'
 import { normalizeTransportMode, transportMeta } from '../../lib/transport'
+import { categoryHex } from '../../lib/categories'
 import { useT } from '../../contexts/LanguageContext'
 
+// Polyline colours mirror the locked design-system mode tokens (index.css --color-mode-*):
+// rail=brand blue, bus=cyan, walk=slate, cycle=orange, taxi/Grab=green. outline = darker shade
+// for legibility on the light basemap. Keep in sync with transport.js TRANSPORT_META.
 const MODE_STYLE = {
-  METRO: { color: '#1d4ed8', halo: '#eff6ff', outline: '#172554', dashArray: null },
-  MRT:   { color: '#4f46e5', halo: '#eef2ff', outline: '#312e81', dashArray: null },
-  LRT:   { color: '#7c3aed', halo: '#f5f3ff', outline: '#4c1d95', dashArray: null },
-  BUS:   { color: '#059669', halo: '#ecfdf5', outline: '#064e3b', dashArray: null },
-  WALK:  { color: '#ea580c', halo: '#fff7ed', outline: '#7c2d12', dashArray: '8,8' },
-  CYCLE: { color: '#0f766e', halo: '#f0fdfa', outline: '#134e4a', dashArray: '10,6' },
+  METRO: { color: '#2563eb', halo: '#eff6ff', outline: '#1e3a8a', dashArray: null },
+  MRT:   { color: '#2563eb', halo: '#eff6ff', outline: '#1e3a8a', dashArray: null },
+  LRT:   { color: '#3b82f6', halo: '#eff6ff', outline: '#1e40af', dashArray: null },
+  BUS:   { color: '#06b6d4', halo: '#ecfeff', outline: '#155e75', dashArray: null },
+  WALK:  { color: '#64748b', halo: '#f1f5f9', outline: '#334155', dashArray: '8,8' },
+  CYCLE: { color: '#f97316', halo: '#fff7ed', outline: '#9a3412', dashArray: '10,6' },
+  GRAB:  { color: '#00b14f', halo: '#ecfdf5', outline: '#065f46', dashArray: null },
 }
 const FALLBACK_ROUTE_STYLE = { color: '#2563eb', halo: '#eff6ff', outline: '#1e3a8a', dashArray: null }
-
-const CATEGORY_DOT_COLORS = {
-  food:          '#f97316',
-  dining:        '#f97316',
-  nature:        '#10b981',
-  park:          '#10b981',
-  culture:       '#7c3aed',
-  heritage:      '#7c3aed',
-  museum:        '#7c3aed',
-  shopping:      '#3b82f6',
-  landmark:      '#6366f1',
-  attraction:    '#6366f1',
-  entertainment: '#f43f5e',
-  beach:         '#0d9488',
-}
 
 // dev17 E3: one distinct hue per day so overlapping multi-day routes/markers stay legible
 const DAY_PALETTE = ['#4f46e5', '#059669', '#ea580c', '#db2777', '#0891b2', '#ca8a04', '#9333ea']
@@ -37,7 +27,7 @@ const dayColorFor = (day) => DAY_PALETTE[(((day ?? 1) - 1) % DAY_PALETTE.length 
 
 // Task 3b + 4b: numbered dot with optional 50% dimming. colorOverride wins (e.g. day colour).
 function placeIcon(category, num, dimmed = false, colorOverride = null) {
-  const color = colorOverride ?? CATEGORY_DOT_COLORS[category?.toLowerCase()] ?? '#64748b'
+  const color = colorOverride ?? categoryHex(category)
   const numLabel = num != null
     ? `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;line-height:1">${num}</span>`
     : ''
@@ -178,22 +168,29 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
 
   const center = [ordered[0].lat, ordered[0].lng]
 
-  // E3: in multi-day views (overview/summary) colour each leg by its day; otherwise by transport mode
+  // E3: in multi-day views (overview/summary) colour each leg by its day; otherwise by transport mode.
+  // Resolve a leg's day from its id, falling back to the day of its endpoints — estimated/haversine
+  // legs can lack an id, and without this fallback they'd slip through to mode colour, making the
+  // overview map show BOTH day and mode colours at once.
+  const dayOfLeg = (leg) => legDays[leg.id] ?? placeDays[leg.from_place_id] ?? placeDays[leg.to_place_id] ?? null
   const styleForLeg = (leg) => {
-    if (colorByDay && legDays[leg.id] != null) {
-      const c = dayColorFor(legDays[leg.id])
-      return { color: c, halo: '#ffffff', outline: c, dashArray: null }
+    if (colorByDay) {
+      const d = dayOfLeg(leg)
+      if (d != null) {
+        const c = dayColorFor(d)
+        return { color: c, halo: '#ffffff', outline: c, dashArray: null }
+      }
     }
     return routeStyleFor(leg)
   }
   const presentDays = colorByDay
-    ? [...new Set((legs ?? []).map((l) => legDays[l.id]).filter((d) => d != null))].sort((a, b) => a - b)
+    ? [...new Set((legs ?? []).map((l) => dayOfLeg(l)).filter((d) => d != null))].sort((a, b) => a - b)
     : []
 
   return (
     <div className="h-full w-full rounded-2xl overflow-hidden border border-slate-200 shadow-card relative">
       {colorByDay && presentDays.length > 0 && (
-        <div className="absolute bottom-6 left-2 z-[400] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
+        <div className="absolute bottom-6 left-2 z-[1100] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
           {presentDays.map((day) => (
             <div key={day} className="flex items-center gap-1.5">
               <span
@@ -206,7 +203,7 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
         </div>
       )}
       {!colorByDay && presentModes.length > 0 && (
-        <div className="absolute bottom-6 left-2 z-[400] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
+        <div className="absolute bottom-6 left-2 z-[1100] bg-white/90 rounded-lg shadow-sm text-xs p-2 space-y-1 pointer-events-none">
           {presentModes.map((mode) => {
             const style = MODE_STYLE[mode]
             return (
@@ -344,11 +341,12 @@ export default function TripMap({ places, legs, userPosition, activeLegId = null
           </Marker>
         )}
 
-        {/* Task 8c: live GPS trail for WALK/CYCLE legs */}
+        {/* Task 8c: live GPS trail for WALK/CYCLE legs. Indigo "you" colour — deliberately not a
+            mode token (rail is now brand blue) so the user's path stays distinct from route lines. */}
         {trackingPath.length >= 2 && (
           <Polyline
             positions={trackingPath}
-            color="#2563eb"
+            color="#6366f1"
             weight={5}
             opacity={0.9}
             lineCap="round"
