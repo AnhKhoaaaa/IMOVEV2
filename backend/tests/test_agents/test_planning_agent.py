@@ -735,9 +735,15 @@ async def test_fetch_all_alternatives_returns_available_modes():
                 "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
                 "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
 
+    _metro_route = {"duration_minutes": 15, "fare_sgd": 1.80,
+                    "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
+                    "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5,
+                    "is_estimated": False}
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
-    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock), \
+         patch("app.agents.planning_agent.onemap.get_pt_routes_by_mode",
+               AsyncMock(return_value={"METRO": _metro_route})):
         alts = await _fetch_all_alternatives(from_p, to_p)
 
     assert "METRO" in alts
@@ -779,9 +785,15 @@ async def test_fetch_all_alternatives_partial_failure_returns_available():
                 "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
                 "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5}
 
+    _metro_route = {"duration_minutes": 15, "fare_sgd": 1.80,
+                    "legs": [{"mode": "WALK"}, {"mode": "SUBWAY"}], "geometry": None,
+                    "geometries": [], "instructions": [], "sub_legs": [], "distance_km": 1.5,
+                    "is_estimated": False}
     from_p = {"id": "a", "lat": 1.28, "lng": 103.85}
     to_p   = {"id": "b", "lat": 1.30, "lng": 103.87}
-    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock):
+    with patch("app.agents.planning_agent.onemap.get_route", side_effect=_mock), \
+         patch("app.agents.planning_agent.onemap.get_pt_routes_by_mode",
+               AsyncMock(return_value={"METRO": _metro_route})):
         alts = await _fetch_all_alternatives(from_p, to_p)
 
     assert "METRO" in alts
