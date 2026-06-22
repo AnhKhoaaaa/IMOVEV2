@@ -1,15 +1,31 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 
 const LanguageContext = createContext({ lang: 'en', toggleLang: () => {} })
 
 export function LanguageProvider({ children }) {
-  const [lang, setLang] = useState(() => {
+  const [storedLang, setStoredLang] = useState(() => {
     try { return localStorage.getItem('imove_lang') ?? 'en' } catch { return 'en' }
   })
+  const [forceMobileEnglish, setForceMobileEnglish] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const media = window.matchMedia('(max-width: 639px)')
+    const update = () => setForceMobileEnglish(media.matches)
+    update()
+    if (media.addEventListener) media.addEventListener('change', update)
+    else media.addListener?.(update)
+    return () => {
+      if (media.removeEventListener) media.removeEventListener('change', update)
+      else media.removeListener?.(update)
+    }
+  }, [])
+
+  const lang = forceMobileEnglish ? 'en' : storedLang
 
   const toggleLang = () => {
-    const next = lang === 'en' ? 'vi' : 'en'
-    setLang(next)
+    const next = storedLang === 'en' ? 'vi' : 'en'
+    setStoredLang(next)
     try { localStorage.setItem('imove_lang', next) } catch {}
   }
 

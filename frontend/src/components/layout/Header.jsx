@@ -124,7 +124,7 @@ export default function Header() {
           {/* Right side */}
           <div className="absolute right-4 flex items-center gap-3 sm:right-6">
             {/* Globe Language Switcher */}
-            <div className="relative" ref={langRef}>
+            <div className="relative hidden sm:block" ref={langRef}>
               <button
                 type="button"
                 onClick={() => setShowLangMenu((v) => !v)}
