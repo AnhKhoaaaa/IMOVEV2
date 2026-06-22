@@ -1176,6 +1176,7 @@ export default function Trip() {
   const [trackingPath, setTrackingPath] = useState([])
   const lastTrackPointRef = useRef(null)
   const [mobileSheetHeight, setMobileSheetHeight] = useState(54)
+  const [isMobileSheetDragging, setIsMobileSheetDragging] = useState(false)
   const [previewPlace, setPreviewPlace] = useState(null)
   const mobileSheetTop = `calc(56px + ${100 - mobileSheetHeight}dvh)`
 
@@ -1185,6 +1186,7 @@ export default function Trip() {
     const startY = event.clientY
     const startHeight = mobileSheetHeight
     let moved = false
+    setIsMobileSheetDragging(true)
     document.body.style.userSelect = 'none'
     const onMove = (moveEvent) => {
       moveEvent.preventDefault()
@@ -1197,6 +1199,7 @@ export default function Trip() {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
       document.body.style.userSelect = ''
+      setIsMobileSheetDragging(false)
       if (!moved) {
         setMobileSheetHeight((height) => (height >= 90 ? 54 : height <= 20 ? 54 : 100))
         return
@@ -1966,6 +1969,7 @@ export default function Trip() {
         <section
           className={cn(
             'fixed inset-x-0 bottom-0 z-30 isolate flex flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-18px_42px_rgba(15,23,42,0.18)] transition-[top] duration-200 lg:static lg:inset-auto lg:order-1 lg:block lg:h-auto lg:rounded-none lg:bg-slate-50 lg:p-6 lg:shadow-none lg:overflow-y-auto lg:border-r lg:border-slate-200',
+            isMobileSheetDragging && 'transition-none',
             previewPlace && 'hidden lg:block'
           )}
           style={{ top: mobileSheetTop }}
