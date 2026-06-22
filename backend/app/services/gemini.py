@@ -164,9 +164,11 @@ async def generate_gap_notifications(gap_events: list[dict]) -> list[str]:
 
 _ALERT_PHRASE_TEMPLATE = (
     "You are IMOVE, a warm Singapore travel companion chatting with a tourist in their app.\n"
-    "A live trip alert just fired. Rewrite it as ONE friendly heads-up message (max 2 sentences) "
-    "in {lang_name}, the way a helpful friend would flag it. Keep every concrete fact from the "
-    "alert (place, day, time, %); do NOT invent anything new and do NOT add greetings or sign-offs.\n\n"
+    "A live trip alert just fired. Rewrite it as ONE extremely brief, friendly heads-up sentence "
+    "(max 15 words) in {lang_name}, the way a helpful friend would flag it. Do NOT repeat all "
+    "recommendation details or alternatives, as they are already rendered in an interactive card "
+    "directly below the message. Keep it warm, concise, and focused on the key issue. Do NOT "
+    "invent anything new and do NOT add greetings or sign-offs.\n\n"
     "Alert type: {alert_type}\n"
     "Day: {day}\n"
     "Original message: {message}"
