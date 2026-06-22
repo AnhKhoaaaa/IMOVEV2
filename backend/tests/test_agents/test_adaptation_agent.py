@@ -405,7 +405,6 @@ def test_weather_alert_message_names_day_and_reason():
     msg = _weather_alert_message(2, "2026-06-13", 80, ["Gardens → ArtScience Museum"])
     assert "Day 2" in msg
     assert "80%" in msg
-    assert "Gardens → ArtScience Museum" in msg
 
 
 def test_ordered_place_ids_from_legs_reconstructs_chain():

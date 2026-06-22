@@ -485,6 +485,23 @@ async def companion_check(
     if exp and exp > now:
         return None
 
+    # Deduplicate: skip GPS nudge if there is already an active weather alert for this trip
+    from app.database import supabase
+    if supabase and trip_id:
+        try:
+            active_alerts = (
+                supabase.table("lta_alerts")
+                .select("id")
+                .eq("trip_id", trip_id)
+                .in_("alert_type", ["weather_warning", "weather_live"])
+                .is_("resolved_at", "null")
+                .execute()
+            )
+            if active_alerts.data:
+                return None
+        except Exception as exc:
+            log.warning("Failed to check active weather alerts for deduplication: %s", exc)
+
     plan = await _load_plan({"trip_id": trip_id, "current_user": current_user})
     if plan is None:
         return None
