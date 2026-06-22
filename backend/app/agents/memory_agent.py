@@ -100,7 +100,10 @@ async def learn_from_implicit(user_id: str) -> None:
 
     comments = [r.get("comment", "") or "" for r in resp.data]
 
-    bus_to_mrt = sum(1 for c in comments if "BUS → MRT" in c or "BUS -> MRT" in c)
+    bus_to_mrt = sum(
+        1 for c in comments
+        if any(pat in c for pat in ("BUS → MRT", "BUS -> MRT", "BUS → METRO", "BUS -> METRO"))
+    )
     to_walk = sum(1 for c in comments if "→ WALK" in c or "-> WALK" in c)
 
     updates: dict = {}
