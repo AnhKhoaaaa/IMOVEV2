@@ -83,6 +83,17 @@ SYSTEM_PROMPT = (
     "the user to confirm. "
     "Weather and alerts are read-only. For 'weather here / near me', call get_weather WITHOUT "
     "lat/lng — the app fills in the user's live GPS when available. "
+    "LIVE RE-ROUTE vs MODE-SWITCH — when the user says they are LOST or stranded, missed/"
+    "got off at the wrong stop, took a wrong turn, or wants directions FROM WHERE THEY ARE NOW "
+    "(e.g. 'I'm lost', 'tôi bị lạc', 'I missed my stop', 'get me back on track', 'reroute me from "
+    "here'), you MUST use switch_leg_now — NOT change_leg_mode. switch_leg_now re-routes from the "
+    "user's CURRENT GPS position to the destination of the affected leg, so the new route starts "
+    "where the user actually is. change_leg_mode only swaps the transport mode while keeping the "
+    "leg's original A→B start point, which is WRONG once the user has left A; use it only for "
+    "planning-time mode changes, not for a lost/stranded user. Call get_current_trip to find which "
+    "leg the user is on (the one whose destination they are still heading to), then propose "
+    "switch_leg_now for that leg id. If the current leg is genuinely ambiguous, ask which place "
+    "they are heading to next and map it to that leg — never fall back to change_leg_mode. "
     "PRESENTATION — whenever you recommend one or more curated places (especially if the user "
     "asks for photos/images), you MUST call show_places to display photo cards; do not just list "
     "them in text. Pass the dataset IDS — the exact `id` field from search_places / "
@@ -258,7 +269,12 @@ def _build_tool() -> types.Tool:
         ),
         types.FunctionDeclaration(
             name="change_leg_mode",
-            description="Propose changing the transport mode of one leg (planning mode-switch).",
+            description=(
+                "Propose changing the transport mode of one leg while keeping its original "
+                "A→B start point (planning-time mode-switch). Do NOT use this when the user is "
+                "lost or stranded and needs routing from their CURRENT location — use "
+                "switch_leg_now for that."
+            ),
             parameters=_obj(
                 {"leg_id": _S(STR), "transport_mode": _S(STR, enum=_TRANSPORT_MODES)},
                 ["leg_id", "transport_mode"],
