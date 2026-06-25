@@ -163,6 +163,9 @@ class AdaptResponse(BaseModel):
     delta_transit_cost: float = 0.0        # positive = more expensive, negative = cheaper (SGD)
     delta_active_time: int = 0             # minutes added (positive) or saved (negative)
     delta_walking_distance: float = 0.0   # meters added or saved
+    # advisory = the resolution changes nothing structural (e.g. closing_risk leave_earlier);
+    # accepting it must only mark the alert resolved, never re-persist the unchanged trip (dev20).
+    advisory: bool = False
 
 
 class LocationUpdate(BaseModel):

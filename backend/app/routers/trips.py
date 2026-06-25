@@ -413,6 +413,9 @@ async def adapt_trip_endpoint(
         _pending_swaps[trip_id] = {
             "alert_id": body.alert_id,
             "updated_trip": result.updated_trip,
+            # advisory resolutions (leave_earlier) change nothing structural; accept must only
+            # resolve the alert, not re-persist the trip (dev20).
+            "advisory": result.advisory,
         }
 
     return result
@@ -852,7 +855,9 @@ async def accept_swap(
         raise HTTPException(status_code=409, detail="alert_id does not match pending adaptation")
 
     updated_trip: TripPlan = pending["updated_trip"]
-    await adaptation_agent.commit_adaptation(trip_id, updated_trip, body.alert_id)
+    await adaptation_agent.commit_adaptation(
+        trip_id, updated_trip, body.alert_id, advisory=pending.get("advisory", False)
+    )
     _trip_store[trip_id] = updated_trip
     del _pending_swaps[trip_id]
 

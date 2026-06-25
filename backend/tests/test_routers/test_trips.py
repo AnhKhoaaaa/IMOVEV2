@@ -358,6 +358,138 @@ def test_accept_swap_wrong_alert_id_returns_409():
         _trips_module._trip_meta.pop(trip_id, None)
 
 
+# ── closing_risk "leave earlier" — advisory accept must not 500 (Lỗi 2) ──────────
+#
+# Regression: leave_earlier is advisory (dev20 — "no structural change; just mark the alert
+# resolved"). The accept path used to run the full leg/place re-write (_persist_updated_legs)
+# anyway, so any DB hiccup while re-persisting the UNCHANGED trip surfaced as a 500 on an action
+# that conceptually changes nothing. These tests drive the REAL adaptation agent end-to-end with a
+# supabase whose leg/place writes RAISE, proving the advisory accept skips persistence entirely.
+
+def _closing_risk_supabase(*, session_id: str, persist_raises: bool):
+    """Supabase double for the closing_risk flow.
+
+    - trips.select → one row owned by `session_id`
+    - lta_alerts.select → one feasible leave_earlier closing_risk alert; .update works
+    - trip_places / route_legs writes (delete/insert/upsert): raise when persist_raises, to
+      emulate the production DB error that turned an advisory 'leave earlier' into a 500.
+    Records persistence attempts in `sb.persist_tables` so a test can assert it was never reached.
+    """
+    sb = MagicMock()
+    sb.persist_tables = []
+    cache = {}
+    md = {
+        "place_id": "p3", "place_name": "P3",
+        "resolutions": {"leave_earlier": {
+            "feasible": True, "current_place_name": "P2",
+            "target_leave_time": "16:10", "save_minutes": 20,
+        }},
+    }
+    alert_row = {"id": "a1", "trip_id": "t-le", "alert_type": "closing_risk", "metadata": md}
+
+    def _table(name):
+        if name in cache:
+            return cache[name]
+        t = MagicMock()
+        for m in ("select", "insert", "update", "upsert", "eq", "in_", "is_", "gte", "order", "delete"):
+            getattr(t, m).return_value = t
+        if name == "trips":
+            t.execute.return_value = MagicMock(data=[{"session_id": session_id, "user_id": None}])
+        elif name == "lta_alerts":
+            t.execute.return_value = MagicMock(data=[alert_row])
+        elif name in ("trip_places", "route_legs"):
+            def _boom(*_a, **_k):
+                sb.persist_tables.append(name)
+                if persist_raises:
+                    raise RuntimeError(f"simulated DB write failure on {name}")
+                return MagicMock(execute=lambda: MagicMock(data=[]))
+            # Any write op records the attempt (and optionally raises) at execute() time.
+            for m in ("insert", "upsert", "delete"):
+                getattr(t, m).side_effect = _boom
+        else:
+            t.execute.return_value = MagicMock(data=[])
+        cache[name] = t
+        return t
+
+    sb.table.side_effect = _table
+    return sb
+
+
+def _le_plan(trip_id: str) -> TripPlan:
+    legs = [
+        LegResponse(id="p1-p2", from_place_id="p1", to_place_id="p2",
+                    transport_mode="WALK", duration_minutes=20, cost_sgd=0.0, is_estimated=False),
+        LegResponse(id="p2-p3", from_place_id="p2", to_place_id="p3",
+                    transport_mode="WALK", duration_minutes=20, cost_sgd=0.0, is_estimated=False),
+    ]
+    def P(pid, dwell=60):
+        return Place(id=pid, name=pid.upper(), lat=1.30, lng=103.85, dwell_minutes=dwell,
+                     best_time_start="09:00", best_time_end="21:00", category="x",
+                     is_outdoor=False, in_curated_dataset=False)
+    return TripPlan(id=trip_id,
+                    days=[DayPlan(day=1, legs=legs, place_ids=["p1", "p2", "p3"])],
+                    places=[P("p1"), P("p2", 150), P("p3")], warnings=[])
+
+
+def test_accept_leave_earlier_is_advisory_and_does_not_500_on_persist_failure():
+    trip_id, sess = "t-le", "sess-leave-early"
+    sb = _closing_risk_supabase(session_id=sess, persist_raises=True)
+    _trips_module._trip_store[trip_id] = _le_plan(trip_id)
+    try:
+        with patch("app.routers.trips.supabase", sb), \
+             patch("app.agents.adaptation_agent.supabase", sb):
+            preview = client.post(f"/trips/{trip_id}/adapt", json={
+                "alert_id": "a1", "session_id": sess,
+                "resolution": "leave_earlier", "target_day": None,
+            })
+            assert preview.status_code == 200
+            body = preview.json()
+            assert body["adapted"] is True
+            assert body["advisory"] is True          # agent flags it as a no-op change
+
+            accept = client.post(f"/trips/{trip_id}/accept-swap", json={
+                "alert_id": "a1", "session_id": sess,
+            })
+        # The bug: this used to 500 because the advisory accept re-persisted the unchanged trip.
+        assert accept.status_code == 200
+        assert accept.json()["id"] == trip_id
+        # Advisory accept must NOT touch trip_places / route_legs at all.
+        assert sb.persist_tables == []
+        assert trip_id not in _trips_module._pending_swaps
+    finally:
+        _trips_module._pending_swaps.pop(trip_id, None)
+        _trips_module._trip_store.pop(trip_id, None)
+
+
+def test_accept_skip_still_persists_legs():
+    """Contrast: a structural resolution (skip) DOES go through leg persistence — so the advisory
+    short-circuit is scoped to leave_earlier only and didn't disable real adaptations."""
+    trip_id, sess = "t-skip", "sess-skip-1"
+    sb = _closing_risk_supabase(session_id=sess, persist_raises=False)
+    _trips_module._trip_store[trip_id] = _le_plan(trip_id)
+    try:
+        with patch("app.routers.trips.supabase", sb), \
+             patch("app.agents.adaptation_agent.supabase", sb), \
+             patch("app.agents.adaptation_agent._recalculate_leg",
+                   new_callable=AsyncMock,
+                   return_value=LegResponse(id="p1-p3", from_place_id="p1", to_place_id="p3",
+                                            transport_mode="WALK", duration_minutes=25,
+                                            cost_sgd=0.0, is_estimated=False)):
+            preview = client.post(f"/trips/{trip_id}/adapt", json={
+                "alert_id": "a1", "session_id": sess, "resolution": "skip", "target_day": None,
+            })
+            assert preview.status_code == 200
+            assert preview.json()["advisory"] is False
+            accept = client.post(f"/trips/{trip_id}/accept-swap", json={
+                "alert_id": "a1", "session_id": sess,
+            })
+        assert accept.status_code == 200
+        assert sb.persist_tables  # skip wrote the re-stitched legs/places
+    finally:
+        _trips_module._pending_swaps.pop(trip_id, None)
+        _trips_module._trip_store.pop(trip_id, None)
+
+
 def test_accept_swap_success_commits_and_clears_pending():
     trip_id = "trip-accept-ok"
     mock_plan = _make_plan(trip_id)

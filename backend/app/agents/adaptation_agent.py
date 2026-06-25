@@ -441,11 +441,18 @@ async def check_lta_proximity(
         }).execute()
 
 
-async def commit_adaptation(trip_id: str, updated_trip: TripPlan, alert_id: str) -> None:
-    """Persist accepted adaptation to DB and mark alert resolved (POST /accept-swap)."""
+async def commit_adaptation(
+    trip_id: str, updated_trip: TripPlan, alert_id: str, advisory: bool = False
+) -> None:
+    """Persist accepted adaptation to DB and mark alert resolved (POST /accept-swap).
+
+    advisory=True (e.g. closing_risk leave_earlier) means the trip is unchanged, so the
+    leg/place re-write is skipped entirely and only the alert is marked resolved (dev20).
+    """
     if not supabase:
         return
-    await asyncio.to_thread(_persist_updated_legs, trip_id, updated_trip)
+    if not advisory:
+        await asyncio.to_thread(_persist_updated_legs, trip_id, updated_trip)
     supabase.table("lta_alerts").update(
         {"resolved_at": datetime.now(timezone.utc).isoformat()}
     ).eq("id", alert_id).execute()
@@ -979,7 +986,9 @@ async def _resolve_closing_risk(
             )
         else:
             note = f"Try to reach {place_name} before it closes."
-        return AdaptResponse(adapted=True, changes=[note], updated_trip=plan)
+        # advisory: nothing structural changed — accepting must only resolve the alert, never
+        # re-persist the (unchanged) trip, so this can't 500 on a leg/place re-write (dev20).
+        return AdaptResponse(adapted=True, changes=[note], updated_trip=plan, advisory=True)
 
     if resolution not in ("skip", "push"):
         return AdaptResponse(adapted=False, changes=["Unknown closing-risk resolution"], updated_trip=plan)
