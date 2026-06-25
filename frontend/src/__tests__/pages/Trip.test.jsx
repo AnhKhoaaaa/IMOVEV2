@@ -31,6 +31,10 @@ vi.mock('../../services/api', () => ({
     updateLocation: vi.fn(() => Promise.resolve({})),
     checkAlerts: vi.fn(() => Promise.resolve({})),
     planTrip: vi.fn(() => Promise.resolve({})),
+    getTrip: vi.fn(() => Promise.resolve({ days: [], places: [] })),
+    addPlaceToDay: vi.fn(() => Promise.resolve({ days: [] })),
+    removePlaceFromDay: vi.fn(() => Promise.resolve(undefined)),
+    reorderPlaces: vi.fn(() => Promise.resolve({ days: [] })),
   },
 }))
 vi.mock('../../components/adaptation/AlertBanner', () => ({
@@ -381,6 +385,94 @@ const makeWeatherAlert = (id, day_number) => ({
 // users through the ChatWidget. The grouping memos/JSX are kept behind ENABLE_TRIP_BANNERS, so
 // the Trip page must render no banner even when alerts exist. (Grouping behaviour is covered by
 // AlertBanner.test.jsx + restored here when guest alerts are re-enabled.)
+// ===========================================================================
+// Lỗi 3 — Update Route must re-sync Overview with the server after a mid-sequence failure
+// ===========================================================================
+//
+// Add/remove a place is deferred and only persisted on "Update Route". The sequence is
+// add/remove (persists) → reorder/real-route (can fail, e.g. OneMap overload). When the second
+// step threw, handleUpdateRoute caught the error but never refreshed, so `trip` kept its pre-edit
+// state and Overview showed the OLD places even though the backend had already changed. The fix
+// refetches the authoritative trip in the catch path so the UI reflects what actually persisted.
+
+describe('Lỗi 3 — Update Route re-syncs after a partial failure', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    sessionStorage.clear()
+  })
+
+  it('refetches the trip when the reorder step fails (so Overview cannot keep stale places)', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh })
+
+    // Backend: removing the place persists, but the follow-up real-route reorder fails.
+    api.removePlaceFromDay.mockResolvedValue(undefined)
+    api.getTrip.mockResolvedValue({
+      id: 'trip-123',
+      days: [{ day: 1, legs: [
+        { id: 'l1', from_place_id: 'p1', to_place_id: 'p2', transport_mode: 'WALK',
+          duration_minutes: 10, cost_sgd: 0, is_estimated: true },
+      ] }],
+      places: [
+        { id: 'p1', name: 'Marina Bay', lat: 1.283, lng: 103.86, category: 'landmark' },
+        { id: 'p2', name: 'Bugis', lat: 1.300, lng: 103.855, category: 'shopping' },
+      ],
+      warnings: [],
+    })
+    api.reorderPlaces.mockRejectedValue(new Error('OneMap overloaded'))
+
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+
+    // Remove the 3rd place (Sentosa) from day 1 → marks the day dirty → "Update route" appears.
+    const removeButtons = screen.getAllByRole('button', { name: /^Remove$/ })
+    expect(removeButtons.length).toBeGreaterThanOrEqual(3)
+    fireEvent.click(removeButtons[2])
+
+    // Open the Update Route dropdown and keep the current order.
+    fireEvent.click(await screen.findByRole('button', { name: /Update route/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Keep my order/i }))
+
+    await waitFor(() => expect(api.removePlaceFromDay).toHaveBeenCalledWith('trip-123', 'p3'))
+    await waitFor(() => expect(api.reorderPlaces).toHaveBeenCalled())
+    // The fix: even though the reorder threw, the UI re-syncs from the server.
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+  })
+
+  it('applies the optimistic result on the happy path (no stale Overview)', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    useTrip.mockReturnValue({ trip: makeTwoLegTrip(), loading: false, error: null, refresh })
+
+    const updatedTrip = {
+      id: 'trip-123',
+      days: [{ day: 1, legs: [
+        { id: 'l1', from_place_id: 'p1', to_place_id: 'p2', transport_mode: 'MRT',
+          duration_minutes: 12, cost_sgd: 1.5, is_estimated: false },
+      ] }],
+      places: [
+        { id: 'p1', name: 'Marina Bay', lat: 1.283, lng: 103.86, category: 'landmark' },
+        { id: 'p2', name: 'Bugis', lat: 1.300, lng: 103.855, category: 'shopping' },
+      ],
+      warnings: [],
+    }
+    api.removePlaceFromDay.mockResolvedValue(undefined)
+    api.getTrip.mockResolvedValue({
+      ...updatedTrip,
+      days: [{ day: 1, legs: [{ ...updatedTrip.days[0].legs[0], is_estimated: true }] }],
+    })
+    api.reorderPlaces.mockResolvedValue(updatedTrip)
+
+    render(<BrowserRouter><Trip /></BrowserRouter>)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /^Remove$/ })[2])
+    fireEvent.click(await screen.findByRole('button', { name: /Update route/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Keep my order/i }))
+
+    await waitFor(() => expect(api.reorderPlaces).toHaveBeenCalled())
+    // refresh is called with the freshly persisted trip so Overview shows the new places.
+    await waitFor(() => expect(refresh).toHaveBeenCalledWith(updatedTrip))
+  })
+})
+
 describe('trip-page alerts gated off (dev25 P1)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

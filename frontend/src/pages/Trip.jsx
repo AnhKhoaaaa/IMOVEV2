@@ -1619,6 +1619,11 @@ export default function Trip() {
       }
     } catch (err) {
       setUiWarning(err.message)
+      // A failure part-way through the sequence (e.g. OneMap overload on the final reorder) can
+      // still leave the earlier add/remove persisted on the server. Re-sync from the authoritative
+      // trip so Overview reflects what actually changed instead of silently keeping the pre-edit
+      // places (the optimistic lastResult was never applied because we threw before refresh).
+      await refresh()
     } finally {
       setMutating(false)
       setPendingByDay({})
