@@ -253,7 +253,10 @@ export default function ChatWidget() {
         setPending({ proposed_action: res.proposed_action, pending_action_id: res.pending_action_id })
       }
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: e.message || t('chatError') }])
+      const msg = e.message === 'Failed to fetch'
+        ? 'Connection issue — please check your internet and try again. (Lỗi kết nối — vui lòng kiểm tra mạng và thử lại.)'
+        : (e.message || t('chatError'))
+      setMessages((m) => [...m, { role: 'assistant', text: msg }])
     } finally {
       setLoading(false)
     }
@@ -300,7 +303,10 @@ export default function ChatWidget() {
       }
       setPending(null)
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: e.message || t('chatError') }])
+      const msg = e.message === 'Failed to fetch'
+        ? 'Connection issue — please check your internet and try again. (Lỗi kết nối — vui lòng kiểm tra mạng và thử lại.)'
+        : (e.message || t('chatError'))
+      setMessages((m) => [...m, { role: 'assistant', text: msg }])
     } finally {
       setApplying(false)
     }

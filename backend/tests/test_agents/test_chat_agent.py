@@ -636,3 +636,36 @@ async def test_reorder_rejects_missing_day():
             "reorder_places", {"day": 9, "place_ids": ["a"]}, ctx)
     assert kind == "error"
     assert "day 9" in payload
+
+
+# ── _friendly_dispatch_error (chat router) ────────────────────────────────────
+
+def test_friendly_dispatch_error_no_route_metro():
+    from fastapi import HTTPException as FastHTTP
+    from app.routers.chat import _friendly_dispatch_error
+    pending = {"tool": "switch_leg_now", "args": {"new_mode": "METRO", "leg_id": "L1"}}
+    exc = FastHTTP(status_code=422, detail="No METRO route from GPS to gardens-by-the-bay.")
+    msg = _friendly_dispatch_error(pending, exc)
+    assert "MRT/Metro" in msg
+    assert "bus" in msg.lower() or "walk" in msg.lower()
+    assert "?" in msg   # must end as a question offering alternatives
+
+
+def test_friendly_dispatch_error_no_route_bus():
+    from fastapi import HTTPException as FastHTTP
+    from app.routers.chat import _friendly_dispatch_error
+    pending = {"tool": "switch_leg_now", "args": {"new_mode": "BUS", "leg_id": "L1"}}
+    exc = FastHTTP(status_code=422, detail="No BUS-only route.")
+    msg = _friendly_dispatch_error(pending, exc)
+    assert "bus" in msg.lower()
+    assert "MRT/Metro" in msg or "walking" in msg
+
+
+def test_friendly_dispatch_error_other_tool_falls_back():
+    from fastapi import HTTPException as FastHTTP
+    from app.routers.chat import _friendly_dispatch_error
+    pending = {"tool": "add_place", "args": {"place_id": "x", "day": 1}}
+    exc = FastHTTP(status_code=422, detail="Budget exceeded.")
+    msg = _friendly_dispatch_error(pending, exc)
+    assert "Budget exceeded" in msg
+    assert "couldn't apply" in msg

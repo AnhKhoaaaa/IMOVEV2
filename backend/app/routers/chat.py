@@ -131,10 +131,8 @@ async def chat_confirm(
     except HTTPException as exc:
         # Handler rejected the change (e.g. 422 NoRoute/Budget/PlaceMissing). Keep the
         # pending so the user can retry; report politely instead of a raw HTTP error.
-        return ChatConfirmResponse(
-            reply=f"I couldn't apply that change: {exc.detail}",
-            executed=False,
-        )
+        reply = _friendly_dispatch_error(pending, exc)
+        return ChatConfirmResponse(reply=reply, executed=False)
 
     chat_agent._pending_actions.pop(body.session_id, None)
     updated = await trips.get_trip(trip_id, current_user)
@@ -188,3 +186,27 @@ async def _dispatch(pending: dict, current_user: Optional[str]) -> None:
         await trips.optimize_trip(trip_id, OptimizeRequest(), current_user)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown tool: {tool}")
+
+
+_MODE_LABEL = {"METRO": "MRT/Metro", "BUS": "bus", "WALK": "walking", "CYCLE": "cycling", "GRAB": "Grab"}
+
+
+def _friendly_dispatch_error(pending: dict, exc: HTTPException) -> str:
+    """Return a user-friendly error message for a failed confirmed action.
+
+    For switch_leg_now with no route (422), names the failed mode and suggests
+    alternatives instead of exposing the raw technical detail.
+    For all other errors, falls back to the generic message.
+    """
+    if pending.get("tool") == "switch_leg_now" and exc.status_code == 422:
+        failed_mode = pending.get("args", {}).get("new_mode", "")
+        label = _MODE_LABEL.get(failed_mode, failed_mode)
+        alts = [_MODE_LABEL[m] for m in ("METRO", "BUS", "WALK", "GRAB") if m != failed_mode]
+        alt_str = " or ".join(alts[:2])
+        return (
+            f"Sorry, no {label} route is available from your current location to that stop. "
+            f"Would you like to try {alt_str} instead? Just let me know! "
+            f"(Xin lỗi, không tìm thấy tuyến {label} từ vị trí hiện tại của bạn đến điểm đó. "
+            f"Bạn có muốn thử {alt_str} không? Cứ nhắn mình nhé!)"
+        )
+    return f"I couldn't apply that change: {exc.detail}"
