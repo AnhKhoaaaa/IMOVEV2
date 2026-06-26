@@ -763,3 +763,95 @@ async def test_check_alerts_for_trip_dedup_skips_recent_alert():
             result = await check_alerts_for_trip("t1", plan)
 
     assert result["alerts_inserted"] == 0   # dedup blocked the insert
+
+
+# ── GPS routing for weather swap (dev-current) ───────────────────────────────
+
+def test_apply_weather_swap_passes_gps_to_first_changed_leg():
+    """When gps_lat/gps_lng are provided, _fetch_all_alternatives must be called
+    with the GPS coords (not the from-place coords) for the first swapped leg."""
+    outdoor = Place(id="merlion-park", name="Merlion Park",
+                    lat=1.2868, lng=103.8545, dwell_minutes=30,
+                    best_time_start="07:00", best_time_end="10:00",
+                    category="landmark", is_outdoor=True, in_curated_dataset=True)
+    hotel = Place(id="hotel", name="Hotel", lat=1.30, lng=103.85, dwell_minutes=0,
+                  best_time_start="09:00", best_time_end="23:59",
+                  category="Hotel", is_outdoor=False, in_curated_dataset=False)
+    leg = LegResponse(id="L1", from_place_id="hotel", to_place_id="merlion-park",
+                      transport_mode="WALK", duration_minutes=15, cost_sgd=0.0, is_estimated=False)
+    plan = TripPlan(id="t-gps", days=[DayPlan(day=1, legs=[leg], place_ids=["hotel", "merlion-park"])],
+                    places=[hotel, outdoor], warnings=[])
+
+    GPS_LAT, GPS_LNG = 1.2950, 103.8520  # user is somewhere between hotel and Merlion
+
+    from_dicts_seen: list[dict] = []
+
+    async def fake_fetch_all(from_dict: dict, to_dict: dict) -> dict:
+        from_dicts_seen.append(dict(from_dict))
+        return {"WALK": {"duration_minutes": 8, "fare_sgd": 0.0,
+                         "legs": [{"mode": "WALK"}], "sub_legs": [],
+                         "geometry": None, "geometries": [], "instructions": []}}
+
+    async def _run():
+        with patch("app.agents.adaptation_agent._fetch_all_alternatives", side_effect=fake_fetch_all):
+            return await _apply_weather_swap(plan, gps_lat=GPS_LAT, gps_lng=GPS_LNG)
+
+    updated, changes = asyncio.run(_run())
+
+    assert len(from_dicts_seen) >= 1, "Expected _fetch_all_alternatives to be called"
+    first_call = from_dicts_seen[0]
+    assert first_call["lat"] == pytest.approx(GPS_LAT), (
+        f"Expected GPS lat {GPS_LAT} but got {first_call['lat']}"
+    )
+    assert first_call["lng"] == pytest.approx(GPS_LNG), (
+        f"Expected GPS lng {GPS_LNG} but got {first_call['lng']}"
+    )
+    assert len(changes) >= 1
+
+
+def test_apply_weather_swap_gps_only_used_for_first_leg():
+    """GPS override applies to the first changed leg only; subsequent legs use place coords."""
+    outdoor_a = Place(id="merlion-park", name="Merlion Park",
+                      lat=1.2868, lng=103.8545, dwell_minutes=30,
+                      best_time_start="07:00", best_time_end="10:00",
+                      category="landmark", is_outdoor=True, in_curated_dataset=True)
+    outdoor_b = Place(id="marina-barrage", name="Marina Barrage",
+                      lat=1.2795, lng=103.8712, dwell_minutes=60,
+                      best_time_start="09:00", best_time_end="21:00",
+                      category="viewpoint", is_outdoor=True, in_curated_dataset=True)
+    hotel = Place(id="hotel", name="Hotel", lat=1.30, lng=103.85, dwell_minutes=0,
+                  best_time_start="09:00", best_time_end="23:59",
+                  category="Hotel", is_outdoor=False, in_curated_dataset=False)
+    leg1 = LegResponse(id="L1", from_place_id="hotel", to_place_id="merlion-park",
+                       transport_mode="WALK", duration_minutes=10, cost_sgd=0.0, is_estimated=False)
+    leg2 = LegResponse(id="L2", from_place_id="merlion-park", to_place_id="marina-barrage",
+                       transport_mode="WALK", duration_minutes=10, cost_sgd=0.0, is_estimated=False)
+    plan = TripPlan(id="t-gps2",
+                    days=[DayPlan(day=1, legs=[leg1, leg2],
+                                  place_ids=["hotel", "merlion-park", "marina-barrage"])],
+                    places=[hotel, outdoor_a, outdoor_b], warnings=[])
+
+    GPS_LAT, GPS_LNG = 1.2950, 103.8520
+
+    from_dicts_seen: list[dict] = []
+
+    async def fake_fetch_all(from_dict: dict, to_dict: dict) -> dict:
+        from_dicts_seen.append(dict(from_dict))
+        return {"WALK": {"duration_minutes": 8, "fare_sgd": 0.0,
+                         "legs": [{"mode": "WALK"}], "sub_legs": [],
+                         "geometry": None, "geometries": [], "instructions": []}}
+
+    async def _run():
+        with patch("app.agents.adaptation_agent._fetch_all_alternatives", side_effect=fake_fetch_all):
+            return await _apply_weather_swap(plan, gps_lat=GPS_LAT, gps_lng=GPS_LNG)
+
+    asyncio.run(_run())
+
+    assert len(from_dicts_seen) >= 2, "Expected two _fetch_all_alternatives calls (one per changed leg)"
+    # First leg: from-coord must be GPS
+    assert from_dicts_seen[0]["lat"] == pytest.approx(GPS_LAT)
+    assert from_dicts_seen[0]["lng"] == pytest.approx(GPS_LNG)
+    # Second leg: from-coord must be the indoor replacement's lat/lng, NOT GPS
+    assert from_dicts_seen[1]["lat"] != pytest.approx(GPS_LAT), (
+        "GPS must not be reused for the second changed leg"
+    )
