@@ -230,11 +230,20 @@ export default function ChatWidget() {
 
     setLoading(true)
     try {
+      const liveFields = (() => {
+        if (!tripId) return {}
+        const started = sessionStorage.getItem(`imove_trip_started_${tripId}`) === 'true'
+        if (!started) return {}
+        const day = parseInt(sessionStorage.getItem(`imove_selected_day_${tripId}`) ?? '1', 10)
+        const legIdx = parseInt(sessionStorage.getItem(`imove_active_leg_${tripId}`) ?? '0', 10)
+        return { active_day: day, active_leg_index: legIdx }
+      })()
       const res = await api.sendChat({
         session_id: getSessionId(),
         message: text,
         trip_id: tripId,
         gps: position,
+        ...liveFields,
       })
       // dev25 P3 — prefer rich blocks; fall back to a plain text bubble for back-compat.
       setMessages((m) => [...m, res.blocks?.length

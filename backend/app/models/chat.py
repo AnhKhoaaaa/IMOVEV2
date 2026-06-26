@@ -69,6 +69,10 @@ class ChatRequest(BaseModel):
     message: str
     trip_id: Optional[str] = None
     gps: Optional[Gps] = None
+    # Live-mode progress — set by the Trip page when the user has started the trip.
+    # Allows the AI to identify the current leg for switch_leg_now without asking.
+    active_day: Optional[int] = Field(default=None, ge=1)
+    active_leg_index: Optional[int] = Field(default=None, ge=0)
 
 
 class ProposedAction(BaseModel):

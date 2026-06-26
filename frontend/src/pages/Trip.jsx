@@ -1493,6 +1493,10 @@ export default function Trip() {
     sessionStorage.setItem(`imove_active_leg_${id}`, String(activeLegIndex))
   }, [activeLegIndex, id])
 
+  useEffect(() => {
+    sessionStorage.setItem(`imove_selected_day_${id}`, String(selectedDay))
+  }, [selectedDay, id])
+
   // When opened from Home dashboard with autoStart=true, jump to Day 1 once trip loads
   const autoStartHandled = useRef(false)
   useEffect(() => {

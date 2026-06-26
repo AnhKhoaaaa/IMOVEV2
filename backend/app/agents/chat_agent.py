@@ -90,10 +90,11 @@ SYSTEM_PROMPT = (
     "user's CURRENT GPS position to the destination of the affected leg, so the new route starts "
     "where the user actually is. change_leg_mode only swaps the transport mode while keeping the "
     "leg's original A→B start point, which is WRONG once the user has left A; use it only for "
-    "planning-time mode changes, not for a lost/stranded user. Call get_current_trip to find which "
-    "leg the user is on (the one whose destination they are still heading to), then propose "
-    "switch_leg_now for that leg id. If the current leg is genuinely ambiguous, ask which place "
-    "they are heading to next and map it to that leg — never fall back to change_leg_mode. "
+    "planning-time mode changes, not for a lost/stranded user. Call get_current_trip — the leg "
+    "with `\"active\": true` is the one the user is CURRENTLY on; use its id directly for "
+    "switch_leg_now without asking. If no leg is marked active (trip not started yet or ambiguous), "
+    "ask which place they are heading to next and map it to that leg — never fall back to "
+    "change_leg_mode. "
     "PRESENTATION — whenever you recommend one or more curated places (especially if the user "
     "asks for photos/images), you MUST call show_places to display photo cards; do not just list "
     "them in text. Pass the dataset IDS — the exact `id` field from search_places / "
@@ -358,6 +359,8 @@ async def run_chat(
     trip_id: Optional[str] = None,
     gps: Optional[Gps] = None,
     current_user: Optional[str] = None,
+    active_day: Optional[int] = None,
+    active_leg_index: Optional[int] = None,
 ) -> ChatResponse:
     now = time.monotonic()
     _session_seen[session_id] = now
@@ -381,6 +384,11 @@ async def run_chat(
         "card_blocks": [],
         # dev25 P4 — at most ONE web-grounded events lookup per message (hard cap).
         "events_call_used": False,
+        # Live-mode progress: which day/leg the user is currently on.
+        # Used by get_current_trip to mark the active leg so the AI can call
+        # switch_leg_now directly without asking the user.
+        "active_day": active_day,
+        "active_leg_index": active_leg_index,
     }
 
     trip_start, trip_days = _trip_date_context(resolved_trip_id)
@@ -647,7 +655,7 @@ def _leg_exists(plan, leg_id) -> bool:
     return any(leg.id == leg_id for day in plan.days for leg in day.legs)
 
 
-def _trip_summary(plan) -> dict:
+def _trip_summary(plan, active_day: int | None = None, active_leg_index: int | None = None) -> dict:
     return {
         "id": plan.id,
         "places": [{"id": p.id, "name": p.name} for p in plan.places],
@@ -662,8 +670,11 @@ def _trip_summary(plan) -> dict:
                         "mode": leg.transport_mode,
                         "duration_minutes": leg.duration_minutes,
                         "bus_stop_code": leg.first_bus_stop_code,
+                        **({"active": True}
+                           if active_day == d.day and active_leg_index == i
+                           else {}),
                     }
-                    for leg in d.legs
+                    for i, leg in enumerate(d.legs)
                 ],
             }
             for d in plan.days
@@ -719,7 +730,10 @@ async def _execute_read_tool(tool, args, ctx) -> object:
     try:
         if tool == "get_current_trip":
             plan = await _load_plan(ctx)
-            return _trip_summary(plan) if plan else {"error": "No trip is currently open."}
+            return (
+                _trip_summary(plan, ctx.get("active_day"), ctx.get("active_leg_index"))
+                if plan else {"error": "No trip is currently open."}
+            )
 
         if tool == "list_my_trips":
             return await _list_user_trips(args.get("name_filter"), ctx)

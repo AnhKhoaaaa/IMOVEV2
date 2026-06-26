@@ -32,6 +32,8 @@ async def chat(body: ChatRequest, current_user: str = Depends(require_current_us
         trip_id=body.trip_id,
         gps=body.gps,
         current_user=current_user,
+        active_day=body.active_day,
+        active_leg_index=body.active_leg_index,
     )
 
 
