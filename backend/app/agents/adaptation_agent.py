@@ -335,6 +335,8 @@ async def adapt_trip(
     current_plan: TripPlan,
     resolution: str | None = None,
     target_day: int | None = None,
+    gps_lat: float | None = None,
+    gps_lng: float | None = None,
 ) -> AdaptResponse:
     """[CODE] Apply adaptation based on alert type. Returns updated TripPlan.
 
@@ -361,7 +363,10 @@ async def adapt_trip(
         return await _resolve_closing_risk(trip_id, current_plan, alert, resolution, target_day)
     elif alert_type in ("weather_warning", "weather_live"):
         # day_number scopes the swap to the affected day (NULL → legacy whole-trip).
-        updated_plan, changes = await _apply_weather_swap(current_plan, day=alert.get("day_number"))
+        updated_plan, changes = await _apply_weather_swap(
+            current_plan, day=alert.get("day_number"),
+            gps_lat=gps_lat, gps_lng=gps_lng,
+        )
     elif alert_type in ("train_delay", "bus_cancellation"):
         disrupted_lines = [alert["affected_line"]] if alert.get("affected_line") else []
         updated_plan, changes = await _reroute_mrt_legs(current_plan, disrupted_lines=disrupted_lines)
@@ -1074,7 +1079,12 @@ def _day_place_ids(plan: TripPlan, day: int) -> set[str]:
     return ids
 
 
-async def _apply_weather_swap(plan: TripPlan, day: int | None = None) -> tuple[TripPlan, list[str]]:
+async def _apply_weather_swap(
+    plan: TripPlan,
+    day: int | None = None,
+    gps_lat: float | None = None,
+    gps_lng: float | None = None,
+) -> tuple[TripPlan, list[str]]:
     """Replace outdoor places with nearest indoor alternatives.
 
     When `day` is given, only the outdoor places belonging to that day are swapped —
@@ -1122,22 +1132,33 @@ async def _apply_weather_swap(plan: TripPlan, day: int | None = None) -> tuple[T
     effective_place_lookup: dict[str, dict] = {p["id"]: p for p in new_places_raw}
 
     new_days = []
-    for day in plan.days:
+    gps_applied = False  # GPS used for from-coord of first swapped leg only
+    for plan_day in plan.days:
         new_legs = []
-        for leg in day.legs:
+        for leg in plan_day.legs:
             new_from = swap_map.get(leg.from_place_id, {}).get("id", leg.from_place_id) if leg.from_place_id in swap_map else leg.from_place_id
             new_to = swap_map.get(leg.to_place_id, {}).get("id", leg.to_place_id) if leg.to_place_id in swap_map else leg.to_place_id
 
             if new_from != leg.from_place_id or new_to != leg.to_place_id:
                 from_p = effective_place_lookup.get(new_from)
                 to_p = effective_place_lookup.get(new_to)
-                new_leg = await _recalculate_leg(leg, from_p, to_p, new_from, new_to)
+                # For the first changed leg, route from the user's current GPS
+                # position so the path reflects their actual location, not the
+                # leg's original from-place.
+                if not gps_applied and gps_lat is not None and gps_lng is not None:
+                    new_leg = await _recalculate_leg(
+                        leg, from_p, to_p, new_from, new_to,
+                        from_lat_override=gps_lat, from_lng_override=gps_lng,
+                    )
+                    gps_applied = True
+                else:
+                    new_leg = await _recalculate_leg(leg, from_p, to_p, new_from, new_to)
             else:
                 new_leg = leg
             new_legs.append(new_leg)
         old_to_new = {old_id: new_p["id"] for old_id, new_p in swap_map.items()}
-        new_place_ids = [old_to_new.get(pid, pid) for pid in (day.place_ids or [])]
-        new_days.append(DayPlan(day=day.day, legs=new_legs, place_ids=new_place_ids))
+        new_place_ids = [old_to_new.get(pid, pid) for pid in (plan_day.place_ids or [])]
+        new_days.append(DayPlan(day=plan_day.day, legs=new_legs, place_ids=new_place_ids))
 
     new_places = [
         Place(
@@ -1297,6 +1318,8 @@ async def _recalculate_leg(
     to_p: dict | None,
     new_from_id: str,
     new_to_id: str,
+    from_lat_override: float | None = None,
+    from_lng_override: float | None = None,
 ) -> LegResponse:
     """Call OneMap for a swapped leg; fall back to original data with is_estimated=True.
 
@@ -1305,7 +1328,9 @@ async def _recalculate_leg(
     """
     if from_p and to_p:
         try:
-            from_dict = {"id": new_from_id, "lat": from_p["lat"], "lng": from_p["lng"]}
+            from_lat = from_lat_override if from_lat_override is not None else from_p["lat"]
+            from_lng = from_lng_override if from_lng_override is not None else from_p["lng"]
+            from_dict = {"id": new_from_id, "lat": from_lat, "lng": from_lng}
             to_dict   = {"id": new_to_id,   "lat": to_p["lat"],   "lng": to_p["lng"]}
             all_alts = await _fetch_all_alternatives(from_dict, to_dict)
             if not all_alts:

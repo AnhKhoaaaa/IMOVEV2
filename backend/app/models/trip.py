@@ -141,6 +141,10 @@ class AdaptRequest(BaseModel):
     # leave_earlier = advisory (no structural change); skip = drop the stop; push = move to target_day.
     resolution: Optional[Literal["leave_earlier", "skip", "push"]] = None
     target_day: Optional[int] = Field(default=None, ge=1)
+    # Live GPS position at preview time — when provided, the first swapped leg is routed
+    # from the user's actual position instead of the original leg's from-place.
+    current_lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    current_lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 class CheckAlertsRequest(BaseModel):

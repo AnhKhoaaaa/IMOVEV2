@@ -520,6 +520,7 @@ export default function ChatWidget() {
                       tripId={tripId}
                       onAdapted={handleAlertAdapted}
                       onDismiss={handleAlertDismiss}
+                      position={position}
                     />
                   </div>
                 </div>

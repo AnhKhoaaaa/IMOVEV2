@@ -118,7 +118,7 @@ function parseOutdoorCount(message) {
   return m ? Number(m[1]) : null
 }
 
-function WeatherAlertCard({ alert, tripId, onDismiss, onAdapted }) {
+function WeatherAlertCard({ alert, tripId, onDismiss, onAdapted, position }) {
   const { containerClass, iconClass, badgeClass, textClass, btnClass } =
     TYPE_CONFIG[alert.alert_type] ?? TYPE_CONFIG.weather_warning
   const { t } = useT()
@@ -145,7 +145,10 @@ function WeatherAlertCard({ alert, tripId, onDismiss, onAdapted }) {
     setLoading(true)
     setError(null)
     try {
-      const result = await api.adaptTrip(tripId, { alert_id: alert.id, session_id: getSessionId() })
+      const gpsFields = position?.lat != null
+        ? { current_lat: position.lat, current_lng: position.lng }
+        : {}
+      const result = await api.adaptTrip(tripId, { alert_id: alert.id, session_id: getSessionId(), ...gpsFields })
       setProposal(result)
       setPreviewing(true)
     } catch (e) {
@@ -665,9 +668,9 @@ function GenericAlertCard({ alert, tripId, onDismiss, onAdapted }) {
 
 // Presentational resolver card — dispatches to the right variant by alert_type. Shared by the
 // Trip-page AlertBanner wrapper and the in-chat proactive bubbles (dev25 P2).
-export default function AlertActionCard({ alert, tripId, onDismiss, onAdapted }) {
+export default function AlertActionCard({ alert, tripId, onDismiss, onAdapted, position }) {
   if (alert.alert_type === 'weather_warning' || alert.alert_type === 'weather_live') {
-    return <WeatherAlertCard alert={alert} tripId={tripId} onDismiss={onDismiss} onAdapted={onAdapted} />
+    return <WeatherAlertCard alert={alert} tripId={tripId} onDismiss={onDismiss} onAdapted={onAdapted} position={position} />
   }
 
   if (alert.alert_type === 'closing_risk') {

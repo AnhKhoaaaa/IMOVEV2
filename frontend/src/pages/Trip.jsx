@@ -1310,7 +1310,7 @@ export default function Trip() {
 
   // Chatbot confirmed a write → refresh the itinerary from the server.
   useEffect(() => {
-    const onTripUpdated = () => { refresh() }
+    const onTripUpdated = (e) => { refresh(e.detail) }
     window.addEventListener('imove:trip-updated', onTripUpdated)
     return () => window.removeEventListener('imove:trip-updated', onTripUpdated)
   }, [refresh])

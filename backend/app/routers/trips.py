@@ -406,6 +406,7 @@ async def adapt_trip_endpoint(
     result = await adaptation_agent.adapt_trip(
         trip_id, body.alert_id, plan,
         resolution=body.resolution, target_day=body.target_day,
+        gps_lat=body.current_lat, gps_lng=body.current_lng,
     )
 
     # Store proposal in memory — do NOT persist to DB until user calls /accept-swap (§6)
