@@ -639,6 +639,28 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
     }
     day_assignments = _day_assignments_from_map(days_map, num_days)
 
+    # Preserve real routes between surviving pairs so plan_trip doesn't reset them to haversine.
+    # Legs touching the removed place are excluded — those pairs no longer exist.
+    existing_legs_raw = [
+        {
+            "from_place_id": leg.from_place_id,
+            "to_place_id":   leg.to_place_id,
+            "transport_mode": leg.transport_mode,
+            "duration_minutes": leg.duration_minutes,
+            "cost_sgd":      leg.cost_sgd,
+            "geometry":      leg.geometry,
+            "geometries":    leg.geometries or [],
+            "instructions":  leg.instructions or [],
+            "distance_km":   leg.distance_km,
+            "sub_legs":      leg.sub_legs or [],
+        }
+        for d in plan.days
+        for leg in (d.legs or [])
+        if not leg.is_estimated
+        and leg.from_place_id != place_id
+        and leg.to_place_id != place_id
+    ]
+
     try:
         result = await planning_agent.plan_trip(
             trip_id=trip_id,
@@ -653,6 +675,8 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            force_real_routes=True,
+            existing_real_legs=existing_legs_raw,
             day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:

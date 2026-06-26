@@ -845,6 +845,53 @@ def test_add_place_existing_real_legs_excludes_estimated():
         _cleanup(trip_id)
 
 
+# ── remove_place preserves real legs (force_real_routes fix) ─────────────────
+
+def test_remove_place_passes_force_real_routes_true():
+    """remove_place must call plan_trip with force_real_routes=True so surviving
+    real routes are not reset to haversine when a place is removed."""
+    trip_id = "trip-rm-force-real"
+    plan = _make_plan_with_legs(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip:
+            resp = client.delete(f"/trips/{trip_id}/places/place-b")
+        assert resp.status_code == 204
+        kwargs = mock_plan_trip.call_args.kwargs
+        assert kwargs.get("force_real_routes") is True
+    finally:
+        _cleanup(trip_id)
+
+
+def test_remove_place_existing_real_legs_excludes_removed_and_estimated():
+    """existing_real_legs must only include real legs between surviving places.
+    Legs touching the removed place and estimated legs must be excluded."""
+    trip_id = "trip-rm-existing-legs"
+    plan = _make_plan_with_legs(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip:
+            resp = client.delete(f"/trips/{trip_id}/places/place-b")
+        assert resp.status_code == 204
+        existing = mock_plan_trip.call_args.kwargs.get("existing_real_legs", [])
+        from_to_pairs = {(l["from_place_id"], l["to_place_id"]) for l in existing}
+        # leg_real2 (place-c → place-a, real, no link to place-b) must be preserved
+        assert ("place-c", "place-a") in from_to_pairs
+        # leg_real (place-a → place-b) must be excluded — touches removed place
+        assert ("place-a", "place-b") not in from_to_pairs
+        # leg_est (place-b → place-a) must be excluded — touches removed place and is estimated
+        assert ("place-b", "place-a") not in from_to_pairs
+        assert len(existing) == 1
+    finally:
+        _cleanup(trip_id)
+
+
 # ── P5-BUG-1: ownership check on all 4 Phase 5 endpoints ─────────────────────
 
 def _owned_trip(trip_id: str, owner: str) -> TripPlan:
