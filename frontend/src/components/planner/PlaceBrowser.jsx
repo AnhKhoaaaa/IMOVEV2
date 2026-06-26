@@ -103,7 +103,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
   const [fetchLoading, setFetchLoading] = useState(!usesSuppliedPlaces)
   const [activeGroup, setActiveGroup] = useState('all')
   const [search, setSearch] = useState('')
-  const [visibleCount, setVisibleCount] = useState(20)
+  const [visibleCount, setVisibleCount] = useState(15)
   const places = usesSuppliedPlaces ? suppliedPlaces : fetchedPlaces
   const loading = usesSuppliedPlaces ? Boolean(suppliedLoading) : fetchLoading
 
@@ -118,7 +118,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
 
   // Reset limit when search or group changes
   useEffect(() => {
-    setVisibleCount(20)
+    setVisibleCount(15)
   }, [activeGroup, search])
 
   const filtered = useMemo(() => places.filter((p) => {
@@ -292,7 +292,7 @@ export default function PlaceBrowser({ selectedIds = [], onToggle, places: suppl
             <div className="mt-3 flex justify-center">
               <button
                 type="button"
-                onClick={() => setVisibleCount((prev) => prev + 20)}
+                onClick={() => setVisibleCount((prev) => prev + 15)}
                 className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-95"
               >
                 {lang === 'vi' ? 'Xem thêm' : 'Show more'}

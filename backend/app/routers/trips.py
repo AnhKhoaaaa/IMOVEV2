@@ -712,6 +712,27 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
     day_assignments = _day_assignments_from_map(days_map, num_days)
     all_ids = [pid for group in day_assignments for pid in group]
 
+    # Preserve real routes from unchanged pairs so plan_trip doesn't reset them to haversine.
+    # New pairs (adjacent to the inserted place) are not in this list → fetched from OneMap
+    # via force_real_routes=True. Symmetric with how reorder_places handles existing legs.
+    existing_legs_raw = [
+        {
+            "from_place_id": leg.from_place_id,
+            "to_place_id":   leg.to_place_id,
+            "transport_mode": leg.transport_mode,
+            "duration_minutes": leg.duration_minutes,
+            "cost_sgd":      leg.cost_sgd,
+            "geometry":      leg.geometry,
+            "geometries":    leg.geometries or [],
+            "instructions":  leg.instructions or [],
+            "distance_km":   leg.distance_km,
+            "sub_legs":      leg.sub_legs or [],
+        }
+        for d in plan.days
+        for leg in (d.legs or [])
+        if not leg.is_estimated
+    ]
+
     profile, context = await _fetch_plan_context(current_user)
     h_name, h_lat, h_lng = _get_hotel_from_meta(trip_id)
 
@@ -729,6 +750,8 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
             hotel_name=h_name,
             hotel_lat=h_lat,
             hotel_lng=h_lng,
+            force_real_routes=True,
+            existing_real_legs=existing_legs_raw,
             day_assignments=day_assignments,
         )
     except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:

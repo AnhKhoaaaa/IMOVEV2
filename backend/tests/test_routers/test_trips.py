@@ -769,6 +769,82 @@ def test_reorder_correct_ids_passes_validation():
         _cleanup(trip_id)
 
 
+# ── add_place preserves real legs (force_real_routes fix) ────────────────────
+
+def _make_plan_with_legs(trip_id: str) -> TripPlan:
+    """2-day plan where day 1 has 1 real leg and 1 estimated leg; day 2 has 1 real leg."""
+    place_a = Place(id="place-a", name="A", lat=1.28, lng=103.85,
+                    dwell_minutes=60, best_time_start="09:00", best_time_end="17:00",
+                    category="x", is_outdoor=False, in_curated_dataset=True)
+    place_b = Place(id="place-b", name="B", lat=1.29, lng=103.86,
+                    dwell_minutes=60, best_time_start="09:00", best_time_end="17:00",
+                    category="x", is_outdoor=False, in_curated_dataset=True)
+    place_c = Place(id="place-c", name="C", lat=1.30, lng=103.87,
+                    dwell_minutes=60, best_time_start="09:00", best_time_end="17:00",
+                    category="x", is_outdoor=False, in_curated_dataset=True)
+    leg_real   = LegResponse(id="l1", from_place_id="place-a", to_place_id="place-b",
+                              transport_mode="METRO", duration_minutes=12, cost_sgd=1.50,
+                              is_estimated=False, distance_km=2.1)
+    leg_est    = LegResponse(id="l2", from_place_id="place-b", to_place_id="place-a",
+                              transport_mode="WALK", duration_minutes=25, cost_sgd=0.0,
+                              is_estimated=True, distance_km=2.1)
+    leg_real2  = LegResponse(id="l3", from_place_id="place-c", to_place_id="place-a",
+                              transport_mode="BUS", duration_minutes=8, cost_sgd=0.90,
+                              is_estimated=False, distance_km=1.5)
+    day1 = DayPlan(day=1, legs=[leg_real, leg_est], place_ids=["place-a", "place-b"])
+    day2 = DayPlan(day=2, legs=[leg_real2], place_ids=["place-c"])
+    return TripPlan(id=trip_id, days=[day1, day2],
+                    places=[place_a, place_b, place_c], warnings=[])
+
+
+def test_add_place_passes_force_real_routes_true():
+    """add_place must call plan_trip with force_real_routes=True so OneMap is called
+    for new pairs and existing routes are not reset to haversine."""
+    trip_id = "trip-add-force-real"
+    plan = _make_plan_with_legs(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip, patch(
+            "app.routers.trips.planning_agent.get_curated_place", return_value={"id": "place-d"}
+        ):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-d", "day": 1})
+        assert resp.status_code == 200
+        kwargs = mock_plan_trip.call_args.kwargs
+        assert kwargs.get("force_real_routes") is True
+    finally:
+        _cleanup(trip_id)
+
+
+def test_add_place_existing_real_legs_excludes_estimated():
+    """existing_real_legs passed to plan_trip must contain only non-estimated legs
+    (so haversine legs are not promoted to 'real' in the cache)."""
+    trip_id = "trip-add-existing-legs"
+    plan = _make_plan_with_legs(trip_id)
+    _seed_trip(trip_id, plan)
+    try:
+        with patch(
+            "app.routers.trips.planning_agent.plan_trip",
+            new_callable=AsyncMock, return_value=plan,
+        ) as mock_plan_trip, patch(
+            "app.routers.trips.planning_agent.get_curated_place", return_value={"id": "place-d"}
+        ):
+            resp = client.post(f"/trips/{trip_id}/places", json={"place_id": "place-d", "day": 1})
+        assert resp.status_code == 200
+        existing = mock_plan_trip.call_args.kwargs.get("existing_real_legs", [])
+        # Only the 2 real legs (l1 from day1, l3 from day2) must be included
+        from_to_pairs = {(l["from_place_id"], l["to_place_id"]) for l in existing}
+        assert ("place-a", "place-b") in from_to_pairs   # leg_real (day 1)
+        assert ("place-c", "place-a") in from_to_pairs   # leg_real2 (day 2)
+        # The estimated leg must NOT be in the list
+        assert ("place-b", "place-a") not in from_to_pairs
+        assert len(existing) == 2
+    finally:
+        _cleanup(trip_id)
+
+
 # ── P5-BUG-1: ownership check on all 4 Phase 5 endpoints ─────────────────────
 
 def _owned_trip(trip_id: str, owner: str) -> TripPlan:
