@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   MessageCircle, X, Send, Loader2, Check, Lock, Bot, Sparkles,
-  ShieldCheck, AlertTriangle,
+  ShieldCheck, AlertTriangle, CloudRain,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useT } from '../../contexts/LanguageContext'
@@ -194,11 +194,11 @@ export default function ChatWidget() {
     tripId,
     gps: position,
     lang,
-    onNudge: (text, id) => {
-      setMessages((m) => [...m, { role: 'assistant', text, companionId: id }])
+    onNudge: (text, id, alertType) => {
+      setMessages((m) => [...m, { role: 'assistant', text, companionId: id, companionType: alertType }])
       if (!open) {
         setUnread((u) => u + 1)
-        setActiveCompanionBubble({ text, id })
+        setActiveCompanionBubble({ text, id, type: alertType })
       }
     },
   })
@@ -386,7 +386,7 @@ export default function ChatWidget() {
               <X className="h-3.5 w-3.5" />
             </button>
             <span className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-warning-600">
-              <AlertTriangle className="h-3.5 w-3.5" />
+              {activeCompanionBubble.type?.startsWith('weather') ? <CloudRain className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
               {ui.companionLabel}
             </span>
             <p className="pr-4 font-sans font-medium leading-relaxed">{activeCompanionBubble.text}</p>
@@ -500,7 +500,9 @@ export default function ChatWidget() {
                   >
                     {!isUser && isLiveAssistant && (
                       <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-warning-600">
-                        <AlertTriangle className="h-3 w-3" />
+                        {(msg.alert?.alert_type ?? msg.companionType)?.startsWith('weather')
+                          ? <CloudRain className="h-3 w-3" />
+                          : <AlertTriangle className="h-3 w-3" />}
                         {msg.alert ? ui.alertLabel : ui.companionLabel}
                       </span>
                     )}

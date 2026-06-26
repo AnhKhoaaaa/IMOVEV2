@@ -15,10 +15,10 @@ beforeEach(() => { vi.clearAllMocks() })
 
 describe('useLiveCompanion', () => {
   it('fires onNudge when the endpoint returns a nudge', async () => {
-    api.companionCheck.mockResolvedValue({ nudge: { text: 'rain near you', alert_id: 'n1' } })
+    api.companionCheck.mockResolvedValue({ nudge: { text: 'rain near you', alert_id: 'n1', alert_type: 'weather_live' } })
     const onNudge = vi.fn()
     renderHook(() => useLiveCompanion({ enabled: true, sessionId: 's1', tripId: 't1', gps, lang: 'en', onNudge }))
-    await waitFor(() => expect(onNudge).toHaveBeenCalledWith('rain near you', 'n1'))
+    await waitFor(() => expect(onNudge).toHaveBeenCalledWith('rain near you', 'n1', 'weather_live'))
     expect(api.companionCheck).toHaveBeenCalledWith({ session_id: 's1', trip_id: 't1', gps, lang: 'en' })
   })
 

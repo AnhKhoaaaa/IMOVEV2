@@ -35,7 +35,7 @@ export function useLiveCompanion({ enabled, sessionId, tripId, gps, lang, onNudg
         const id = nudge.alert_id || nudge.text
         if (seenRef.current.has(id)) return
         seenRef.current.add(id)
-        onNudgeRef.current && onNudgeRef.current(nudge.text, id)
+        onNudgeRef.current && onNudgeRef.current(nudge.text, id, nudge.alert_type)
       } catch { /* best-effort — companion never blocks the chat */ }
     }
 
