@@ -1405,7 +1405,8 @@ async def switch_leg_mode(
             day_end = 540 + total_dwell + total_transit   # 09:00 + all activity
             if day_end > 1050:   # 17:30
                 warnings.append(
-                    f"Switching to {new_mode} adds {duration_delta:+d} min — "
+                    f"Switching to {new_mode} "
+                    f"{'saves' if duration_delta < 0 else 'adds'} {abs(duration_delta)} min — "
                     f"Day {day.day} will end around {_fmt_hhmm(day_end)}."
                 )
             break
@@ -1551,7 +1552,8 @@ async def switch_leg_mode_live(
             day_end = 540 + total_dwell + total_transit   # 09:00 + all activity
             if day_end > 1050:   # 17:30
                 warnings.append(
-                    f"Switching to {new_mode} adds {duration_delta:+d} min — "
+                    f"Switching to {new_mode} "
+                    f"{'saves' if duration_delta < 0 else 'adds'} {abs(duration_delta)} min — "
                     f"Day {day.day} will end around {_fmt_hhmm(day_end)}."
                 )
             break
