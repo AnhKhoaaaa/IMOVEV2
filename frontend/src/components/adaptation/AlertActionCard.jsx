@@ -92,6 +92,14 @@ function isMissingPendingAdaptation(error) {
   return error?.message?.includes('No pending adaptation found for this trip')
 }
 
+const FETCH_FAIL_MSG =
+  'Connection issue — please check your internet and try again. ' +
+  '(Lỗi kết nối — vui lòng kiểm tra mạng và thử lại.)'
+
+function friendlyError(e) {
+  return e?.message === 'Failed to fetch' ? FETCH_FAIL_MSG : e?.message
+}
+
 function DeltaPill({ value, unit, positiveIsBad = true }) {
   if (!value) return null
   const bad = positiveIsBad ? value > 0 : value < 0
@@ -152,7 +160,7 @@ function WeatherAlertCard({ alert, tripId, onDismiss, onAdapted, position }) {
       setProposal(result)
       setPreviewing(true)
     } catch (e) {
-      setError(e.message)
+      setError(friendlyError(e))
     } finally {
       setLoading(false)
     }
@@ -170,7 +178,7 @@ function WeatherAlertCard({ alert, tripId, onDismiss, onAdapted, position }) {
         setPreviewing(false)
         setError(t('alertPreviewExpired'))
       } else {
-        setError(e.message)
+        setError(friendlyError(e))
       }
     } finally {
       setAccepting(false)
@@ -328,7 +336,7 @@ function ClosingRiskCard({ alert, tripId, onDismiss, onAdapted }) {
       }
       setProposal(result)
     } catch (e) {
-      setError(e.message); setResolution(null)
+      setError(friendlyError(e)); setResolution(null)
     } finally {
       setLoading(false)
     }
@@ -347,7 +355,7 @@ function ClosingRiskCard({ alert, tripId, onDismiss, onAdapted }) {
         setShowDays(false)
         setError(t('alertPreviewExpired'))
       } else {
-        setError(e.message)
+        setError(friendlyError(e))
       }
     } finally {
       setAccepting(false)
@@ -537,7 +545,7 @@ function GenericAlertCard({ alert, tripId, onDismiss, onAdapted }) {
       const result = await api.adaptTrip(tripId, { alert_id: alert.id, session_id: getSessionId() })
       setProposal(result)
     } catch (e) {
-      setAdaptError(e.message)
+      setAdaptError(friendlyError(e))
     } finally {
       setAdapting(false)
     }
@@ -555,7 +563,7 @@ function GenericAlertCard({ alert, tripId, onDismiss, onAdapted }) {
         setProposal(null)
         setAcceptError(t('alertPreviewExpired'))
       } else {
-        setAcceptError(e.message)
+        setAcceptError(friendlyError(e))
       }
     } finally {
       setAccepting(false)
