@@ -18,6 +18,7 @@ class TripCreate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     name: Optional[str] = None
+    day_start_times: Optional[list[str]] = None
 
 
 class TripPlanRequest(BaseModel):
@@ -27,6 +28,7 @@ class TripPlanRequest(BaseModel):
     hotel_name: Optional[str] = None
     hotel_lat: Optional[float] = None
     hotel_lng: Optional[float] = None
+    day_start_times: Optional[list[str]] = None
 
 
 class PTSubLeg(BaseModel):

@@ -1254,6 +1254,51 @@ def test_plan_trip_uses_default_profile_for_guest():
     assert abs(captured["profile"].cost_w    - 0.30) < 0.01
 
 
+def test_plan_trip_forwards_day_start_times_to_agent():
+    create = client.post("/trips", json={
+        "session_id": "sess-start-times",
+        "num_days": 2,
+        "budget_sgd": 999,
+        "day_start_times": ["07:00", "08:30"],
+    })
+    trip_id = create.json()["trip_id"]
+    mock_plan = _make_plan(trip_id)
+
+    captured: dict = {}
+
+    async def _spy_plan_trip(*args, **kwargs):
+        captured.update(kwargs)
+        return mock_plan
+
+    with patch("app.routers.trips.planning_agent.plan_trip", side_effect=_spy_plan_trip):
+        resp = client.post(f"/trips/{trip_id}/plan", json={
+            "place_ids": ["gardens-by-the-bay", "marina-bay-sands"],
+            "optimize_order": False,
+            "day_start_times": ["07:00", "08:30"],
+        })
+
+    assert resp.status_code == 200
+    assert captured["day_start_times"] == ["07:00", "08:30"]
+
+
+def test_plan_trip_rejects_invalid_day_start_time():
+    create = client.post("/trips", json={
+        "session_id": "sess-bad-start-time",
+        "num_days": 1,
+        "budget_sgd": 999,
+    })
+    trip_id = create.json()["trip_id"]
+
+    resp = client.post(f"/trips/{trip_id}/plan", json={
+        "place_ids": ["merlion-park", "marina-bay-sands-skypark"],
+        "optimize_order": False,
+        "day_start_times": ["12:99"],
+    })
+
+    assert resp.status_code == 422
+    assert "day_start_times[0]" in resp.json()["detail"]
+
+
 def test_plan_trip_uses_default_when_no_pref_record():
     """[PATCH 3] Authenticated user with no preference row → default profile, no crash."""
     from app.models.preferences import UserPreferenceProfile

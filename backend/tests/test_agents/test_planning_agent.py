@@ -360,6 +360,22 @@ async def test_plan_trip_valid_returns_tripplan():
 
 
 @pytest.mark.asyncio
+async def test_plan_trip_uses_day_start_times_for_backend_timing():
+    places = [
+        {"id": "a", "lat": 1.28, "lng": 103.85, "dwell_minutes": 300,
+         "best_time_start": "09:00", "best_time_end": "17:00"},
+        {"id": "b", "lat": 1.29, "lng": 103.86, "dwell_minutes": 240,
+         "best_time_start": "09:00", "best_time_end": "17:00"},
+    ]
+
+    issue_at_7, _ = _check_schedule_fit([places], {("a", "b"): 60}, [7 * 60])
+    issue_at_9, _ = _check_schedule_fit([places], {("a", "b"): 60}, [9 * 60])
+
+    assert issue_at_7 is None
+    assert issue_at_9 == "overfull"
+
+
+@pytest.mark.asyncio
 async def test_day_assignments_honoured_verbatim():
     """dev26: explicit day_assignments must place each id on its assigned day,
     bypassing _distribute_days' time-of-day re-bucketing."""

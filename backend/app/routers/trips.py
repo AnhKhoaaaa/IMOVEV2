@@ -48,6 +48,7 @@ async def create_trip(
         "user_id": user_id,
         "name": body.name,
         "start_date": body.start_date,   # date | None — used for close_days-aware planning (dev21)
+        "day_start_times": body.day_start_times or [],
     }
 
     if supabase:
@@ -74,6 +75,10 @@ async def plan_trip(
 ):
     _verify_user_ownership(trip_id, current_user)
     num_days, budget_sgd = _get_trip_params(trip_id, body)
+    meta = _trip_meta.setdefault(trip_id, {})
+    day_start_times = body.day_start_times or meta.get("day_start_times") or []
+    if body.day_start_times is not None:
+        meta["day_start_times"] = body.day_start_times
 
     # [PATCH 3] Fetch user preference profile — fallback to default nếu guest/new user
     effective_profile: UserPreferenceProfile = UserPreferenceProfile()
@@ -115,12 +120,9 @@ async def plan_trip(
             hotel_name=body.hotel_name,
             hotel_lat=body.hotel_lat,
             hotel_lng=body.hotel_lng,
+            day_start_times=day_start_times,
         )
-    except PlaceDataMissingError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except NoRouteError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except BudgetExceededError as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     # Cache hotel in _trip_meta so re-plan ops can pass it to the agent
@@ -482,8 +484,9 @@ async def optimize_trip(
             hotel_lat=h_lat,
             hotel_lng=h_lng,
             existing_real_legs=(body.existing_legs if body else []),
+            day_start_times=meta.get("day_start_times") or [],
         )
-    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -592,8 +595,9 @@ async def remove_day(trip_id: str, day_num: int, current_user: Optional[str] = D
             hotel_lat=h_lat,
             hotel_lng=h_lng,
             day_assignments=day_assignments,
+            day_start_times=meta.get("day_start_times") or [],
         )
-    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -679,8 +683,9 @@ async def remove_place(trip_id: str, place_id: str, current_user: Optional[str] 
             force_real_routes=True,
             existing_real_legs=existing_legs_raw,
             day_assignments=day_assignments,
+            day_start_times=meta.get("day_start_times") or [],
         )
-    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -778,8 +783,9 @@ async def add_place(trip_id: str, body: AddPlaceRequest, current_user: Optional[
             force_real_routes=True,
             existing_real_legs=existing_legs_raw,
             day_assignments=day_assignments,
+            day_start_times=meta.get("day_start_times") or [],
         )
-    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result
@@ -852,8 +858,9 @@ async def reorder_places(trip_id: str, body: ReorderRequest, current_user: Optio
             force_real_routes=True,
             existing_real_legs=body.existing_legs or [],
             day_assignments=day_assignments,
+            day_start_times=meta.get("day_start_times") or [],
         )
-    except (PlaceDataMissingError, NoRouteError, BudgetExceededError) as e:
+    except (PlaceDataMissingError, NoRouteError, BudgetExceededError, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e))
 
     _trip_store[trip_id] = result

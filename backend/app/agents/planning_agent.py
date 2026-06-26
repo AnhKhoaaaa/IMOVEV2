@@ -196,6 +196,7 @@ def _day_bucketed_greedy(
     day_overlap: list[dict],
     num_days: int,
     hotel: dict | None = None,
+    day_start_minutes: list[int] | None = None,
 ) -> tuple[list[list[dict]], list[str]]:
     """Assign and order daytime places across days using a time-budget greedy pass.
 
@@ -208,6 +209,7 @@ def _day_bucketed_greedy(
     """
     START_MIN = 540   # 09:00
     END_MIN   = 1020  # 17:00
+    start_minutes = day_start_minutes or [START_MIN] * num_days
 
     day_groups: list[list[dict]] = [[] for _ in range(num_days)]
     pool = list(day_overlap)
@@ -223,7 +225,7 @@ def _day_bucketed_greedy(
     anchor = hotel if hotel else (day_overlap[0] if day_overlap else _SG_CENTER)
 
     for day_idx in range(num_days):
-        clock = START_MIN
+        clock = start_minutes[day_idx] if day_idx < len(start_minutes) else START_MIN
         if day_idx > 0:
             # Tourists return to their hotel at night → hotel is daily start for Day 2+.
             last_pos = hotel if hotel else (day_groups[day_idx - 1][-1] if day_groups[day_idx - 1] else anchor)
@@ -319,16 +321,18 @@ def _distribute_days(
     num_days: int,
     route_durations: dict[tuple, int] | None = None,
     hotel: dict | None = None,
+    day_start_minutes: list[int] | None = None,
 ) -> list[list[dict]]:
-    """Distribute places into days by simulating a 09:00–17:00 tourist day.
+    """Distribute places into days by simulating a configured-start-to-17:00 tourist day.
 
-    Each day starts at 09:00 (540 min). A place is added to the current day
+    Each day starts at the configured start minute, defaulting to 09:00. A place is added to the current day
     only when arrival_time + dwell ≤ 17:00 (1020 min) AND arrival_time falls
     within the place's opening_hours window. Otherwise the next day is tried.
     Falls back to old 480-min-cap behaviour when no route_durations are given.
     """
     START_MIN = 540    # 09:00
     END_MIN   = 1020   # 17:00
+    start_minutes = day_start_minutes or [START_MIN] * num_days
 
     if route_durations is None:
         # Legacy fallback — used by tests that don't supply transit data
@@ -344,7 +348,10 @@ def _distribute_days(
         return days
 
     days: list[list[dict]] = [[] for _ in range(num_days)]
-    clock: list[int] = [START_MIN] * num_days  # current time per day
+    clock: list[int] = [
+        start_minutes[i] if i < len(start_minutes) else START_MIN
+        for i in range(num_days)
+    ]  # current time per day
 
     for place in places:
         dwell   = place.get("dwell_minutes", 60)
@@ -401,6 +408,29 @@ def _parse_hhmm(t: str) -> int:
     return int(h) * 60 + int(m)
 
 
+def _normalise_day_start_minutes(day_start_times: list[str] | None, num_days: int) -> list[int]:
+    """Return one start minute per day, defaulting to 09:00 when not supplied."""
+    fallback = 540
+    starts: list[int] = []
+    raw_times = day_start_times or []
+    for idx in range(num_days):
+        raw = raw_times[idx] if idx < len(raw_times) else None
+        if raw in (None, ""):
+            starts.append(fallback)
+            continue
+        try:
+            hour_str, minute_str = str(raw).split(":")
+            hour = int(hour_str)
+            minute_part = int(minute_str)
+        except Exception as exc:
+            raise ValueError(f"day_start_times[{idx}] must be HH:MM") from exc
+        if not (0 <= hour <= 23 and 0 <= minute_part <= 59):
+            raise ValueError(f"day_start_times[{idx}] must be between 00:00 and 23:59")
+        minute = hour * 60 + minute_part
+        starts.append(minute)
+    return starts
+
+
 def _fmt_hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
@@ -408,6 +438,7 @@ def _fmt_hhmm(minutes: int) -> str:
 def _check_schedule_fit(
     day_groups: list[list[dict]],
     route_durations: dict[tuple, int] | None,
+    day_start_minutes: list[int] | None = None,
 ) -> tuple[str | None, list[dict]]:
     """Detect overfull or genuinely underfull days.
 
@@ -420,13 +451,14 @@ def _check_schedule_fit(
     START_MIN = 540
     END_MIN_HARD = 1050  # 17:30 — 30-min grace beyond the 17:00 greedy cutoff
     UNDERFULL_MIN = 120  # < 2 hours → genuinely sparse, not just a light day
+    start_minutes = day_start_minutes or [START_MIN] * len(day_groups)
 
     days_summary = []
     has_overfull = False
     has_underfull = False
 
     for day_idx, places in enumerate(day_groups):
-        clock = START_MIN
+        clock = start_minutes[day_idx] if day_idx < len(start_minutes) else START_MIN
         total_occupied = 0
         for i, place in enumerate(places):
             dwell = place.get("dwell_minutes", 60)
@@ -753,6 +785,7 @@ async def plan_trip(
     force_real_routes: bool = False,
     existing_real_legs: list[dict] | None = None,
     day_assignments: list[list[str]] | None = None,
+    day_start_times: list[str] | None = None,
 ) -> TripPlan:
     prefs = preferences or {}
     effective_profile = profile or UserPreferenceProfile()
@@ -770,6 +803,7 @@ async def plan_trip(
                 raise PlaceDataMissingError(pid)
             resolved.append(resolved_id)
     place_ids = resolved
+    day_start_minutes = _normalise_day_start_minutes(day_start_times, num_days)
 
     places = [_PLACES[pid] for pid in place_ids]
 
@@ -859,14 +893,24 @@ async def plan_trip(
         classified  = {p["id"]: _classify_place(p) for p in places}
         day_overlap = [p for p in places if classified[p["id"]] != "evening"]
         evening     = [p for p in places if classified[p["id"]] == "evening"]
-        day_groups, greedy_warnings = _day_bucketed_greedy(day_overlap, num_days, hotel=hotel_place)
+        day_groups, greedy_warnings = _day_bucketed_greedy(
+            day_overlap,
+            num_days,
+            hotel=hotel_place,
+            day_start_minutes=day_start_minutes,
+        )
         # Assign evening places after daytime so they balance against known per-day dwell
         _assign_evening_to_days(evening, day_groups)
     else:
         # Non-optimize: haversine-only distribution — no OneMap calls here.
         # User can freely add/remove places without waiting for API round-trips.
         # Real routes are fetched only when the user explicitly clicks Optimize Route.
-        day_groups = _distribute_days(places, num_days, hotel=hotel_place)
+        day_groups = _distribute_days(
+            places,
+            num_days,
+            hotel=hotel_place,
+            day_start_minutes=day_start_minutes,
+        )
 
     # [CODE] dev21 P1: relocate any place that landed on a day it is closed (close_days) to an
     # open day — applies to both paths, before routes are built. No-op when start_date unknown.
@@ -974,7 +1018,7 @@ async def plan_trip(
     route_durations = {k: v["duration_minutes"] for k, v in route_cache.items()}
 
     # [LLM] 5. Check over/under-fill — call Gemini once if issue detected
-    issue_type, days_summary = _check_schedule_fit(day_groups, route_durations)
+    issue_type, days_summary = _check_schedule_fit(day_groups, route_durations, day_start_minutes)
     schedule_warning: str | None = None
     if issue_type:
         try:
@@ -995,9 +1039,9 @@ async def plan_trip(
 
     for day_idx, day_places in enumerate(day_groups):
         legs: list[LegResponse] = []
-        current_time = 540  # tour starts at 09:00 (minutes since midnight)
+        current_time = day_start_minutes[day_idx] if day_idx < len(day_start_minutes) else 540
 
-        # Hotel → first place leg (departs at 09:00, arrives at 09:00 + travel_time)
+        # Hotel → first place leg (departs at the configured daily start time)
         if hotel_place and day_places:
             h_route_key = ("hotel", day_places[0]["id"])
             if h_route_key in route_cache:
