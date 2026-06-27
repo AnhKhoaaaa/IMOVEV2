@@ -387,7 +387,7 @@ export default function ChatWidget() {
         {activeCompanionBubble ? (
           <div
             onClick={() => setOpen(true)}
-            className="cursor-pointer relative mb-4 w-64 rounded-2xl border border-warning-200 bg-warning-50 p-3.5 text-xs text-amber-950 shadow-xl scale-95 origin-bottom animate-in fade-in slide-in-from-bottom-4 duration-500 hover:scale-[0.98] transition-transform"
+            className="cursor-pointer relative mb-4 w-64 rounded-2xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900 shadow-xl scale-95 origin-bottom animate-in fade-in slide-in-from-bottom-4 duration-500 hover:scale-[0.98] transition-transform"
           >
             <button
               type="button"
@@ -400,12 +400,12 @@ export default function ChatWidget() {
             >
               <X className="h-3.5 w-3.5" />
             </button>
-            <span className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-warning-600">
+            <span className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
               {activeCompanionBubble.type?.startsWith('weather') ? <CloudRain className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
               {ui.companionLabel}
             </span>
             <p className="pr-4 font-sans font-medium leading-relaxed">{activeCompanionBubble.text}</p>
-            <div className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-warning-200 bg-warning-50"></div>
+            <div className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-amber-200 bg-amber-50"></div>
           </div>
         ) : (
           isHome && showBubble && (
@@ -509,12 +509,12 @@ export default function ChatWidget() {
                       isUser
                         ? 'bg-blue-600 text-white'
                         : isLiveAssistant
-                          ? 'border border-warning-500/30 bg-warning-50 text-amber-950'
+                          ? 'border border-amber-200 bg-amber-50 text-amber-900'
                           : 'bg-slate-100 text-slate-900'
                     )}
                   >
                     {!isUser && isLiveAssistant && (
-                      <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-warning-600">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
                         {(msg.alert?.alert_type ?? msg.companionType)?.startsWith('weather')
                           ? <CloudRain className="h-3 w-3" />
                           : <AlertTriangle className="h-3 w-3" />}
@@ -566,16 +566,16 @@ export default function ChatWidget() {
         )}
 
         {messages.length > 1 && lastMessage && lastMessage.role === 'assistant' && lastMessage.companionId && !loading && (
-          <div className="mt-1 rounded-2xl border border-warning-200 bg-warning-50/50 p-3 shadow-sm ml-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-warning-700">
-              <Sparkles className="h-3.5 w-3.5 text-warning-600 animate-pulse" />
+          <div className="mt-1 rounded-2xl border border-amber-200 bg-amber-50 p-3 shadow-sm ml-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+              <CloudRain className="h-3.5 w-3.5 text-amber-600" />
               {lang === 'vi' ? 'Xử lý nhanh' : 'Quick Actions'}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => triggerMessage(lang === 'vi' ? 'Đổi điểm tiếp theo sang điểm trong nhà' : 'Swap the nearest stop to indoor')}
-                className="inline-flex items-center gap-1.5 rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 cursor-pointer"
               >
                 <ArrowLeftRight className="h-3 w-3 shrink-0" />
                 {lang === 'vi' ? 'Đổi sang điểm trong nhà' : 'Swap to indoor'}
@@ -583,7 +583,7 @@ export default function ChatWidget() {
               <button
                 type="button"
                 onClick={() => triggerMessage(lang === 'vi' ? 'Tìm đường đi có mái che hoặc so sánh tuyến đường' : 'Find a covered route or compare routes')}
-                className="inline-flex items-center gap-1.5 rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 cursor-pointer"
               >
                 <Umbrella className="h-3 w-3 shrink-0" />
                 {lang === 'vi' ? 'Tìm đường đi có mái che' : 'Find covered route'}
@@ -591,7 +591,7 @@ export default function ChatWidget() {
               <button
                 type="button"
                 onClick={() => triggerMessage(lang === 'vi' ? 'Kiểm tra thời tiết hiện tại' : 'Check the current weather')}
-                className="inline-flex items-center gap-1.5 rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 cursor-pointer"
               >
                 <CloudSun className="h-3 w-3 shrink-0" />
                 {lang === 'vi' ? 'Kiểm tra thời tiết' : 'Check weather'}
