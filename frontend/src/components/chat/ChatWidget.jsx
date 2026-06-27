@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   MessageCircle, X, Send, Loader2, Check, Lock, Bot, Sparkles,
-  ShieldCheck, AlertTriangle, CloudRain,
+  ShieldCheck, AlertTriangle, CloudRain, ArrowLeftRight, Umbrella, CloudSun,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useT } from '../../contexts/LanguageContext'
@@ -575,23 +575,26 @@ export default function ChatWidget() {
               <button
                 type="button"
                 onClick={() => triggerMessage(lang === 'vi' ? 'Đổi điểm tiếp theo sang điểm trong nhà' : 'Swap the nearest stop to indoor')}
-                className="rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
               >
-                🔄 {lang === 'vi' ? 'Đổi sang điểm trong nhà' : 'Swap to indoor'}
+                <ArrowLeftRight className="h-3 w-3 shrink-0" />
+                {lang === 'vi' ? 'Đổi sang điểm trong nhà' : 'Swap to indoor'}
               </button>
               <button
                 type="button"
                 onClick={() => triggerMessage(lang === 'vi' ? 'Tìm đường đi có mái che hoặc so sánh tuyến đường' : 'Find a covered route or compare routes')}
-                className="rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
               >
-                ☔ {lang === 'vi' ? 'Tìm đường đi có mái che' : 'Find covered route'}
+                <Umbrella className="h-3 w-3 shrink-0" />
+                {lang === 'vi' ? 'Tìm đường đi có mái che' : 'Find covered route'}
               </button>
               <button
                 type="button"
                 onClick={() => triggerMessage(lang === 'vi' ? 'Kiểm tra thời tiết hiện tại' : 'Check the current weather')}
-                className="rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-warning-200 bg-white px-3 py-1.5 text-left text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-warning-100 hover:text-amber-900 cursor-pointer"
               >
-                🌦️ {lang === 'vi' ? 'Kiểm tra thời tiết' : 'Check weather'}
+                <CloudSun className="h-3 w-3 shrink-0" />
+                {lang === 'vi' ? 'Kiểm tra thời tiết' : 'Check weather'}
               </button>
             </div>
           </div>
